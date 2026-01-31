@@ -44,6 +44,7 @@ import rmaRoutes from './routes/rma.routes';
 import dashboardRoutes from './routes/dashboard.routes';
 import { physicalInventoryRoutes } from './routes/physical-inventory.routes';
 import threeWayMatchRoutes from './routes/three-way-match.routes';
+import reportsRoutes from './routes/reports.routes';
 import { initQueueSystem, shutdownSystems } from './config/features';
 
 // Shop/E-commerce routes (public)
@@ -162,6 +163,7 @@ async function setupServer() {
   await server.register(dashboardRoutes, { prefix: `${apiPrefix}/dashboard` });
   await server.register(physicalInventoryRoutes, { prefix: `${apiPrefix}/physical-inventory` });
   await server.register(threeWayMatchRoutes, { prefix: `${apiPrefix}/three-way-match` });
+  await server.register(reportsRoutes, { prefix: `${apiPrefix}/reports` });
 
   // Shop/E-commerce routes (public API for frontend)
   await server.register(shopCartRoutes, { prefix: `${apiPrefix}/shop/cart` });

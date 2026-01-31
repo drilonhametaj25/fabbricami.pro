@@ -3933,3 +3933,34 @@ model PhysicalCountItem {
   @@index([status])
   @@map("physical_count_items")
 }
+
+// ============================================
+// SCHEDULED REPORTS
+// ============================================
+
+enum ReportFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+model ScheduledReport {
+  id          String          @id @default(uuid())
+  name        String          // Nome descrittivo del report
+  reportType  String          @map("report_type") // Tipo report (es: "sales-summary", "dead-stock")
+  frequency   ReportFrequency @default(WEEKLY)
+  format      String          @default("pdf") // pdf, csv, excel
+  recipients  String[]        // Array di email destinatari
+  parameters  Json?           // Parametri opzionali per il report (date range, filtri, etc.)
+  enabled     Boolean         @default(true)
+  lastRun     DateTime?       @map("last_run")
+  nextRun     DateTime?       @map("next_run")
+  createdById String?         @map("created_by_id")
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+
+  @@index([enabled])
+  @@index([nextRun])
+  @@index([reportType])
+  @@map("scheduled_reports")
+}

@@ -299,6 +299,412 @@ class ExportService {
     });
   }
 
+  /**
+   * Genera PDF per report tabellare generico
+   * Usato per tutti i report avanzati (RFM, rotazione stock, P&L, etc.)
+   */
+  async generateTableReportPdf(options: {
+    title: string;
+    subtitle?: string;
+    dateRange?: { from: Date; to: Date };
+    columns: { header: string; width: number; align?: 'left' | 'right' | 'center' }[];
+    rows: (string | number)[][];
+    summary?: { label: string; value: string | number }[];
+    footer?: string;
+    landscape?: boolean;
+  }): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      const doc = new PDFDocument({
+        size: 'A4',
+        layout: options.landscape ? 'landscape' : 'portrait',
+        margin: 40,
+      });
+      const chunks: Buffer[] = [];
+
+      doc.on('data', (chunk) => chunks.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+
+      const pageWidth = options.landscape ? 800 : 515;
+      let yPos = 40;
+
+      // Header aziendale
+      doc.fontSize(10).text(this.companyName, 40, yPos);
+      doc.fontSize(8).text(this.companyAddress, 40, yPos + 12);
+
+      // Titolo
+      doc.fontSize(16).font('Helvetica-Bold').text(options.title, 40, yPos + 35, { align: 'center', width: pageWidth });
+      yPos += 55;
+
+      if (options.subtitle) {
+        doc.fontSize(11).font('Helvetica').text(options.subtitle, 40, yPos, { align: 'center', width: pageWidth });
+        yPos += 18;
+      }
+
+      if (options.dateRange) {
+        doc.fontSize(9).text(
+          `Periodo: ${options.dateRange.from.toLocaleDateString('it-IT')} - ${options.dateRange.to.toLocaleDateString('it-IT')}`,
+          40, yPos, { align: 'center', width: pageWidth }
+        );
+        yPos += 15;
+      }
+
+      yPos += 20;
+
+      // Tabella header
+      doc.font('Helvetica-Bold').fontSize(8);
+      let xPos = 40;
+      const totalWidth = options.columns.reduce((sum, col) => sum + col.width, 0);
+      const scale = Math.min(1, pageWidth / totalWidth);
+
+      options.columns.forEach((col) => {
+        const scaledWidth = col.width * scale;
+        doc.text(col.header, xPos, yPos, {
+          width: scaledWidth,
+          align: col.align || 'left',
+        });
+        xPos += scaledWidth;
+      });
+
+      yPos += 15;
+      doc.moveTo(40, yPos).lineTo(40 + pageWidth, yPos).stroke();
+      yPos += 8;
+
+      // Tabella righe
+      doc.font('Helvetica').fontSize(7);
+      const maxY = options.landscape ? 520 : 750;
+
+      for (const row of options.rows) {
+        if (yPos > maxY) {
+          doc.addPage();
+          yPos = 40;
+        }
+
+        xPos = 40;
+        row.forEach((cell, i) => {
+          const col = options.columns[i];
+          const scaledWidth = col.width * scale;
+          const text = cell?.toString() || '';
+          doc.text(text.substring(0, 50), xPos, yPos, {
+            width: scaledWidth,
+            align: col.align || 'left',
+          });
+          xPos += scaledWidth;
+        });
+        yPos += 12;
+      }
+
+      // Summary
+      if (options.summary && options.summary.length > 0) {
+        yPos += 15;
+        doc.moveTo(40, yPos).lineTo(40 + pageWidth, yPos).stroke();
+        yPos += 15;
+
+        doc.font('Helvetica-Bold').fontSize(9);
+        options.summary.forEach((item) => {
+          doc.text(`${item.label}: ${item.value}`, 40, yPos);
+          yPos += 14;
+        });
+      }
+
+      // Footer
+      if (options.footer) {
+        doc.fontSize(7).font('Helvetica').text(options.footer, 40, maxY + 20, { align: 'center', width: pageWidth });
+      }
+
+      doc.fontSize(7).text(
+        `Generato il ${new Date().toLocaleString('it-IT')} - ${this.companyName}`,
+        40, maxY + 35, { align: 'center', width: pageWidth }
+      );
+
+      doc.end();
+    });
+  }
+
+  /**
+   * Genera PDF report RFM
+   */
+  async generateRFMReportPdf(data: {
+    segments: any[];
+    summary: Record<string, { count: number; totalRevenue: number; avgOrderValue: number }>;
+    dateRange: { from: Date; to: Date };
+  }): Promise<Buffer> {
+    const rows = data.segments.slice(0, 100).map(s => [
+      s.customerName.substring(0, 25),
+      s.customerType,
+      s.rfmScore,
+      s.segment,
+      s.recencyDays.toString(),
+      s.frequency.toString(),
+      `€${s.monetary.toFixed(2)}`,
+    ]);
+
+    const summary = Object.entries(data.summary).map(([segment, stats]) => ({
+      label: `${segment} (${stats.count} clienti)`,
+      value: `€${stats.totalRevenue.toFixed(2)} totale, €${stats.avgOrderValue.toFixed(2)} medio`,
+    }));
+
+    return this.generateTableReportPdf({
+      title: 'Analisi RFM Clienti',
+      subtitle: 'Segmentazione Recency-Frequency-Monetary',
+      dateRange: data.dateRange,
+      columns: [
+        { header: 'Cliente', width: 120, align: 'left' },
+        { header: 'Tipo', width: 50, align: 'center' },
+        { header: 'RFM', width: 40, align: 'center' },
+        { header: 'Segmento', width: 80, align: 'left' },
+        { header: 'Recency', width: 50, align: 'right' },
+        { header: 'Freq.', width: 40, align: 'right' },
+        { header: 'Valore', width: 70, align: 'right' },
+      ],
+      rows,
+      summary,
+      landscape: true,
+    });
+  }
+
+  /**
+   * Genera PDF report P&L
+   */
+  async generateProfitLossReportPdf(data: {
+    period: string;
+    revenue: number;
+    costOfGoodsSold: number;
+    grossProfit: number;
+    grossMargin: number;
+    operatingExpenses: number;
+    operatingIncome: number;
+    operatingMargin: number;
+    breakdown: {
+      byCategory: Record<string, { revenue: number; cost: number; profit: number }>;
+      byChannel: Record<string, { revenue: number; cost: number; profit: number }>;
+    };
+  }): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      const doc = new PDFDocument({ size: 'A4', margin: 50 });
+      const chunks: Buffer[] = [];
+
+      doc.on('data', (chunk) => chunks.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+
+      // Header
+      doc.fontSize(18).font('Helvetica-Bold').text('Conto Economico', { align: 'center' });
+      doc.fontSize(11).font('Helvetica').text(data.period, { align: 'center' });
+      doc.moveDown(2);
+
+      // Main P&L
+      const addLine = (label: string, value: number, indent = 0, bold = false) => {
+        doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(11);
+        doc.text(label, 50 + indent * 20, doc.y, { continued: true, width: 300 });
+        doc.text(`€${value.toLocaleString('it-IT', { minimumFractionDigits: 2 })}`, { align: 'right' });
+      };
+
+      addLine('Ricavi', data.revenue, 0, true);
+      doc.moveDown(0.5);
+      addLine('Costo del venduto', -data.costOfGoodsSold, 1);
+      doc.moveDown(0.5);
+      doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke();
+      doc.moveDown(0.3);
+      addLine('Margine Lordo', data.grossProfit, 0, true);
+      doc.fontSize(9).text(`(${data.grossMargin.toFixed(1)}%)`, 400, doc.y - 12);
+      doc.moveDown(1);
+
+      addLine('Spese operative', -data.operatingExpenses, 1);
+      doc.moveDown(0.5);
+      doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke();
+      doc.moveDown(0.3);
+      addLine('Risultato Operativo', data.operatingIncome, 0, true);
+      doc.fontSize(9).text(`(${data.operatingMargin.toFixed(1)}%)`, 400, doc.y - 12);
+
+      doc.moveDown(2);
+
+      // Breakdown per categoria
+      doc.fontSize(14).font('Helvetica-Bold').text('Per Categoria');
+      doc.moveDown(0.5);
+      doc.fontSize(9).font('Helvetica');
+
+      Object.entries(data.breakdown.byCategory).forEach(([cat, stats]) => {
+        const margin = stats.revenue > 0 ? ((stats.profit / stats.revenue) * 100).toFixed(1) : '0';
+        doc.text(`${cat}: €${stats.revenue.toFixed(2)} ricavi, €${stats.profit.toFixed(2)} profitto (${margin}%)`);
+      });
+
+      doc.moveDown(1);
+
+      // Breakdown per canale
+      doc.fontSize(14).font('Helvetica-Bold').text('Per Canale');
+      doc.moveDown(0.5);
+      doc.fontSize(9).font('Helvetica');
+
+      Object.entries(data.breakdown.byChannel).forEach(([channel, stats]) => {
+        const margin = stats.revenue > 0 ? ((stats.profit / stats.revenue) * 100).toFixed(1) : '0';
+        doc.text(`${channel}: €${stats.revenue.toFixed(2)} ricavi, €${stats.profit.toFixed(2)} profitto (${margin}%)`);
+      });
+
+      // Footer
+      doc.fontSize(8).text(
+        `Generato il ${new Date().toLocaleString('it-IT')} - ${this.companyName}`,
+        50, 780, { align: 'center' }
+      );
+
+      doc.end();
+    });
+  }
+
+  /**
+   * Genera PDF report Aging (Scadenzario)
+   */
+  async generateAgingReportPdf(
+    type: 'receivables' | 'payables',
+    data: {
+      summary: { current: number; days30: number; days60: number; days90: number; over90: number; total: number };
+      details: any[];
+    }
+  ): Promise<Buffer> {
+    const title = type === 'receivables' ? 'Scadenzario Crediti' : 'Scadenzario Debiti';
+
+    const rows = data.details.slice(0, 100).map(d => [
+      d.entityName.substring(0, 25),
+      d.invoiceNumber,
+      d.dueDate.toLocaleDateString('it-IT'),
+      `€${d.outstanding.toFixed(2)}`,
+      d.daysOverdue.toString(),
+      d.bucket,
+    ]);
+
+    const summary = [
+      { label: 'Corrente (non scaduto)', value: `€${data.summary.current.toFixed(2)}` },
+      { label: '1-30 giorni', value: `€${data.summary.days30.toFixed(2)}` },
+      { label: '31-60 giorni', value: `€${data.summary.days60.toFixed(2)}` },
+      { label: '61-90 giorni', value: `€${data.summary.days90.toFixed(2)}` },
+      { label: 'Oltre 90 giorni', value: `€${data.summary.over90.toFixed(2)}` },
+      { label: 'TOTALE', value: `€${data.summary.total.toFixed(2)}` },
+    ];
+
+    return this.generateTableReportPdf({
+      title,
+      subtitle: `Situazione al ${new Date().toLocaleDateString('it-IT')}`,
+      columns: [
+        { header: type === 'receivables' ? 'Cliente' : 'Fornitore', width: 130, align: 'left' },
+        { header: 'Fattura', width: 80, align: 'left' },
+        { header: 'Scadenza', width: 70, align: 'center' },
+        { header: 'Importo', width: 80, align: 'right' },
+        { header: 'Gg Scaduti', width: 60, align: 'right' },
+        { header: 'Fascia', width: 50, align: 'center' },
+      ],
+      rows,
+      summary,
+    });
+  }
+
+  /**
+   * Genera PDF report Dead Stock
+   */
+  async generateDeadStockReportPdf(data: {
+    items: any[];
+    totalValue: number;
+    totalItems: number;
+    recommendations: { action: string; count: number; value: number }[];
+  }): Promise<Buffer> {
+    const rows = data.items.slice(0, 100).map(i => [
+      i.sku,
+      i.name.substring(0, 30),
+      i.category,
+      i.currentStock.toString(),
+      i.daysSinceLastSale === 999 ? 'Mai venduto' : `${i.daysSinceLastSale} gg`,
+      `€${i.stockValue.toFixed(2)}`,
+      i.recommendation,
+    ]);
+
+    const summary = [
+      { label: 'Prodotti totali', value: data.totalItems },
+      { label: 'Valore totale bloccato', value: `€${data.totalValue.toFixed(2)}` },
+      ...data.recommendations.map(r => ({
+        label: `${r.action} (${r.count} prodotti)`,
+        value: `€${r.value.toFixed(2)}`,
+      })),
+    ];
+
+    return this.generateTableReportPdf({
+      title: 'Report Dead Stock',
+      subtitle: 'Prodotti senza vendite negli ultimi 90 giorni',
+      columns: [
+        { header: 'SKU', width: 70, align: 'left' },
+        { header: 'Prodotto', width: 130, align: 'left' },
+        { header: 'Categoria', width: 70, align: 'left' },
+        { header: 'Stock', width: 45, align: 'right' },
+        { header: 'Ultima Vendita', width: 75, align: 'center' },
+        { header: 'Valore', width: 65, align: 'right' },
+        { header: 'Azione', width: 75, align: 'center' },
+      ],
+      rows,
+      summary,
+      landscape: true,
+    });
+  }
+
+  /**
+   * Genera PDF report Cashflow Forecast
+   */
+  async generateCashflowForecastPdf(data: {
+    period: string;
+    openingBalance: number;
+    expectedInflows: number;
+    expectedOutflows: number;
+    netCashflow: number;
+    closingBalance: number;
+    inflowDetails: { source: string; amount: number }[];
+    outflowDetails: { source: string; amount: number }[];
+  }[]): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      const doc = new PDFDocument({ size: 'A4', margin: 50 });
+      const chunks: Buffer[] = [];
+
+      doc.on('data', (chunk) => chunks.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+
+      doc.fontSize(18).font('Helvetica-Bold').text('Previsione Cashflow', { align: 'center' });
+      doc.moveDown(2);
+
+      data.forEach((period, index) => {
+        if (index > 0) doc.moveDown(1.5);
+
+        doc.fontSize(12).font('Helvetica-Bold').text(period.period);
+        doc.moveDown(0.5);
+
+        doc.fontSize(10).font('Helvetica');
+        doc.text(`Saldo iniziale: €${period.openingBalance.toFixed(2)}`);
+        doc.moveDown(0.3);
+
+        doc.text('Entrate previste:', { continued: false });
+        period.inflowDetails.forEach(d => {
+          doc.text(`  • ${d.source}: €${d.amount.toFixed(2)}`);
+        });
+        doc.text(`  Totale: €${period.expectedInflows.toFixed(2)}`, { indent: 20 });
+        doc.moveDown(0.3);
+
+        doc.text('Uscite previste:', { continued: false });
+        period.outflowDetails.forEach(d => {
+          doc.text(`  • ${d.source}: €${d.amount.toFixed(2)}`);
+        });
+        doc.text(`  Totale: €${period.expectedOutflows.toFixed(2)}`, { indent: 20 });
+        doc.moveDown(0.3);
+
+        doc.font('Helvetica-Bold');
+        doc.text(`Flusso netto: €${period.netCashflow.toFixed(2)}`);
+        doc.text(`Saldo finale: €${period.closingBalance.toFixed(2)}`);
+      });
+
+      doc.fontSize(8).font('Helvetica').text(
+        `Generato il ${new Date().toLocaleString('it-IT')} - ${this.companyName}`,
+        50, 780, { align: 'center' }
+      );
+
+      doc.end();
+    });
+  }
+
   // =============================================
   // EXCEL GENERATION
   // =============================================
@@ -997,6 +1403,392 @@ class ExportService {
       address.country,
     ].filter(Boolean);
     return parts.join(', ');
+  }
+
+  // =============================================
+  // CSV GENERATION
+  // =============================================
+
+  /**
+   * Genera CSV generico da array di oggetti
+   */
+  generateCsv(data: Record<string, any>[], columns?: { key: string; header: string }[]): string {
+    if (data.length === 0) return '';
+
+    // Se non specificati, usa le chiavi del primo oggetto
+    const cols = columns || Object.keys(data[0]).map(key => ({ key, header: key }));
+
+    // Header
+    const headerRow = cols.map(c => this.escapeCsvField(c.header)).join(';');
+
+    // Data rows
+    const dataRows = data.map(row =>
+      cols.map(c => this.escapeCsvField(this.formatCsvValue(row[c.key]))).join(';')
+    );
+
+    return [headerRow, ...dataRows].join('\n');
+  }
+
+  /**
+   * Genera CSV prodotti
+   */
+  async generateProductsCsv(filters?: { category?: string; isActive?: boolean }): Promise<string> {
+    const products = await prisma.product.findMany({
+      where: {
+        ...(filters?.category && { category: filters.category }),
+        ...(filters?.isActive !== undefined && { isActive: filters.isActive }),
+      },
+      include: {
+        inventory: true,
+        supplier: true,
+      },
+      orderBy: { sku: 'asc' },
+    });
+
+    const data = products.map((product) => {
+      const cost = Number(product.cost);
+      const price = Number(product.price);
+      const margin = price > 0 ? ((price - cost) / price * 100).toFixed(1) : '0';
+      const totalStock = product.inventory.reduce((sum, inv) => sum + inv.quantity - inv.reservedQuantity, 0);
+
+      return {
+        sku: product.sku,
+        nome: product.name,
+        categoria: product.category || '',
+        tipo: product.type,
+        costo: cost.toFixed(2),
+        prezzo: price.toFixed(2),
+        margine: `${margin}%`,
+        stock: totalStock,
+        stockMinimo: product.minStock,
+        fornitore: product.supplier?.businessName || '',
+        attivo: product.isActive ? 'Si' : 'No',
+      };
+    });
+
+    return this.generateCsv(data, [
+      { key: 'sku', header: 'SKU' },
+      { key: 'nome', header: 'Nome' },
+      { key: 'categoria', header: 'Categoria' },
+      { key: 'tipo', header: 'Tipo' },
+      { key: 'costo', header: 'Costo' },
+      { key: 'prezzo', header: 'Prezzo' },
+      { key: 'margine', header: 'Margine' },
+      { key: 'stock', header: 'Stock' },
+      { key: 'stockMinimo', header: 'Stock Min' },
+      { key: 'fornitore', header: 'Fornitore' },
+      { key: 'attivo', header: 'Attivo' },
+    ]);
+  }
+
+  /**
+   * Genera CSV ordini
+   */
+  async generateOrdersCsv(dateFrom: Date, dateTo: Date): Promise<string> {
+    const orders = await prisma.order.findMany({
+      where: {
+        orderDate: { gte: dateFrom, lte: dateTo },
+      },
+      include: {
+        customer: true,
+        items: true,
+      },
+      orderBy: { orderDate: 'desc' },
+    });
+
+    const data = orders.map((order) => ({
+      numeroOrdine: order.orderNumber,
+      data: order.orderDate.toLocaleDateString('it-IT'),
+      cliente: order.customer.businessName || `${order.customer.firstName || ''} ${order.customer.lastName || ''}`.trim(),
+      tipoCliente: order.customer.type,
+      origine: order.source,
+      stato: order.status,
+      subtotale: Number(order.subtotal).toFixed(2),
+      iva: Number(order.tax).toFixed(2),
+      spedizione: Number(order.shipping).toFixed(2),
+      totale: Number(order.total).toFixed(2),
+      numeroArticoli: order.items.length,
+    }));
+
+    return this.generateCsv(data, [
+      { key: 'numeroOrdine', header: 'N. Ordine' },
+      { key: 'data', header: 'Data' },
+      { key: 'cliente', header: 'Cliente' },
+      { key: 'tipoCliente', header: 'Tipo Cliente' },
+      { key: 'origine', header: 'Origine' },
+      { key: 'stato', header: 'Stato' },
+      { key: 'subtotale', header: 'Subtotale' },
+      { key: 'iva', header: 'IVA' },
+      { key: 'spedizione', header: 'Spedizione' },
+      { key: 'totale', header: 'Totale' },
+      { key: 'numeroArticoli', header: 'N. Articoli' },
+    ]);
+  }
+
+  /**
+   * Genera CSV inventario
+   */
+  async generateInventoryCsv(): Promise<string> {
+    const inventory = await prisma.inventoryItem.findMany({
+      include: {
+        product: true,
+        warehouse: true,
+        variant: true,
+      },
+      orderBy: [
+        { product: { sku: 'asc' } },
+        { location: 'asc' },
+      ],
+    });
+
+    const data = inventory.map((item) => {
+      const available = item.quantity - item.reservedQuantity;
+      const minStock = item.product.minStock;
+      let status = 'OK';
+      if (available <= 0) status = 'ESAURITO';
+      else if (available <= minStock) status = 'SCORTA BASSA';
+
+      return {
+        sku: item.product.sku,
+        nome: item.product.name,
+        variante: item.variant?.name || '',
+        magazzino: item.warehouse.name,
+        ubicazione: item.location,
+        giacenza: item.quantity,
+        riservati: item.reservedQuantity,
+        disponibili: available,
+        stockMinimo: minStock,
+        stato: status,
+        valore: (available * Number(item.product.cost)).toFixed(2),
+      };
+    });
+
+    return this.generateCsv(data, [
+      { key: 'sku', header: 'SKU' },
+      { key: 'nome', header: 'Prodotto' },
+      { key: 'variante', header: 'Variante' },
+      { key: 'magazzino', header: 'Magazzino' },
+      { key: 'ubicazione', header: 'Ubicazione' },
+      { key: 'giacenza', header: 'Giacenza' },
+      { key: 'riservati', header: 'Riservati' },
+      { key: 'disponibili', header: 'Disponibili' },
+      { key: 'stockMinimo', header: 'Stock Min' },
+      { key: 'stato', header: 'Stato' },
+      { key: 'valore', header: 'Valore' },
+    ]);
+  }
+
+  /**
+   * Genera CSV clienti
+   */
+  async generateCustomersCsv(): Promise<string> {
+    const customers = await prisma.customer.findMany({
+      where: { isActive: true },
+      include: {
+        orders: {
+          where: { status: { not: 'CANCELLED' } },
+          select: { total: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const data = customers.map((customer) => {
+      const totalSpent = customer.orders.reduce((sum, o) => sum + Number(o.total), 0);
+      const address = typeof customer.address === 'string'
+        ? JSON.parse(customer.address)
+        : customer.address;
+
+      return {
+        codice: customer.code,
+        ragioneSociale: customer.businessName || '',
+        nome: customer.firstName || '',
+        cognome: customer.lastName || '',
+        tipo: customer.type,
+        email: customer.email,
+        telefono: customer.phone || '',
+        partitaIva: customer.taxId || '',
+        codiceFiscale: customer.fiscalCode || '',
+        indirizzo: address?.street || '',
+        citta: address?.city || '',
+        cap: address?.zip || '',
+        paese: address?.country || '',
+        totaleOrdini: customer.orders.length,
+        totaleSpeso: totalSpent.toFixed(2),
+      };
+    });
+
+    return this.generateCsv(data, [
+      { key: 'codice', header: 'Codice' },
+      { key: 'ragioneSociale', header: 'Ragione Sociale' },
+      { key: 'nome', header: 'Nome' },
+      { key: 'cognome', header: 'Cognome' },
+      { key: 'tipo', header: 'Tipo' },
+      { key: 'email', header: 'Email' },
+      { key: 'telefono', header: 'Telefono' },
+      { key: 'partitaIva', header: 'P.IVA' },
+      { key: 'codiceFiscale', header: 'C.F.' },
+      { key: 'indirizzo', header: 'Indirizzo' },
+      { key: 'citta', header: 'Città' },
+      { key: 'cap', header: 'CAP' },
+      { key: 'paese', header: 'Paese' },
+      { key: 'totaleOrdini', header: 'N. Ordini' },
+      { key: 'totaleSpeso', header: 'Totale Speso' },
+    ]);
+  }
+
+  /**
+   * Genera CSV fornitori
+   */
+  async generateSuppliersCsv(): Promise<string> {
+    const suppliers = await prisma.supplier.findMany({
+      where: { isActive: true },
+      include: {
+        purchaseOrders: {
+          where: { status: { not: 'CANCELLED' } },
+          select: { total: true },
+        },
+      },
+      orderBy: { businessName: 'asc' },
+    });
+
+    const data = suppliers.map((supplier) => {
+      const totalPurchases = supplier.purchaseOrders.reduce((sum, po) => sum + Number(po.total), 0);
+      const address = typeof supplier.address === 'string'
+        ? JSON.parse(supplier.address)
+        : supplier.address;
+
+      return {
+        codice: supplier.code,
+        ragioneSociale: supplier.businessName,
+        email: supplier.email,
+        telefono: supplier.phone || '',
+        partitaIva: supplier.taxId || '',
+        indirizzo: address?.street || '',
+        citta: address?.city || '',
+        cap: address?.zip || '',
+        paese: address?.country || '',
+        terminiPagamento: supplier.paymentTerms || 0,
+        banca: supplier.bankName || '',
+        iban: supplier.iban || '',
+        totaleOrdini: supplier.purchaseOrders.length,
+        totaleAcquisti: totalPurchases.toFixed(2),
+      };
+    });
+
+    return this.generateCsv(data, [
+      { key: 'codice', header: 'Codice' },
+      { key: 'ragioneSociale', header: 'Ragione Sociale' },
+      { key: 'email', header: 'Email' },
+      { key: 'telefono', header: 'Telefono' },
+      { key: 'partitaIva', header: 'P.IVA' },
+      { key: 'indirizzo', header: 'Indirizzo' },
+      { key: 'citta', header: 'Città' },
+      { key: 'cap', header: 'CAP' },
+      { key: 'paese', header: 'Paese' },
+      { key: 'terminiPagamento', header: 'Termini Pagamento' },
+      { key: 'banca', header: 'Banca' },
+      { key: 'iban', header: 'IBAN' },
+      { key: 'totaleOrdini', header: 'N. Ordini' },
+      { key: 'totaleAcquisti', header: 'Totale Acquisti' },
+    ]);
+  }
+
+  /**
+   * Genera CSV fatture
+   */
+  async generateInvoicesCsv(dateFrom: Date, dateTo: Date, type?: 'receivable' | 'payable'): Promise<string> {
+    const invoices = await prisma.invoice.findMany({
+      where: {
+        issueDate: { gte: dateFrom, lte: dateTo },
+        ...(type === 'receivable' && { type: 'SALE' }),
+        ...(type === 'payable' && { type: 'PURCHASE' }),
+      },
+      include: {
+        customer: true,
+      },
+      orderBy: { dueDate: 'asc' },
+    });
+
+    const today = new Date();
+    const data = invoices.map((inv) => {
+      const paid = Number(inv.paidAmount);
+      const total = Number(inv.total);
+      const remaining = total - paid;
+      const daysUntilDue = Math.floor((inv.dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+      return {
+        numero: inv.invoiceNumber,
+        tipo: inv.type === 'SALE' ? 'Vendita' : 'Acquisto',
+        cliente: inv.customer?.businessName || `${inv.customer?.firstName || ''} ${inv.customer?.lastName || ''}`.trim() || '',
+        dataEmissione: inv.issueDate.toLocaleDateString('it-IT'),
+        scadenza: inv.dueDate.toLocaleDateString('it-IT'),
+        importo: total.toFixed(2),
+        pagato: paid.toFixed(2),
+        residuo: remaining.toFixed(2),
+        stato: inv.status,
+        giorni: daysUntilDue,
+      };
+    });
+
+    return this.generateCsv(data, [
+      { key: 'numero', header: 'N. Fattura' },
+      { key: 'tipo', header: 'Tipo' },
+      { key: 'cliente', header: 'Cliente/Fornitore' },
+      { key: 'dataEmissione', header: 'Data Emissione' },
+      { key: 'scadenza', header: 'Scadenza' },
+      { key: 'importo', header: 'Importo' },
+      { key: 'pagato', header: 'Pagato' },
+      { key: 'residuo', header: 'Residuo' },
+      { key: 'stato', header: 'Stato' },
+      { key: 'giorni', header: 'Giorni' },
+    ]);
+  }
+
+  /**
+   * Genera CSV report generico (per reportistica avanzata)
+   */
+  generateReportCsv<T extends Record<string, any>>(
+    data: T[],
+    columnConfig: { key: keyof T; header: string; formatter?: (value: any) => string }[]
+  ): string {
+    if (data.length === 0) return '';
+
+    // Header
+    const headerRow = columnConfig.map(c => this.escapeCsvField(c.header)).join(';');
+
+    // Data rows
+    const dataRows = data.map(row =>
+      columnConfig.map(c => {
+        const value = row[c.key];
+        const formatted = c.formatter ? c.formatter(value) : this.formatCsvValue(value);
+        return this.escapeCsvField(formatted);
+      }).join(';')
+    );
+
+    return [headerRow, ...dataRows].join('\n');
+  }
+
+  // CSV Utilities
+  private escapeCsvField(value: string): string {
+    if (value === null || value === undefined) return '';
+    const stringValue = String(value);
+    // Se contiene separatore, virgolette o newline, wrappa in virgolette
+    if (stringValue.includes(';') || stringValue.includes('"') || stringValue.includes('\n')) {
+      return `"${stringValue.replace(/"/g, '""')}"`;
+    }
+    return stringValue;
+  }
+
+  private formatCsvValue(value: any): string {
+    if (value === null || value === undefined) return '';
+    if (value instanceof Date) return value.toLocaleDateString('it-IT');
+    if (typeof value === 'number') {
+      // Formatta numeri con virgola decimale (italiano)
+      return value.toLocaleString('it-IT', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+    }
+    if (typeof value === 'boolean') return value ? 'Si' : 'No';
+    return String(value);
   }
 }
 
