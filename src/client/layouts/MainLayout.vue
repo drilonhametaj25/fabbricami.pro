@@ -56,6 +56,20 @@
         </router-link>
 
         <div class="nav-section" v-show="!sidebarCollapsed">
+          <span class="nav-section-title">Documenti</span>
+        </div>
+
+        <router-link to="/invoices" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Fatture' : null">
+          <i class="pi pi-file"></i>
+          <span class="nav-label">Fatture</span>
+        </router-link>
+
+        <router-link to="/ddt" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'DDT' : null">
+          <i class="pi pi-send"></i>
+          <span class="nav-label">DDT</span>
+        </router-link>
+
+        <div class="nav-section" v-show="!sidebarCollapsed">
           <span class="nav-section-title">Produzione</span>
         </div>
 
@@ -126,6 +140,11 @@
           <span class="nav-label">Analytics</span>
         </router-link>
 
+        <router-link to="/reports" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Report' : null">
+          <i class="pi pi-file-pdf"></i>
+          <span class="nav-label">Report</span>
+        </router-link>
+
         <router-link to="/calendar" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Calendario' : null">
           <i class="pi pi-calendar"></i>
           <span class="nav-label">Calendario</span>
@@ -146,6 +165,11 @@
         <router-link to="/wordpress" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'WordPress' : null">
           <i class="pi pi-globe"></i>
           <span class="nav-label">WordPress</span>
+        </router-link>
+
+        <router-link to="/settings" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Impostazioni' : null">
+          <i class="pi pi-cog"></i>
+          <span class="nav-label">Impostazioni</span>
         </router-link>
       </nav>
     </aside>

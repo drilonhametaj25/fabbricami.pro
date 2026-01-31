@@ -135,6 +135,26 @@ const router = createRouter({
           name: 'Logistics',
           component: () => import('../pages/Logistics.vue'),
         },
+        {
+          path: '/settings',
+          name: 'CompanySettings',
+          component: () => import('../pages/CompanySettings.vue'),
+        },
+        {
+          path: '/invoices',
+          name: 'Invoices',
+          component: () => import('../pages/Invoices.vue'),
+        },
+        {
+          path: '/ddt',
+          name: 'DDT',
+          component: () => import('../pages/DDT.vue'),
+        },
+        {
+          path: '/reports',
+          name: 'Reports',
+          component: () => import('../pages/Reports.vue'),
+        },
       ],
     },
   ],
