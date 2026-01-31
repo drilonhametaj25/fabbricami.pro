@@ -1,0 +1,1071 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gladiatore Romano - ecommerceerp</title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'bg-primary': '#0a0a0a',
+            'bg-secondary': '#141414',
+            'bg-card': '#1a1a1a',
+            'bg-card-hover': '#242424',
+            'text-primary': '#ffffff',
+            'text-secondary': '#a1a1aa',
+            'text-muted': '#71717a',
+            'accent-gold': '#c9a227',
+            'accent-bronze': '#8b6914',
+            'accent-gold-light': '#d4af37',
+          },
+          fontFamily: {
+            'display': ['Cormorant Garamond', 'serif'],
+            'body': ['Inter', 'sans-serif'],
+          },
+        }
+      }
+    }
+  </script>
+
+  <!-- GSAP -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+
+  <!-- Lenis Smooth Scroll -->
+  <script src="https://unpkg.com/lenis@1.1.13/dist/lenis.min.js"></script>
+
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html.lenis, html.lenis body {
+      height: auto;
+    }
+
+    .lenis.lenis-smooth {
+      scroll-behavior: auto !important;
+    }
+
+    body {
+      background-color: #0a0a0a;
+      color: #ffffff;
+      font-family: 'Inter', sans-serif;
+      overflow-x: hidden;
+    }
+
+    /* Header blur */
+    .header-blur {
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+    }
+
+    /* Glow button */
+    .btn-glow {
+      position: relative;
+      overflow: hidden;
+      transition: all 0.3s ease;
+    }
+
+    .btn-glow::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -100%;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(201, 162, 39, 0.3), transparent);
+      transition: left 0.5s ease;
+    }
+
+    .btn-glow:hover::before {
+      left: 100%;
+    }
+
+    .btn-glow:hover {
+      box-shadow: 0 0 30px rgba(201, 162, 39, 0.4);
+    }
+
+    /* Gallery */
+    .gallery-thumb {
+      transition: all 0.3s ease;
+    }
+
+    .gallery-thumb.active {
+      border-color: #c9a227;
+    }
+
+    .gallery-thumb:hover {
+      border-color: #a1a1aa;
+    }
+
+    /* Zoom lens */
+    .zoom-container {
+      position: relative;
+      overflow: hidden;
+    }
+
+    .zoom-container img {
+      transition: transform 0.3s ease;
+    }
+
+    .zoom-container:hover img {
+      transform: scale(1.5);
+    }
+
+    /* Variant option */
+    .variant-option {
+      transition: all 0.2s ease;
+    }
+
+    .variant-option.selected {
+      border-color: #c9a227;
+      background-color: rgba(201, 162, 39, 0.1);
+    }
+
+    .variant-option:hover:not(.selected) {
+      border-color: #71717a;
+    }
+
+    /* Quantity controls */
+    .qty-btn {
+      transition: all 0.2s ease;
+    }
+
+    .qty-btn:hover {
+      background-color: #242424;
+    }
+
+    .qty-btn:active {
+      transform: scale(0.95);
+    }
+
+    /* Tabs */
+    .tab-btn {
+      position: relative;
+    }
+
+    .tab-btn::after {
+      content: '';
+      position: absolute;
+      bottom: -1px;
+      left: 0;
+      width: 0;
+      height: 2px;
+      background: #c9a227;
+      transition: width 0.3s ease;
+    }
+
+    .tab-btn.active::after {
+      width: 100%;
+    }
+
+    /* Review card */
+    .review-card {
+      transition: all 0.3s ease;
+    }
+
+    .review-card:hover {
+      background-color: #1a1a1a;
+    }
+
+    /* Related product */
+    .related-product {
+      transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .related-product:hover {
+      transform: translateY(-8px);
+    }
+
+    .related-product:hover img {
+      transform: scale(1.05);
+    }
+
+    .related-product img {
+      transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    /* Breadcrumb */
+    .breadcrumb-link {
+      transition: color 0.2s ease;
+    }
+
+    .breadcrumb-link:hover {
+      color: #c9a227;
+    }
+
+    /* Add to cart animation */
+    @keyframes addToCartPulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+      100% { transform: scale(1); }
+    }
+
+    .add-to-cart-success {
+      animation: addToCartPulse 0.3s ease;
+    }
+
+    /* Sticky */
+    .sticky-info {
+      position: sticky;
+      top: 100px;
+    }
+
+    /* Image zoom lens */
+    .zoom-lens {
+      position: absolute;
+      width: 150px;
+      height: 150px;
+      border: 2px solid #c9a227;
+      border-radius: 50%;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+      background: rgba(201, 162, 39, 0.1);
+    }
+
+    .zoom-container:hover .zoom-lens {
+      opacity: 1;
+    }
+
+    /* Gradient text */
+    .gradient-text {
+      background: linear-gradient(135deg, #c9a227 0%, #d4af37 50%, #8b6914 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    /* Nav link */
+    .nav-link {
+      position: relative;
+    }
+
+    .nav-link::after {
+      content: '';
+      position: absolute;
+      bottom: -4px;
+      left: 0;
+      width: 0;
+      height: 1px;
+      background: #c9a227;
+      transition: width 0.3s ease;
+    }
+
+    .nav-link:hover::after {
+      width: 100%;
+    }
+
+    /* Section reveal */
+    .reveal-section {
+      opacity: 0;
+      transform: translateY(60px);
+    }
+
+    /* Star rating interactive */
+    .star-interactive {
+      cursor: pointer;
+      transition: transform 0.1s ease;
+    }
+
+    .star-interactive:hover {
+      transform: scale(1.2);
+    }
+  </style>
+</head>
+<body>
+  <!-- Header -->
+  <header class="fixed top-0 left-0 right-0 z-50 header-blur bg-bg-primary/80">
+    <div class="max-w-7xl mx-auto px-6 py-4">
+      <div class="flex items-center justify-between">
+        <a href="index.html" class="flex items-center gap-3">
+          <span class="font-display text-2xl font-semibold tracking-wide">ecommerceerp</span>
+        </a>
+
+        <nav class="hidden lg:flex items-center gap-8">
+          <a href="#" class="nav-link text-sm font-medium text-text-secondary hover:text-text-primary transition-colors">Featured Brand</a>
+          <a href="#" class="nav-link text-sm font-medium text-text-secondary hover:text-text-primary transition-colors">Premium Models</a>
+          <a href="#" class="nav-link text-sm font-medium text-text-secondary hover:text-text-primary transition-colors">Paints & Supplies</a>
+          <a href="#" class="nav-link text-sm font-medium text-text-secondary hover:text-text-primary transition-colors">Artists' Cafe</a>
+        </nav>
+
+        <div class="flex items-center gap-6">
+          <button class="text-text-secondary hover:text-text-primary transition-colors">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+            </svg>
+          </button>
+          <button class="text-text-secondary hover:text-text-primary transition-colors">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+            </svg>
+          </button>
+          <button class="text-text-secondary hover:text-text-primary transition-colors">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/>
+            </svg>
+          </button>
+          <button class="relative text-text-secondary hover:text-text-primary transition-colors">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/>
+            </svg>
+            <span class="absolute -top-2 -right-2 w-5 h-5 bg-accent-gold text-bg-primary text-xs font-bold rounded-full flex items-center justify-center">2</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Breadcrumb -->
+  <div class="pt-24 px-6">
+    <div class="max-w-7xl mx-auto">
+      <nav class="flex items-center gap-2 text-sm text-text-muted py-4">
+        <a href="index.html" class="breadcrumb-link">Home</a>
+        <span>/</span>
+        <a href="#" class="breadcrumb-link">Featured Brand</a>
+        <span>/</span>
+        <a href="#" class="breadcrumb-link">Roma Antica</a>
+        <span>/</span>
+        <span class="text-text-secondary">Gladiatore Romano</span>
+      </nav>
+    </div>
+  </div>
+
+  <!-- Product Section -->
+  <section class="px-6 pb-24">
+    <div class="max-w-7xl mx-auto">
+      <div class="grid lg:grid-cols-2 gap-12 lg:gap-16">
+        <!-- Gallery -->
+        <div class="space-y-4" id="gallery">
+          <!-- Main Image -->
+          <div class="zoom-container aspect-square rounded-2xl overflow-hidden bg-bg-card cursor-zoom-in relative" id="main-image-container">
+            <img
+              src="https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=1200&q=80"
+              alt="Gladiatore Romano"
+              class="w-full h-full object-cover"
+              id="main-image"
+            >
+            <div class="zoom-lens" id="zoom-lens"></div>
+
+            <!-- Badges -->
+            <div class="absolute top-4 left-4 flex flex-col gap-2">
+              <span class="bg-accent-gold text-bg-primary text-xs font-bold px-3 py-1 rounded-full">Novita</span>
+              <span class="bg-red-500 text-white text-xs font-bold px-3 py-1 rounded-full">-15%</span>
+            </div>
+
+            <!-- Wishlist button -->
+            <button class="absolute top-4 right-4 w-10 h-10 rounded-full bg-bg-primary/80 backdrop-blur-sm flex items-center justify-center text-text-secondary hover:text-accent-gold transition-colors" id="wishlist-btn">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/>
+              </svg>
+            </button>
+          </div>
+
+          <!-- Thumbnails -->
+          <div class="flex gap-3">
+            <button class="gallery-thumb active w-20 h-20 rounded-lg overflow-hidden border-2 border-accent-gold bg-bg-card" data-index="0">
+              <img src="https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=200&q=80" alt="Thumbnail 1" class="w-full h-full object-cover">
+            </button>
+            <button class="gallery-thumb w-20 h-20 rounded-lg overflow-hidden border-2 border-transparent bg-bg-card" data-index="1">
+              <img src="https://images.unsplash.com/photo-1578662996442-48f60103fc96?w=200&q=80" alt="Thumbnail 2" class="w-full h-full object-cover">
+            </button>
+            <button class="gallery-thumb w-20 h-20 rounded-lg overflow-hidden border-2 border-transparent bg-bg-card" data-index="2">
+              <img src="https://images.unsplash.com/photo-1551103782-8ab07afd45c1?w=200&q=80" alt="Thumbnail 3" class="w-full h-full object-cover">
+            </button>
+            <button class="gallery-thumb w-20 h-20 rounded-lg overflow-hidden border-2 border-transparent bg-bg-card" data-index="3">
+              <img src="https://images.unsplash.com/photo-1513364776144-60967b0f800f?w=200&q=80" alt="Thumbnail 4" class="w-full h-full object-cover">
+            </button>
+            <button class="gallery-thumb w-20 h-20 rounded-lg overflow-hidden border-2 border-transparent bg-bg-card flex items-center justify-center" data-index="4">
+              <span class="text-text-muted text-sm">+3</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Product Info -->
+        <div class="sticky-info">
+          <!-- Category & Rating -->
+          <div class="flex items-center gap-4 mb-4">
+            <span class="text-accent-gold text-sm font-medium tracking-widest uppercase">Featured Brand</span>
+            <div class="flex items-center gap-2">
+              <div class="flex items-center">
+                <svg class="w-4 h-4 text-accent-gold fill-current" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+                <svg class="w-4 h-4 text-accent-gold fill-current" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+                <svg class="w-4 h-4 text-accent-gold fill-current" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+                <svg class="w-4 h-4 text-accent-gold fill-current" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+                <svg class="w-4 h-4 text-accent-gold fill-current" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+              </div>
+              <span class="text-text-muted text-sm">(47 recensioni)</span>
+            </div>
+          </div>
+
+          <!-- Title -->
+          <h1 class="font-display text-4xl md:text-5xl font-semibold mb-4">Gladiatore Romano</h1>
+
+          <!-- Short description -->
+          <p class="text-text-secondary text-lg mb-6 leading-relaxed">
+            Miniatura in resina di alta qualita raffigurante un gladiatore dell'antica Roma.
+            Dettagli eccezionali e fedele ricostruzione storica.
+          </p>
+
+          <!-- Price -->
+          <div class="flex items-baseline gap-4 mb-8">
+            <span class="font-display text-4xl font-semibold gradient-text">€67.15</span>
+            <span class="text-text-muted text-xl line-through">€79.00</span>
+            <span class="bg-red-500/20 text-red-400 text-sm font-medium px-2 py-1 rounded">Risparmi €11.85</span>
+          </div>
+
+          <!-- Variants: Scale -->
+          <div class="mb-6">
+            <p class="text-sm font-medium mb-3">Scala: <span class="text-accent-gold">75mm</span></p>
+            <div class="flex gap-3">
+              <button class="variant-option px-4 py-2 border border-bg-card-hover rounded-lg text-sm font-medium hover:border-text-muted transition-colors">
+                54mm
+              </button>
+              <button class="variant-option selected px-4 py-2 border border-accent-gold rounded-lg text-sm font-medium bg-accent-gold/10">
+                75mm
+              </button>
+              <button class="variant-option px-4 py-2 border border-bg-card-hover rounded-lg text-sm font-medium hover:border-text-muted transition-colors">
+                90mm
+              </button>
+              <button class="variant-option px-4 py-2 border border-bg-card-hover rounded-lg text-sm font-medium text-text-muted opacity-50 cursor-not-allowed" disabled>
+                120mm
+                <span class="text-xs block">Esaurito</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Variants: Material -->
+          <div class="mb-8">
+            <p class="text-sm font-medium mb-3">Materiale: <span class="text-accent-gold">Resina</span></p>
+            <div class="flex gap-3">
+              <button class="variant-option selected px-4 py-2 border border-accent-gold rounded-lg text-sm font-medium bg-accent-gold/10">
+                Resina
+              </button>
+              <button class="variant-option px-4 py-2 border border-bg-card-hover rounded-lg text-sm font-medium hover:border-text-muted transition-colors">
+                Metallo Bianco
+                <span class="text-xs text-accent-gold block">+€15.00</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Quantity & Add to Cart -->
+          <div class="flex gap-4 mb-6">
+            <!-- Quantity -->
+            <div class="flex items-center bg-bg-card rounded-full">
+              <button class="qty-btn w-12 h-12 flex items-center justify-center rounded-l-full text-text-muted hover:text-text-primary" id="qty-minus">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4"/>
+                </svg>
+              </button>
+              <span class="w-12 text-center font-medium" id="qty-value">1</span>
+              <button class="qty-btn w-12 h-12 flex items-center justify-center rounded-r-full text-text-muted hover:text-text-primary" id="qty-plus">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                </svg>
+              </button>
+            </div>
+
+            <!-- Add to Cart -->
+            <button class="btn-glow flex-1 flex items-center justify-center gap-2 py-4 bg-accent-gold text-bg-primary font-semibold rounded-full hover:bg-accent-gold-light transition-colors" id="add-to-cart">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/>
+              </svg>
+              Aggiungi al Carrello
+            </button>
+          </div>
+
+          <!-- Buy Now -->
+          <button class="w-full py-4 border border-accent-gold text-accent-gold font-semibold rounded-full hover:bg-accent-gold hover:text-bg-primary transition-colors mb-8">
+            Acquista Ora
+          </button>
+
+          <!-- Info badges -->
+          <div class="grid grid-cols-2 gap-4 mb-8">
+            <div class="flex items-center gap-3 p-4 bg-bg-card rounded-xl">
+              <div class="w-10 h-10 rounded-full bg-bg-card-hover flex items-center justify-center flex-shrink-0">
+                <svg class="w-5 h-5 text-accent-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/>
+                </svg>
+              </div>
+              <div>
+                <p class="text-sm font-medium">Spedizione Gratis</p>
+                <p class="text-xs text-text-muted">Ordini >€120</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-3 p-4 bg-bg-card rounded-xl">
+              <div class="w-10 h-10 rounded-full bg-bg-card-hover flex items-center justify-center flex-shrink-0">
+                <svg class="w-5 h-5 text-accent-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+              </div>
+              <div>
+                <p class="text-sm font-medium">Consegna 3-5 gg</p>
+                <p class="text-xs text-text-muted">In Italia</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-3 p-4 bg-bg-card rounded-xl">
+              <div class="w-10 h-10 rounded-full bg-bg-card-hover flex items-center justify-center flex-shrink-0">
+                <svg class="w-5 h-5 text-accent-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                </svg>
+              </div>
+              <div>
+                <p class="text-sm font-medium">Reso Facile</p>
+                <p class="text-xs text-text-muted">30 giorni</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-3 p-4 bg-bg-card rounded-xl">
+              <div class="w-10 h-10 rounded-full bg-bg-card-hover flex items-center justify-center flex-shrink-0">
+                <svg class="w-5 h-5 text-accent-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+                </svg>
+              </div>
+              <div>
+                <p class="text-sm font-medium">Garanzia</p>
+                <p class="text-xs text-text-muted">Qualita certificata</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Share -->
+          <div class="flex items-center gap-4">
+            <span class="text-text-muted text-sm">Condividi:</span>
+            <button class="w-10 h-10 rounded-full bg-bg-card flex items-center justify-center text-text-muted hover:text-accent-gold hover:bg-bg-card-hover transition-colors">
+              <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M24 4.557c-.883.392-1.832.656-2.828.775 1.017-.609 1.798-1.574 2.165-2.724-.951.564-2.005.974-3.127 1.195-.897-.957-2.178-1.555-3.594-1.555-3.179 0-5.515 2.966-4.797 6.045-4.091-.205-7.719-2.165-10.148-5.144-1.29 2.213-.669 5.108 1.523 6.574-.806-.026-1.566-.247-2.229-.616-.054 2.281 1.581 4.415 3.949 4.89-.693.188-1.452.232-2.224.084.626 1.956 2.444 3.379 4.6 3.419-2.07 1.623-4.678 2.348-7.29 2.04 2.179 1.397 4.768 2.212 7.548 2.212 9.142 0 14.307-7.721 13.995-14.646.962-.695 1.797-1.562 2.457-2.549z"/></svg>
+            </button>
+            <button class="w-10 h-10 rounded-full bg-bg-card flex items-center justify-center text-text-muted hover:text-accent-gold hover:bg-bg-card-hover transition-colors">
+              <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M22.675 0h-21.35c-.732 0-1.325.593-1.325 1.325v21.351c0 .731.593 1.324 1.325 1.324h11.495v-9.294h-3.128v-3.622h3.128v-2.671c0-3.1 1.893-4.788 4.659-4.788 1.325 0 2.463.099 2.795.143v3.24l-1.918.001c-1.504 0-1.795.715-1.795 1.763v2.313h3.587l-.467 3.622h-3.12v9.293h6.116c.73 0 1.323-.593 1.323-1.325v-21.35c0-.732-.593-1.325-1.325-1.325z"/></svg>
+            </button>
+            <button class="w-10 h-10 rounded-full bg-bg-card flex items-center justify-center text-text-muted hover:text-accent-gold hover:bg-bg-card-hover transition-colors">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Description & Reviews Tabs -->
+  <section class="px-6 py-16 border-t border-bg-card reveal-section">
+    <div class="max-w-7xl mx-auto">
+      <!-- Tabs -->
+      <div class="flex gap-8 border-b border-bg-card mb-8">
+        <button class="tab-btn active pb-4 text-lg font-medium text-text-primary" data-tab="description">Descrizione</button>
+        <button class="tab-btn pb-4 text-lg font-medium text-text-muted hover:text-text-secondary transition-colors" data-tab="specs">Specifiche</button>
+        <button class="tab-btn pb-4 text-lg font-medium text-text-muted hover:text-text-secondary transition-colors" data-tab="reviews">Recensioni (47)</button>
+      </div>
+
+      <!-- Tab Content: Description -->
+      <div id="tab-description" class="tab-content">
+        <div class="grid lg:grid-cols-2 gap-12">
+          <div>
+            <h3 class="font-display text-2xl font-semibold mb-4">L'Arte del Gladiatore</h3>
+            <p class="text-text-secondary leading-relaxed mb-6">
+              Questo gladiatore rappresenta l'apice della maestria scultorea di Featured Brand.
+              Ogni muscolo, ogni piega della pelle, ogni dettaglio dell'armatura e stato realizzato
+              con una precisione che rasenta la perfezione.
+            </p>
+            <p class="text-text-secondary leading-relaxed mb-6">
+              La figura cattura il momento di tensione prima del combattimento nell'arena,
+              con lo sguardo fisso e determinato verso l'avversario. L'espressione del viso
+              trasmette la concentrazione e la forza interiore di questi guerrieri leggendari.
+            </p>
+            <p class="text-text-secondary leading-relaxed">
+              Ideale per pittori esperti che cercano una sfida, ma anche per principianti
+              ambiziosi grazie alla chiarezza dei dettagli e alla qualita della fusione.
+            </p>
+          </div>
+          <div class="bg-bg-card rounded-2xl p-8">
+            <h4 class="font-medium mb-6">Contenuto della Confezione</h4>
+            <ul class="space-y-4">
+              <li class="flex items-start gap-3">
+                <svg class="w-5 h-5 text-accent-gold mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                </svg>
+                <span class="text-text-secondary">5 parti in resina di alta qualita</span>
+              </li>
+              <li class="flex items-start gap-3">
+                <svg class="w-5 h-5 text-accent-gold mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                </svg>
+                <span class="text-text-secondary">Base scenica tematica inclusa</span>
+              </li>
+              <li class="flex items-start gap-3">
+                <svg class="w-5 h-5 text-accent-gold mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                </svg>
+                <span class="text-text-secondary">Istruzioni di montaggio illustrate</span>
+              </li>
+              <li class="flex items-start gap-3">
+                <svg class="w-5 h-5 text-accent-gold mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                </svg>
+                <span class="text-text-secondary">Scheda storica del soggetto</span>
+              </li>
+              <li class="flex items-start gap-3">
+                <svg class="w-5 h-5 text-accent-gold mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                </svg>
+                <span class="text-text-secondary">Certificato di autenticita numerato</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab Content: Specs -->
+      <div id="tab-specs" class="tab-content hidden">
+        <div class="max-w-2xl">
+          <table class="w-full">
+            <tbody class="divide-y divide-bg-card">
+              <tr>
+                <td class="py-4 text-text-muted">Codice Prodotto</td>
+                <td class="py-4 font-medium">PGM-75-GR-001</td>
+              </tr>
+              <tr>
+                <td class="py-4 text-text-muted">Scala</td>
+                <td class="py-4 font-medium">75mm (1:24)</td>
+              </tr>
+              <tr>
+                <td class="py-4 text-text-muted">Materiale</td>
+                <td class="py-4 font-medium">Resina poliuretanica</td>
+              </tr>
+              <tr>
+                <td class="py-4 text-text-muted">Numero Parti</td>
+                <td class="py-4 font-medium">5</td>
+              </tr>
+              <tr>
+                <td class="py-4 text-text-muted">Altezza Assemblata</td>
+                <td class="py-4 font-medium">~80mm (con base)</td>
+              </tr>
+              <tr>
+                <td class="py-4 text-text-muted">Peso</td>
+                <td class="py-4 font-medium">45g</td>
+              </tr>
+              <tr>
+                <td class="py-4 text-text-muted">Scultore</td>
+                <td class="py-4 font-medium">Andrea Jula</td>
+              </tr>
+              <tr>
+                <td class="py-4 text-text-muted">Epoca Storica</td>
+                <td class="py-4 font-medium">Roma Imperiale, I-II sec. d.C.</td>
+              </tr>
+              <tr>
+                <td class="py-4 text-text-muted">Livello Difficolta</td>
+                <td class="py-4 font-medium">
+                  <div class="flex items-center gap-1">
+                    <span class="w-2 h-2 rounded-full bg-accent-gold"></span>
+                    <span class="w-2 h-2 rounded-full bg-accent-gold"></span>
+                    <span class="w-2 h-2 rounded-full bg-accent-gold"></span>
+                    <span class="w-2 h-2 rounded-full bg-bg-card-hover"></span>
+                    <span class="w-2 h-2 rounded-full bg-bg-card-hover"></span>
+                    <span class="ml-2 text-sm">Intermedio</span>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Tab Content: Reviews -->
+      <div id="tab-reviews" class="tab-content hidden">
+        <!-- Review Summary -->
+        <div class="grid lg:grid-cols-3 gap-8 mb-12">
+          <div class="bg-bg-card rounded-2xl p-8 text-center">
+            <p class="font-display text-6xl font-semibold gradient-text mb-2">4.9</p>
+            <div class="flex items-center justify-center gap-1 mb-2">
+              <svg class="w-5 h-5 text-accent-gold fill-current" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+              <svg class="w-5 h-5 text-accent-gold fill-current" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+              <svg class="w-5 h-5 text-accent-gold fill-current" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+              <svg class="w-5 h-5 text-accent-gold fill-current" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+              <svg class="w-5 h-5 text-accent-gold fill-current" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+            </div>
+            <p class="text-text-muted text-sm">Basato su 47 recensioni</p>
+          </div>
+
+          <div class="lg:col-span-2 space-y-3">
+            <div class="flex items-center gap-4">
+              <span class="text-sm text-text-muted w-8">5 ★</span>
+              <div class="flex-1 h-2 bg-bg-card rounded-full overflow-hidden">
+                <div class="h-full bg-accent-gold rounded-full" style="width: 85%"></div>
+              </div>
+              <span class="text-sm text-text-muted w-8">40</span>
+            </div>
+            <div class="flex items-center gap-4">
+              <span class="text-sm text-text-muted w-8">4 ★</span>
+              <div class="flex-1 h-2 bg-bg-card rounded-full overflow-hidden">
+                <div class="h-full bg-accent-gold rounded-full" style="width: 10%"></div>
+              </div>
+              <span class="text-sm text-text-muted w-8">5</span>
+            </div>
+            <div class="flex items-center gap-4">
+              <span class="text-sm text-text-muted w-8">3 ★</span>
+              <div class="flex-1 h-2 bg-bg-card rounded-full overflow-hidden">
+                <div class="h-full bg-accent-gold rounded-full" style="width: 4%"></div>
+              </div>
+              <span class="text-sm text-text-muted w-8">2</span>
+            </div>
+            <div class="flex items-center gap-4">
+              <span class="text-sm text-text-muted w-8">2 ★</span>
+              <div class="flex-1 h-2 bg-bg-card rounded-full overflow-hidden">
+                <div class="h-full bg-accent-gold rounded-full" style="width: 0%"></div>
+              </div>
+              <span class="text-sm text-text-muted w-8">0</span>
+            </div>
+            <div class="flex items-center gap-4">
+              <span class="text-sm text-text-muted w-8">1 ★</span>
+              <div class="flex-1 h-2 bg-bg-card rounded-full overflow-hidden">
+                <div class="h-full bg-accent-gold rounded-full" style="width: 0%"></div>
+              </div>
+              <span class="text-sm text-text-muted w-8">0</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Review List -->
+        <div class="space-y-6">
+          <!-- Review 1 -->
+          <div class="review-card p-6 rounded-2xl border border-bg-card">
+            <div class="flex items-start justify-between mb-4">
+              <div class="flex items-center gap-4">
+                <div class="w-12 h-12 rounded-full bg-accent-gold/20 flex items-center justify-center text-accent-gold font-semibold">
+                  MR
+                </div>
+                <div>
+                  <p class="font-medium">Marco Rossi</p>
+                  <div class="flex items-center gap-2">
+                    <div class="flex items-center">
+                      <svg class="w-4 h-4 text-accent-gold fill-current" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+                      <svg class="w-4 h-4 text-accent-gold fill-current" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+                      <svg class="w-4 h-4 text-accent-gold fill-current" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+                      <svg class="w-4 h-4 text-accent-gold fill-current" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+                      <svg class="w-4 h-4 text-accent-gold fill-current" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+                    </div>
+                    <span class="text-text-muted text-sm">3 giorni fa</span>
+                  </div>
+                </div>
+              </div>
+              <span class="text-xs bg-green-500/20 text-green-400 px-2 py-1 rounded">Acquisto verificato</span>
+            </div>
+            <h4 class="font-medium mb-2">Qualita eccezionale!</h4>
+            <p class="text-text-secondary leading-relaxed">
+              Ho collezionato miniature per 20 anni e posso dire che questo gladiatore e uno dei pezzi
+              meglio realizzati che abbia mai visto. I dettagli anatomici sono incredibili e la fusione
+              e praticamente perfetta. Nessuna bolla d'aria, linee di giunzione minime. Consigliatissimo!
+            </p>
+          </div>
+
+          <!-- Review 2 -->
+          <div class="review-card p-6 rounded-2xl border border-bg-card">
+            <div class="flex items-start justify-between mb-4">
+              <div class="flex items-center gap-4">
+                <div class="w-12 h-12 rounded-full bg-accent-gold/20 flex items-center justify-center text-accent-gold font-semibold">
+                  LB
+                </div>
+                <div>
+                  <p class="font-medium">Luca Bianchi</p>
+                  <div class="flex items-center gap-2">
+                    <div class="flex items-center">
+                      <svg class="w-4 h-4 text-accent-gold fill-current" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+                      <svg class="w-4 h-4 text-accent-gold fill-current" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+                      <svg class="w-4 h-4 text-accent-gold fill-current" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+                      <svg class="w-4 h-4 text-accent-gold fill-current" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+                      <svg class="w-4 h-4 text-accent-gold fill-current" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+                    </div>
+                    <span class="text-text-muted text-sm">1 settimana fa</span>
+                  </div>
+                </div>
+              </div>
+              <span class="text-xs bg-green-500/20 text-green-400 px-2 py-1 rounded">Acquisto verificato</span>
+            </div>
+            <h4 class="font-medium mb-2">Perfetto per pittori esperti</h4>
+            <p class="text-text-secondary leading-relaxed">
+              La scultura offre tantissime opportunita per sperimentare con le tecniche di pittura.
+              Le pieghe della pelle, i muscoli tesi, l'armatura dettagliata: ogni elemento e una sfida
+              gratificante. Spedizione velocissima e imballaggio impeccabile.
+            </p>
+          </div>
+        </div>
+
+        <!-- Write Review Button -->
+        <div class="mt-8 text-center">
+          <button class="btn-glow inline-flex items-center justify-center gap-2 px-8 py-4 bg-accent-gold text-bg-primary font-semibold rounded-full hover:bg-accent-gold-light transition-colors">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+            </svg>
+            Scrivi una Recensione
+          </button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Related Products -->
+  <section class="px-6 py-16 bg-bg-secondary reveal-section">
+    <div class="max-w-7xl mx-auto">
+      <div class="flex items-end justify-between mb-12">
+        <div>
+          <p class="text-accent-gold text-sm font-medium tracking-[0.2em] uppercase mb-4">Potrebbe Piacerti</p>
+          <h2 class="font-display text-3xl md:text-4xl font-semibold">Prodotti Correlati</h2>
+        </div>
+        <a href="#" class="hidden md:inline-flex items-center text-accent-gold font-medium hover:underline">
+          Vedi Tutti
+          <svg class="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+          </svg>
+        </a>
+      </div>
+
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-6">
+        <a href="product.html" class="related-product group bg-bg-card rounded-2xl overflow-hidden">
+          <div class="aspect-[3/4] overflow-hidden">
+            <img src="https://images.unsplash.com/photo-1578662996442-48f60103fc96?w=400&q=80" alt="Centurione Romano" class="w-full h-full object-cover">
+          </div>
+          <div class="p-4">
+            <p class="text-text-muted text-xs font-medium tracking-wider uppercase mb-1">Featured Brand</p>
+            <h3 class="font-medium mb-2 group-hover:text-accent-gold transition-colors">Centurione Romano</h3>
+            <p class="text-accent-gold font-semibold">€65.00</p>
+          </div>
+        </a>
+
+        <a href="product.html" class="related-product group bg-bg-card rounded-2xl overflow-hidden">
+          <div class="aspect-[3/4] overflow-hidden">
+            <img src="https://images.unsplash.com/photo-1551103782-8ab07afd45c1?w=400&q=80" alt="Legionario" class="w-full h-full object-cover">
+          </div>
+          <div class="p-4">
+            <p class="text-text-muted text-xs font-medium tracking-wider uppercase mb-1">Featured Brand</p>
+            <h3 class="font-medium mb-2 group-hover:text-accent-gold transition-colors">Legionario Romano</h3>
+            <p class="text-accent-gold font-semibold">€59.00</p>
+          </div>
+        </a>
+
+        <a href="product.html" class="related-product group bg-bg-card rounded-2xl overflow-hidden">
+          <div class="aspect-[3/4] overflow-hidden">
+            <img src="https://images.unsplash.com/photo-1513364776144-60967b0f800f?w=400&q=80" alt="Set Colori" class="w-full h-full object-cover">
+          </div>
+          <div class="p-4">
+            <p class="text-text-muted text-xs font-medium tracking-wider uppercase mb-1">Paints</p>
+            <h3 class="font-medium mb-2 group-hover:text-accent-gold transition-colors">Set Colori Carne</h3>
+            <p class="text-accent-gold font-semibold">€45.00</p>
+          </div>
+        </a>
+
+        <a href="product.html" class="related-product group bg-bg-card rounded-2xl overflow-hidden">
+          <div class="aspect-[3/4] overflow-hidden">
+            <img src="https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400&q=80" alt="Gladiatore Trace" class="w-full h-full object-cover">
+          </div>
+          <div class="p-4">
+            <p class="text-text-muted text-xs font-medium tracking-wider uppercase mb-1">Featured Brand</p>
+            <h3 class="font-medium mb-2 group-hover:text-accent-gold transition-colors">Gladiatore Trace</h3>
+            <p class="text-accent-gold font-semibold">€72.00</p>
+          </div>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="bg-bg-primary py-16 px-6 border-t border-bg-card">
+    <div class="max-w-7xl mx-auto">
+      <div class="flex flex-col md:flex-row justify-between items-center gap-4">
+        <p class="text-text-muted text-sm">
+          © 2024 ecommerceerp. Tutti i diritti riservati.
+        </p>
+        <div class="flex items-center gap-6">
+          <a href="#" class="text-text-muted text-sm hover:text-accent-gold transition-colors">Privacy</a>
+          <a href="#" class="text-text-muted text-sm hover:text-accent-gold transition-colors">Termini</a>
+          <a href="#" class="text-text-muted text-sm hover:text-accent-gold transition-colors">Contatti</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    // Initialize Lenis
+    const lenis = new Lenis({
+      duration: 1.2,
+      easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
+      smooth: true,
+    });
+
+    function raf(time) {
+      lenis.raf(time);
+      requestAnimationFrame(raf);
+    }
+    requestAnimationFrame(raf);
+
+    // GSAP
+    gsap.registerPlugin(ScrollTrigger);
+
+    // Reveal sections
+    gsap.utils.toArray('.reveal-section').forEach((section) => {
+      gsap.to(section, {
+        opacity: 1,
+        y: 0,
+        duration: 1,
+        ease: 'power3.out',
+        scrollTrigger: {
+          trigger: section,
+          start: 'top 85%',
+        }
+      });
+    });
+
+    // Gallery thumbnails
+    const thumbnails = document.querySelectorAll('.gallery-thumb');
+    const mainImage = document.getElementById('main-image');
+    const images = [
+      'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=1200&q=80',
+      'https://images.unsplash.com/photo-1578662996442-48f60103fc96?w=1200&q=80',
+      'https://images.unsplash.com/photo-1551103782-8ab07afd45c1?w=1200&q=80',
+      'https://images.unsplash.com/photo-1513364776144-60967b0f800f?w=1200&q=80',
+      'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=1200&q=80',
+    ];
+
+    thumbnails.forEach((thumb, index) => {
+      thumb.addEventListener('click', () => {
+        thumbnails.forEach(t => t.classList.remove('active'));
+        thumb.classList.add('active');
+
+        gsap.to(mainImage, {
+          opacity: 0,
+          duration: 0.2,
+          onComplete: () => {
+            mainImage.src = images[index];
+            gsap.to(mainImage, { opacity: 1, duration: 0.3 });
+          }
+        });
+      });
+    });
+
+    // Quantity controls
+    const qtyMinus = document.getElementById('qty-minus');
+    const qtyPlus = document.getElementById('qty-plus');
+    const qtyValue = document.getElementById('qty-value');
+    let qty = 1;
+
+    qtyMinus.addEventListener('click', () => {
+      if (qty > 1) {
+        qty--;
+        qtyValue.textContent = qty;
+      }
+    });
+
+    qtyPlus.addEventListener('click', () => {
+      qty++;
+      qtyValue.textContent = qty;
+    });
+
+    // Add to cart animation
+    const addToCart = document.getElementById('add-to-cart');
+    addToCart.addEventListener('click', () => {
+      addToCart.classList.add('add-to-cart-success');
+      addToCart.innerHTML = `
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+        </svg>
+        Aggiunto!
+      `;
+
+      setTimeout(() => {
+        addToCart.classList.remove('add-to-cart-success');
+        addToCart.innerHTML = `
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/>
+          </svg>
+          Aggiungi al Carrello
+        `;
+      }, 2000);
+    });
+
+    // Tabs
+    const tabBtns = document.querySelectorAll('.tab-btn');
+    const tabContents = document.querySelectorAll('.tab-content');
+
+    tabBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tab = btn.dataset.tab;
+
+        tabBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+
+        tabContents.forEach(content => {
+          content.classList.add('hidden');
+          if (content.id === `tab-${tab}`) {
+            content.classList.remove('hidden');
+          }
+        });
+      });
+    });
+
+    // Wishlist toggle
+    const wishlistBtn = document.getElementById('wishlist-btn');
+    let isWishlisted = false;
+
+    wishlistBtn.addEventListener('click', () => {
+      isWishlisted = !isWishlisted;
+      if (isWishlisted) {
+        wishlistBtn.innerHTML = `
+          <svg class="w-5 h-5 fill-current text-accent-gold" viewBox="0 0 24 24">
+            <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+          </svg>
+        `;
+      } else {
+        wishlistBtn.innerHTML = `
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/>
+          </svg>
+        `;
+      }
+
+      gsap.from(wishlistBtn, {
+        scale: 1.3,
+        duration: 0.3,
+        ease: 'back.out(1.7)'
+      });
+    });
+
+    // Variant selection
+    const variantOptions = document.querySelectorAll('.variant-option:not([disabled])');
+    variantOptions.forEach(option => {
+      option.addEventListener('click', () => {
+        const parent = option.parentElement;
+        parent.querySelectorAll('.variant-option').forEach(opt => {
+          opt.classList.remove('selected');
+        });
+        option.classList.add('selected');
+      });
+    });
+
+    // Related products stagger
+    ScrollTrigger.batch('.related-product', {
+      onEnter: (elements) => {
+        gsap.from(elements, {
+          opacity: 0,
+          y: 60,
+          stagger: 0.15,
+          duration: 0.8,
+          ease: 'power3.out'
+        });
+      },
+      start: 'top 85%'
+    });
+  </script>
+</body>
+</html>

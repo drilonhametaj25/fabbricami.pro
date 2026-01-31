@@ -1,0 +1,466 @@
+/**
+ * FabbricaMi Setup Wizard Styles
+ */
+
+.fabbricami-wizard-wrap {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    min-height: 100vh;
+    padding: 40px 20px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.fabbricami-wizard {
+    width: 100%;
+    max-width: 800px;
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+    overflow: hidden;
+}
+
+/* Header */
+.fabbricami-wizard-header {
+    text-align: center;
+    padding: 30px;
+    background: #f8f9fa;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.fabbricami-wizard-header h1 {
+    margin: 0;
+    font-size: 24px;
+    color: #333;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+}
+
+.fabbricami-wizard-header h1 .dashicons {
+    font-size: 28px;
+    width: 28px;
+    height: 28px;
+    color: #667eea;
+}
+
+.fabbricami-wizard-subtitle {
+    margin: 10px 0 0;
+    color: #666;
+    font-size: 14px;
+}
+
+/* Progress Bar */
+.fabbricami-wizard-progress {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 25px 20px;
+    background: #fff;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.fabbricami-wizard-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+}
+
+.step-number {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: #e0e0e0;
+    color: #666;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 14px;
+    transition: all 0.3s ease;
+}
+
+.fabbricami-wizard-step.active .step-number {
+    background: #667eea;
+    color: #fff;
+    box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.2);
+}
+
+.fabbricami-wizard-step.completed .step-number {
+    background: #28a745;
+    color: #fff;
+}
+
+.step-title {
+    font-size: 11px;
+    color: #999;
+    margin-top: 8px;
+    text-align: center;
+    max-width: 80px;
+}
+
+.fabbricami-wizard-step.active .step-title,
+.fabbricami-wizard-step.completed .step-title {
+    color: #333;
+    font-weight: 500;
+}
+
+.step-connector {
+    width: 60px;
+    height: 2px;
+    background: #e0e0e0;
+    margin: 0 10px;
+    margin-bottom: 28px;
+    transition: background 0.3s ease;
+}
+
+.step-connector.completed {
+    background: #28a745;
+}
+
+/* Content */
+.fabbricami-wizard-content {
+    padding: 30px 40px;
+}
+
+.fabbricami-wizard-content h2 {
+    margin: 0 0 5px;
+    font-size: 22px;
+    color: #333;
+}
+
+.step-description {
+    color: #666;
+    margin-bottom: 25px;
+}
+
+/* Welcome Step */
+.welcome-step {
+    text-align: center;
+}
+
+.welcome-icon {
+    margin-bottom: 20px;
+}
+
+.welcome-icon .dashicons {
+    font-size: 60px;
+    width: 60px;
+    height: 60px;
+    color: #667eea;
+}
+
+.welcome-text {
+    font-size: 16px;
+    color: #555;
+    max-width: 500px;
+    margin: 0 auto 25px;
+}
+
+.features-list,
+.requirements-check {
+    text-align: left;
+    background: #f8f9fa;
+    padding: 20px 25px;
+    border-radius: 8px;
+    margin: 20px 0;
+}
+
+.features-list h3,
+.requirements-check h3 {
+    margin: 0 0 15px;
+    font-size: 14px;
+    color: #333;
+}
+
+.features-list ul,
+.requirements-check ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.features-list li,
+.requirements-check li {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+}
+
+.features-list li .dashicons-yes-alt {
+    color: #28a745;
+}
+
+.requirements-check li.ok { color: #28a745; }
+.requirements-check li.error { color: #dc3545; }
+
+/* Form Table in Wizard */
+.wizard-step-content .form-table {
+    margin: 0;
+}
+
+.wizard-step-content .form-table th {
+    width: 150px;
+    padding: 15px 10px 15px 0;
+    font-weight: 500;
+}
+
+.wizard-step-content .form-table td {
+    padding: 15px 0;
+}
+
+.wizard-step-content .form-table input[type="text"],
+.wizard-step-content .form-table input[type="url"],
+.wizard-step-content .form-table input[type="password"],
+.wizard-step-content .form-table select {
+    width: 100%;
+    max-width: 400px;
+}
+
+/* Connection Test */
+#test-connection {
+    margin-top: 5px;
+}
+
+#connection-result {
+    display: inline-block;
+    margin-left: 10px;
+    font-weight: 500;
+}
+
+#connection-result.success { color: #28a745; }
+#connection-result.error { color: #dc3545; }
+#connection-result.loading { color: #666; }
+
+/* API Key Info */
+.api-key-info {
+    background: #e7f1ff;
+    padding: 15px 20px;
+    border-radius: 8px;
+    margin-top: 25px;
+    border-left: 4px solid #667eea;
+}
+
+.api-key-info h4 {
+    margin: 0 0 10px;
+    font-size: 13px;
+}
+
+.api-key-info code {
+    display: inline-block;
+    padding: 8px 12px;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 12px;
+    margin-right: 10px;
+}
+
+.copy-api-key {
+    vertical-align: middle;
+}
+
+/* Checkbox Groups */
+.wizard-step-content fieldset label {
+    display: block;
+    margin-bottom: 10px;
+}
+
+/* Info Box */
+.info-box {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 15px;
+    background: #e7f1ff;
+    border-radius: 8px;
+    margin-top: 20px;
+}
+
+.info-box .dashicons {
+    color: #667eea;
+    margin-top: 2px;
+}
+
+.info-box p {
+    margin: 0;
+    font-size: 13px;
+    color: #555;
+}
+
+/* Strategy Explanation */
+.strategy-explanation {
+    background: #f8f9fa;
+    padding: 15px 20px;
+    border-radius: 8px;
+    margin-top: 20px;
+}
+
+.strategy-explanation h4 {
+    margin: 0 0 10px;
+    font-size: 13px;
+}
+
+.strategy-explanation ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.strategy-explanation li {
+    padding: 5px 0;
+    font-size: 13px;
+}
+
+/* Complete Step */
+.complete-step {
+    text-align: center;
+}
+
+.complete-icon .dashicons {
+    font-size: 60px;
+    width: 60px;
+    height: 60px;
+    color: #28a745;
+}
+
+.config-summary {
+    max-width: 500px;
+    margin: 20px auto;
+    text-align: left;
+}
+
+.config-summary table {
+    width: 100%;
+    background: #f8f9fa;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.config-summary th {
+    text-align: left;
+    padding: 12px 15px;
+    background: #e9ecef;
+    width: 40%;
+}
+
+.config-summary td {
+    padding: 12px 15px;
+}
+
+.final-notice {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 15px;
+    background: #fff3cd;
+    border-radius: 8px;
+    margin-top: 20px;
+    text-align: left;
+    max-width: 500px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.final-notice .dashicons {
+    color: #856404;
+    margin-top: 2px;
+}
+
+.final-notice p {
+    margin: 0;
+    font-size: 13px;
+    color: #856404;
+}
+
+/* Actions */
+.fabbricami-wizard-actions {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 30px;
+    padding-top: 20px;
+    border-top: 1px solid #e0e0e0;
+}
+
+.fabbricami-wizard-actions .button {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.fabbricami-wizard-actions .button-primary {
+    background: #667eea;
+    border-color: #5a6fd6;
+}
+
+.fabbricami-wizard-actions .button-primary:hover {
+    background: #5a6fd6;
+}
+
+.fabbricami-wizard-actions .button-hero {
+    padding: 12px 30px;
+    font-size: 14px;
+}
+
+/* Footer */
+.fabbricami-wizard-footer {
+    text-align: center;
+    padding: 15px;
+    background: #f8f9fa;
+    border-top: 1px solid #e0e0e0;
+}
+
+.skip-wizard {
+    color: #666;
+    text-decoration: none;
+    font-size: 12px;
+}
+
+.skip-wizard:hover {
+    color: #333;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+    .fabbricami-wizard-wrap {
+        padding: 20px 10px;
+    }
+
+    .fabbricami-wizard-content {
+        padding: 20px;
+    }
+
+    .fabbricami-wizard-progress {
+        overflow-x: auto;
+        justify-content: flex-start;
+        padding: 20px 15px;
+    }
+
+    .step-connector {
+        width: 30px;
+    }
+
+    .wizard-step-content .form-table th {
+        width: 100%;
+        display: block;
+        padding-bottom: 5px;
+    }
+
+    .wizard-step-content .form-table td {
+        display: block;
+        padding-top: 5px;
+    }
+
+    .fabbricami-wizard-actions {
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .fabbricami-wizard-actions .button {
+        width: 100%;
+        justify-content: center;
+    }
+}

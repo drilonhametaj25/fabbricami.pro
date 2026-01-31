@@ -1,0 +1,233 @@
+# FabbricaMi ERP Connector - POT File
+# Copyright (C) 2024 FabbricaMi
+# This file is distributed under the same license as the FabbricaMi package.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: FabbricaMi ERP Connector 2.0.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2024-01-01 00:00+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: fabbricami.php
+msgid "FabbricaMi ERP Connector richiede WooCommerce attivo."
+msgstr ""
+
+#: includes/class-admin.php
+msgid "FabbricaMi ERP"
+msgstr ""
+
+msgid "Dashboard"
+msgstr ""
+
+msgid "Impostazioni"
+msgstr ""
+
+msgid "Log Sync"
+msgstr ""
+
+msgid "Coda Sync"
+msgstr ""
+
+msgid "Conflitti"
+msgstr ""
+
+msgid "Connessione"
+msgstr ""
+
+msgid "Sincronizzazione"
+msgstr ""
+
+msgid "Coda"
+msgstr ""
+
+msgid "Log"
+msgstr ""
+
+msgid "URL ERP"
+msgstr ""
+
+msgid "Username"
+msgstr ""
+
+msgid "Password"
+msgstr ""
+
+msgid "API Key"
+msgstr ""
+
+msgid "Abilita sincronizzazione"
+msgstr ""
+
+msgid "Prodotti"
+msgstr ""
+
+msgid "Stock"
+msgstr ""
+
+msgid "Ordini"
+msgstr ""
+
+msgid "Clienti"
+msgstr ""
+
+msgid "Intervallo Sync"
+msgstr ""
+
+msgid "Ogni 15 minuti"
+msgstr ""
+
+msgid "Ogni ora"
+msgstr ""
+
+msgid "Due volte al giorno"
+msgstr ""
+
+msgid "Strategia Conflitti"
+msgstr ""
+
+msgid "ERP vince"
+msgstr ""
+
+msgid "WordPress vince"
+msgstr ""
+
+msgid "Piu recente vince"
+msgstr ""
+
+msgid "Revisione manuale"
+msgstr ""
+
+msgid "Max Tentativi"
+msgstr ""
+
+msgid "Delay Retry (sec)"
+msgstr ""
+
+msgid "Batch Size"
+msgstr ""
+
+msgid "Livello Log"
+msgstr ""
+
+msgid "Retention (giorni)"
+msgstr ""
+
+msgid "Esegui Sync Ora"
+msgstr ""
+
+msgid "Sync Stock"
+msgstr ""
+
+msgid "Health Check"
+msgstr ""
+
+msgid "Sync Oggi"
+msgstr ""
+
+msgid "Successo"
+msgstr ""
+
+msgid "Errori"
+msgstr ""
+
+msgid "In attesa"
+msgstr ""
+
+msgid "In corso"
+msgstr ""
+
+msgid "Falliti"
+msgstr ""
+
+msgid "Da risolvere"
+msgstr ""
+
+msgid "Non configurato"
+msgstr ""
+
+msgid "Sistema OK"
+msgstr ""
+
+msgid "Alcuni problemi"
+msgstr ""
+
+msgid "Sync Disabilitato"
+msgstr ""
+
+#: includes/class-wizard.php
+msgid "Benvenuto"
+msgstr ""
+
+msgid "Connessione ERP"
+msgstr ""
+
+msgid "Ordini e Clienti"
+msgstr ""
+
+msgid "Completamento"
+msgstr ""
+
+msgid "Setup Wizard"
+msgstr ""
+
+msgid "Configurazione iniziale del connettore ERP"
+msgstr ""
+
+msgid "Configura la connessione al tuo sistema ERP"
+msgstr ""
+
+msgid "Configura la sincronizzazione dei prodotti"
+msgstr ""
+
+msgid "Configura la sincronizzazione di ordini e clienti"
+msgstr ""
+
+msgid "Verifica e attiva la sincronizzazione"
+msgstr ""
+
+msgid "Questo wizard ti guidera nella configurazione del connettore tra WooCommerce e il tuo sistema ERP FabbricaMi."
+msgstr ""
+
+msgid "Cosa potrai fare:"
+msgstr ""
+
+msgid "Sincronizzare automaticamente prodotti e giacenze"
+msgstr ""
+
+msgid "Inviare ordini al gestionale in tempo reale"
+msgstr ""
+
+msgid "Gestire conflitti e retry automatici"
+msgstr ""
+
+msgid "Monitorare lo stato della sincronizzazione"
+msgstr ""
+
+msgid "Requisiti:"
+msgstr ""
+
+msgid "Indietro"
+msgstr ""
+
+msgid "Continua"
+msgstr ""
+
+msgid "Completa Setup"
+msgstr ""
+
+msgid "Salta wizard e configura manualmente"
+msgstr ""
+
+msgid "Testa Connessione"
+msgstr ""
+
+msgid "Riepilogo Configurazione"
+msgstr ""

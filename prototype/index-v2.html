@@ -1,0 +1,1680 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ecommerceerp - L'arte in miniatura</title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- GSAP + Plugins -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollToPlugin.min.js"></script>
+
+  <!-- Lenis -->
+  <script src="https://unpkg.com/lenis@1.1.13/dist/lenis.min.js"></script>
+
+  <!-- Three.js for 3D -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg-primary: #0a0a0a;
+      --bg-secondary: #111111;
+      --text-primary: #ffffff;
+      --text-secondary: #888888;
+      --accent: #c9a227;
+    }
+
+    html, body {
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      font-family: 'Inter', sans-serif;
+      overflow-x: hidden;
+    }
+
+    html.lenis, html.lenis body {
+      height: auto;
+    }
+
+    .lenis.lenis-smooth {
+      scroll-behavior: auto !important;
+    }
+
+    /* ============================================
+       HEADER
+    ============================================ */
+    header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      padding: 20px 40px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      mix-blend-mode: difference;
+    }
+
+    .logo {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 1.5rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      color: white;
+    }
+
+    nav a {
+      color: white;
+      text-decoration: none;
+      font-size: 0.85rem;
+      margin-left: 40px;
+      opacity: 0.7;
+      transition: opacity 0.3s;
+    }
+
+    nav a:hover {
+      opacity: 1;
+    }
+
+    /* ============================================
+       HERO SECTION - Full screen with 3D model
+    ============================================ */
+    .hero {
+      height: 300vh; /* Extended for scroll animation */
+      position: relative;
+    }
+
+    .hero-sticky {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    .hero-content {
+      position: absolute;
+      z-index: 10;
+      text-align: center;
+      pointer-events: none;
+    }
+
+    .hero-subtitle {
+      font-size: 0.75rem;
+      letter-spacing: 0.4em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 20px;
+      opacity: 0;
+      transform: translateY(30px);
+    }
+
+    .hero-title {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: clamp(3rem, 12vw, 10rem);
+      font-weight: 300;
+      line-height: 0.9;
+      margin-bottom: 30px;
+    }
+
+    .hero-title .word {
+      display: inline-block;
+      overflow: hidden;
+    }
+
+    .hero-title .char {
+      display: inline-block;
+      transform: translateY(100%);
+    }
+
+    .hero-description {
+      font-size: 1.1rem;
+      color: var(--text-secondary);
+      max-width: 500px;
+      margin: 0 auto 40px;
+      opacity: 0;
+    }
+
+    .hero-cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px 32px;
+      background: var(--accent);
+      color: var(--bg-primary);
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 0.9rem;
+      border-radius: 50px;
+      opacity: 0;
+      transform: translateY(20px);
+      pointer-events: auto;
+      transition: transform 0.3s, box-shadow 0.3s;
+    }
+
+    .hero-cta:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 20px 40px rgba(201, 162, 39, 0.3);
+    }
+
+    /* 3D Canvas */
+    #hero-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* Scroll Progress */
+    .scroll-progress {
+      position: fixed;
+      top: 50%;
+      right: 30px;
+      transform: translateY(-50%);
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .scroll-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.2);
+      transition: all 0.3s;
+    }
+
+    .scroll-dot.active {
+      background: var(--accent);
+      transform: scale(1.5);
+    }
+
+    /* ============================================
+       HORIZONTAL SCROLL SECTION
+    ============================================ */
+    .horizontal-section {
+      height: 400vh;
+      position: relative;
+    }
+
+    .horizontal-sticky {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .horizontal-track {
+      display: flex;
+      height: 100%;
+      width: fit-content;
+    }
+
+    .horizontal-panel {
+      width: 100vw;
+      height: 100vh;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 60px;
+    }
+
+    .panel-content {
+      max-width: 1400px;
+      width: 100%;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 80px;
+      align-items: center;
+    }
+
+    .panel-image {
+      position: relative;
+    }
+
+    .panel-image img {
+      width: 100%;
+      border-radius: 20px;
+      transform: scale(0.8);
+      opacity: 0;
+    }
+
+    .panel-text h2 {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 4rem;
+      font-weight: 400;
+      margin-bottom: 30px;
+      opacity: 0;
+      transform: translateY(50px);
+    }
+
+    .panel-text p {
+      font-size: 1.2rem;
+      color: var(--text-secondary);
+      line-height: 1.8;
+      margin-bottom: 30px;
+      opacity: 0;
+      transform: translateY(30px);
+    }
+
+    .panel-number {
+      position: absolute;
+      top: -60px;
+      left: -40px;
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 15rem;
+      font-weight: 300;
+      color: rgba(201, 162, 39, 0.1);
+      line-height: 1;
+      pointer-events: none;
+    }
+
+    /* ============================================
+       PRODUCT REVEAL SECTION - Scroll controlled
+    ============================================ */
+    .product-reveal {
+      height: 500vh;
+      position: relative;
+    }
+
+    .product-reveal-sticky {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    .product-3d-container {
+      position: relative;
+      width: 60vmin;
+      height: 60vmin;
+    }
+
+    #product-canvas {
+      width: 100%;
+      height: 100%;
+    }
+
+    .product-info-layer {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 300px;
+      opacity: 0;
+    }
+
+    .product-info-layer.left {
+      left: 5%;
+    }
+
+    .product-info-layer.right {
+      right: 5%;
+      text-align: right;
+    }
+
+    .info-label {
+      font-size: 0.7rem;
+      letter-spacing: 0.3em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 10px;
+    }
+
+    .info-title {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 2.5rem;
+      margin-bottom: 15px;
+    }
+
+    .info-text {
+      color: var(--text-secondary);
+      font-size: 0.95rem;
+      line-height: 1.7;
+    }
+
+    /* Connection lines */
+    .connection-line {
+      position: absolute;
+      height: 1px;
+      background: linear-gradient(90deg, var(--accent), transparent);
+      transform-origin: left center;
+      transform: scaleX(0);
+    }
+
+    /* ============================================
+       FEATURES ZOOM SECTION
+    ============================================ */
+    .features-zoom {
+      height: 300vh;
+      position: relative;
+    }
+
+    .features-zoom-sticky {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      background: var(--bg-secondary);
+    }
+
+    .zoom-image {
+      position: absolute;
+      width: 150%;
+      height: 150%;
+      object-fit: cover;
+      transform: scale(2);
+      opacity: 0.3;
+    }
+
+    .zoom-content {
+      position: relative;
+      z-index: 10;
+      text-align: center;
+      max-width: 800px;
+      padding: 40px;
+    }
+
+    .zoom-content h2 {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 5rem;
+      font-weight: 300;
+      margin-bottom: 30px;
+      opacity: 0;
+      transform: scale(0.8);
+    }
+
+    .zoom-content p {
+      font-size: 1.3rem;
+      color: var(--text-secondary);
+      opacity: 0;
+    }
+
+    .detail-points {
+      display: flex;
+      justify-content: center;
+      gap: 60px;
+      margin-top: 60px;
+    }
+
+    .detail-point {
+      text-align: center;
+      opacity: 0;
+      transform: translateY(30px);
+    }
+
+    .detail-number {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 4rem;
+      color: var(--accent);
+      line-height: 1;
+    }
+
+    .detail-label {
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-top: 10px;
+    }
+
+    /* ============================================
+       GALLERY PARALLAX
+    ============================================ */
+    .gallery-parallax {
+      padding: 200px 0;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .gallery-row {
+      display: flex;
+      gap: 30px;
+      margin-bottom: 30px;
+    }
+
+    .gallery-row:nth-child(odd) {
+      transform: translateX(-10%);
+    }
+
+    .gallery-row:nth-child(even) {
+      transform: translateX(10%);
+    }
+
+    .gallery-item {
+      flex-shrink: 0;
+      width: 400px;
+      height: 500px;
+      border-radius: 20px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .gallery-item img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .gallery-item:hover img {
+      transform: scale(1.1);
+    }
+
+    .gallery-item-overlay {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      padding: 30px;
+      background: linear-gradient(transparent, rgba(0,0,0,0.8));
+      transform: translateY(100%);
+      transition: transform 0.4s;
+    }
+
+    .gallery-item:hover .gallery-item-overlay {
+      transform: translateY(0);
+    }
+
+    /* ============================================
+       TEXT REVEAL SECTION
+    ============================================ */
+    .text-reveal {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 100px 40px;
+    }
+
+    .reveal-text {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: clamp(2rem, 6vw, 5rem);
+      font-weight: 300;
+      text-align: center;
+      max-width: 1200px;
+      line-height: 1.4;
+    }
+
+    .reveal-text .word {
+      display: inline-block;
+      margin-right: 0.25em;
+      opacity: 0.1;
+      transition: opacity 0.3s;
+    }
+
+    .reveal-text .word.active {
+      opacity: 1;
+    }
+
+    /* ============================================
+       PRODUCT CARDS SECTION
+    ============================================ */
+    .products-section {
+      padding: 150px 40px;
+    }
+
+    .section-header {
+      text-align: center;
+      margin-bottom: 80px;
+    }
+
+    .section-label {
+      font-size: 0.75rem;
+      letter-spacing: 0.3em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 20px;
+    }
+
+    .section-title {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 4rem;
+      font-weight: 300;
+    }
+
+    .products-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 30px;
+      max-width: 1600px;
+      margin: 0 auto;
+    }
+
+    .product-card {
+      position: relative;
+      border-radius: 20px;
+      overflow: hidden;
+      background: var(--bg-secondary);
+      cursor: pointer;
+      transform-style: preserve-3d;
+      transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .product-card:hover {
+      transform: translateY(-10px) rotateX(5deg);
+    }
+
+    .product-card-image {
+      aspect-ratio: 3/4;
+      overflow: hidden;
+    }
+
+    .product-card-image img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transition: transform 0.6s;
+    }
+
+    .product-card:hover .product-card-image img {
+      transform: scale(1.1);
+    }
+
+    .product-card-info {
+      padding: 25px;
+    }
+
+    .product-card-category {
+      font-size: 0.7rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+      margin-bottom: 8px;
+    }
+
+    .product-card-name {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 1.5rem;
+      margin-bottom: 10px;
+    }
+
+    .product-card-price {
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    /* ============================================
+       NEWSLETTER
+    ============================================ */
+    .newsletter {
+      padding: 150px 40px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .newsletter-bg {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: radial-gradient(ellipse at center, rgba(201, 162, 39, 0.1) 0%, transparent 70%);
+    }
+
+    .newsletter-content {
+      position: relative;
+      z-index: 10;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+
+    .newsletter h2 {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 3.5rem;
+      font-weight: 300;
+      margin-bottom: 20px;
+    }
+
+    .newsletter p {
+      color: var(--text-secondary);
+      margin-bottom: 40px;
+    }
+
+    .newsletter-form {
+      display: flex;
+      gap: 15px;
+      max-width: 500px;
+      margin: 0 auto;
+    }
+
+    .newsletter-form input {
+      flex: 1;
+      padding: 18px 25px;
+      background: var(--bg-secondary);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 50px;
+      color: white;
+      font-size: 1rem;
+      outline: none;
+      transition: border-color 0.3s;
+    }
+
+    .newsletter-form input:focus {
+      border-color: var(--accent);
+    }
+
+    .newsletter-form button {
+      padding: 18px 35px;
+      background: var(--accent);
+      color: var(--bg-primary);
+      border: none;
+      border-radius: 50px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.3s, box-shadow 0.3s;
+    }
+
+    .newsletter-form button:hover {
+      transform: scale(1.05);
+      box-shadow: 0 10px 30px rgba(201, 162, 39, 0.3);
+    }
+
+    /* ============================================
+       FOOTER
+    ============================================ */
+    footer {
+      padding: 80px 40px;
+      border-top: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .footer-content {
+      max-width: 1400px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .footer-logo {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 1.5rem;
+      font-weight: 600;
+    }
+
+    .footer-links {
+      display: flex;
+      gap: 40px;
+    }
+
+    .footer-links a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-size: 0.9rem;
+      transition: color 0.3s;
+    }
+
+    .footer-links a:hover {
+      color: var(--accent);
+    }
+
+    /* ============================================
+       LOADING SCREEN
+    ============================================ */
+    .loader {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: var(--bg-primary);
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+    }
+
+    .loader-text {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 3rem;
+      font-weight: 300;
+      overflow: hidden;
+    }
+
+    .loader-text span {
+      display: inline-block;
+      transform: translateY(100%);
+    }
+
+    .loader-progress {
+      width: 200px;
+      height: 1px;
+      background: rgba(255,255,255,0.1);
+      margin-top: 40px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .loader-progress-bar {
+      position: absolute;
+      top: 0;
+      left: 0;
+      height: 100%;
+      width: 0%;
+      background: var(--accent);
+    }
+
+    /* ============================================
+       CURSOR
+    ============================================ */
+    .cursor {
+      width: 20px;
+      height: 20px;
+      border: 1px solid var(--accent);
+      border-radius: 50%;
+      position: fixed;
+      pointer-events: none;
+      z-index: 9999;
+      mix-blend-mode: difference;
+      transition: transform 0.1s, width 0.3s, height 0.3s;
+    }
+
+    .cursor.hover {
+      width: 60px;
+      height: 60px;
+      background: rgba(201, 162, 39, 0.1);
+    }
+
+    /* Responsive */
+    @media (max-width: 1024px) {
+      .products-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .panel-content {
+        grid-template-columns: 1fr;
+        text-align: center;
+      }
+
+      .horizontal-panel {
+        padding: 40px;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .products-grid {
+        grid-template-columns: 1fr;
+      }
+
+      header {
+        padding: 15px 20px;
+      }
+
+      nav {
+        display: none;
+      }
+
+      .detail-points {
+        flex-direction: column;
+        gap: 30px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- Custom Cursor -->
+  <div class="cursor" id="cursor"></div>
+
+  <!-- Loading Screen -->
+  <div class="loader" id="loader">
+    <div class="loader-text">
+      <span>P</span><span>E</span><span>G</span><span>A</span><span>S</span><span>O</span><span>W</span><span>O</span><span>R</span><span>L</span><span>D</span>
+    </div>
+    <div class="loader-progress">
+      <div class="loader-progress-bar" id="loader-bar"></div>
+    </div>
+  </div>
+
+  <!-- Scroll Progress Dots -->
+  <div class="scroll-progress">
+    <div class="scroll-dot active" data-section="0"></div>
+    <div class="scroll-dot" data-section="1"></div>
+    <div class="scroll-dot" data-section="2"></div>
+    <div class="scroll-dot" data-section="3"></div>
+    <div class="scroll-dot" data-section="4"></div>
+  </div>
+
+  <!-- Header -->
+  <header>
+    <div class="logo">ecommerceerp</div>
+    <nav>
+      <a href="#">Collezioni</a>
+      <a href="#">Artisti</a>
+      <a href="#">Tutorials</a>
+      <a href="#">Shop</a>
+    </nav>
+  </header>
+
+  <!-- HERO SECTION with 3D model -->
+  <section class="hero" id="hero">
+    <div class="hero-sticky">
+      <canvas id="hero-canvas"></canvas>
+
+      <div class="hero-content">
+        <p class="hero-subtitle">Dal 1980 - Made in Italy</p>
+        <h1 class="hero-title">
+          <span class="word"><span class="char">L</span><span class="char">'</span><span class="char">a</span><span class="char">r</span><span class="char">t</span><span class="char">e</span></span>
+          <br>
+          <span class="word"><span class="char">i</span><span class="char">n</span></span>
+          <span class="word"><span class="char">m</span><span class="char">i</span><span class="char">n</span><span class="char">i</span><span class="char">a</span><span class="char">t</span><span class="char">u</span><span class="char">r</span><span class="char">a</span></span>
+        </h1>
+        <p class="hero-description">Ogni pezzo racconta una storia millenaria, scolpito con passione artigianale.</p>
+        <a href="#" class="hero-cta">
+          Esplora la Collezione
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M5 12h14M12 5l7 7-7 7"/>
+          </svg>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- HORIZONTAL SCROLL - Categories -->
+  <section class="horizontal-section" id="categories">
+    <div class="horizontal-sticky">
+      <div class="horizontal-track">
+        <!-- Panel 1: Featured Brand -->
+        <div class="horizontal-panel">
+          <div class="panel-content">
+            <div class="panel-image">
+              <span class="panel-number">01</span>
+              <img src="https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=800&q=80" alt="Featured Brand">
+            </div>
+            <div class="panel-text">
+              <h2>Featured Brand</h2>
+              <p>Dalla Roma Imperiale al Far West americano. Ogni epoca storica prende vita attraverso sculture di straordinaria precisione anatomica e fedeltà storica.</p>
+              <a href="#" class="hero-cta" style="opacity: 1; transform: none;">Scopri la Collezione</a>
+            </div>
+          </div>
+        </div>
+
+        <!-- Panel 2: Premium Models -->
+        <div class="horizontal-panel">
+          <div class="panel-content">
+            <div class="panel-image">
+              <span class="panel-number">02</span>
+              <img src="https://images.unsplash.com/photo-1551103782-8ab07afd45c1?w=800&q=80" alt="Premium Models">
+            </div>
+            <div class="panel-text">
+              <h2>Premium Models</h2>
+              <p>Creature leggendarie, guerrieri fantasy e mondi immaginari. Dove la fantasia incontra la maestria scultorea per creare pezzi unici.</p>
+              <a href="#" class="hero-cta" style="opacity: 1; transform: none;">Esplora il Fantasy</a>
+            </div>
+          </div>
+        </div>
+
+        <!-- Panel 3: Paints -->
+        <div class="horizontal-panel">
+          <div class="panel-content">
+            <div class="panel-image">
+              <span class="panel-number">03</span>
+              <img src="https://images.unsplash.com/photo-1513364776144-60967b0f800f?w=800&q=80" alt="Premium Kolors">
+            </div>
+            <div class="panel-text">
+              <h2>Premium Kolors</h2>
+              <p>Colori puri, pigmenti intensi. La linea di acrilici creata dagli artisti per gli artisti. Miscibilità perfetta e risultati professionali.</p>
+              <a href="#" class="hero-cta" style="opacity: 1; transform: none;">Vedi i Colori</a>
+            </div>
+          </div>
+        </div>
+
+        <!-- Panel 4: Artists -->
+        <div class="horizontal-panel">
+          <div class="panel-content">
+            <div class="panel-image">
+              <span class="panel-number">04</span>
+              <img src="https://images.unsplash.com/photo-1578662996442-48f60103fc96?w=800&q=80" alt="Artists Cafe">
+            </div>
+            <div class="panel-text">
+              <h2>Artists' Cafe</h2>
+              <p>Una comunità globale di artisti. Tutorial esclusivi, collaborazioni uniche e l'opportunità di esporre le tue creazioni al mondo.</p>
+              <a href="#" class="hero-cta" style="opacity: 1; transform: none;">Unisciti a Noi</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PRODUCT REVEAL with 3D rotation -->
+  <section class="product-reveal" id="product-reveal">
+    <div class="product-reveal-sticky">
+      <div class="product-3d-container">
+        <canvas id="product-canvas"></canvas>
+      </div>
+
+      <!-- Info layers that appear at different scroll positions -->
+      <div class="product-info-layer left" id="info-layer-1">
+        <p class="info-label">Materiale</p>
+        <h3 class="info-title">Resina Premium</h3>
+        <p class="info-text">Fusione in resina poliuretanica ad alta definizione. Zero bolle, dettagli perfetti.</p>
+      </div>
+
+      <div class="product-info-layer right" id="info-layer-2">
+        <p class="info-label">Scala</p>
+        <h3 class="info-title">75mm / 1:24</h3>
+        <p class="info-text">La scala ideale per apprezzare ogni dettaglio e sperimentare con le tecniche di pittura.</p>
+      </div>
+
+      <div class="product-info-layer left" id="info-layer-3">
+        <p class="info-label">Dettagli</p>
+        <h3 class="info-title">5 Parti</h3>
+        <p class="info-text">Assemblaggio intuitivo. Ogni parte si incastra perfettamente per un risultato impeccabile.</p>
+      </div>
+
+      <div class="product-info-layer right" id="info-layer-4">
+        <p class="info-label">Prezzo</p>
+        <h3 class="info-title" style="color: var(--accent);">€79.00</h3>
+        <p class="info-text">Include base scenica, certificato di autenticità e scheda storica.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- FEATURES ZOOM -->
+  <section class="features-zoom" id="features">
+    <div class="features-zoom-sticky">
+      <img src="https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=1920&q=80" alt="Detail" class="zoom-image" id="zoom-image">
+
+      <div class="zoom-content">
+        <h2>Ogni Dettaglio Conta</h2>
+        <p>Dalla texture della pelle alle pieghe del tessuto, ogni millimetro è scolpito con ossessiva precisione.</p>
+
+        <div class="detail-points">
+          <div class="detail-point">
+            <div class="detail-number" data-count="45">0</div>
+            <div class="detail-label">Anni di Storia</div>
+          </div>
+          <div class="detail-point">
+            <div class="detail-number" data-count="500">0</div>
+            <div class="detail-label">Modelli Creati</div>
+          </div>
+          <div class="detail-point">
+            <div class="detail-number" data-count="80">0</div>
+            <div class="detail-label">Paesi Raggiunti</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TEXT REVEAL -->
+  <section class="text-reveal" id="text-reveal">
+    <p class="reveal-text">
+      <span class="word">Non</span>
+      <span class="word">vendiamo</span>
+      <span class="word">miniature.</span>
+      <span class="word">Creiamo</span>
+      <span class="word">piccole</span>
+      <span class="word">opere</span>
+      <span class="word">d'arte</span>
+      <span class="word">che</span>
+      <span class="word">raccontano</span>
+      <span class="word">storie</span>
+      <span class="word">millenarie</span>
+      <span class="word">attraverso</span>
+      <span class="word">la</span>
+      <span class="word">maestria</span>
+      <span class="word">artigianale</span>
+      <span class="word">italiana.</span>
+    </p>
+  </section>
+
+  <!-- GALLERY PARALLAX -->
+  <section class="gallery-parallax" id="gallery">
+    <div class="gallery-row" id="gallery-row-1">
+      <div class="gallery-item">
+        <img src="https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=600&q=80" alt="Gallery 1">
+        <div class="gallery-item-overlay">
+          <h4>Gladiatore Romano</h4>
+          <p>€79.00</p>
+        </div>
+      </div>
+      <div class="gallery-item">
+        <img src="https://images.unsplash.com/photo-1578662996442-48f60103fc96?w=600&q=80" alt="Gallery 2">
+        <div class="gallery-item-overlay">
+          <h4>Samurai Shogun</h4>
+          <p>€89.00</p>
+        </div>
+      </div>
+      <div class="gallery-item">
+        <img src="https://images.unsplash.com/photo-1551103782-8ab07afd45c1?w=600&q=80" alt="Gallery 3">
+        <div class="gallery-item-overlay">
+          <h4>Drago Ancestrale</h4>
+          <p>€119.00</p>
+        </div>
+      </div>
+      <div class="gallery-item">
+        <img src="https://images.unsplash.com/photo-1513364776144-60967b0f800f?w=600&q=80" alt="Gallery 4">
+        <div class="gallery-item-overlay">
+          <h4>Set Colori Pro</h4>
+          <p>€149.00</p>
+        </div>
+      </div>
+      <div class="gallery-item">
+        <img src="https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=600&q=80" alt="Gallery 5">
+        <div class="gallery-item-overlay">
+          <h4>Centurione</h4>
+          <p>€65.00</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="gallery-row" id="gallery-row-2">
+      <div class="gallery-item">
+        <img src="https://images.unsplash.com/photo-1551103782-8ab07afd45c1?w=600&q=80" alt="Gallery 6">
+        <div class="gallery-item-overlay">
+          <h4>Cavaliere Medievale</h4>
+          <p>€95.00</p>
+        </div>
+      </div>
+      <div class="gallery-item">
+        <img src="https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=600&q=80" alt="Gallery 7">
+        <div class="gallery-item-overlay">
+          <h4>Legionario</h4>
+          <p>€59.00</p>
+        </div>
+      </div>
+      <div class="gallery-item">
+        <img src="https://images.unsplash.com/photo-1578662996442-48f60103fc96?w=600&q=80" alt="Gallery 8">
+        <div class="gallery-item-overlay">
+          <h4>Ninja</h4>
+          <p>€72.00</p>
+        </div>
+      </div>
+      <div class="gallery-item">
+        <img src="https://images.unsplash.com/photo-1513364776144-60967b0f800f?w=600&q=80" alt="Gallery 9">
+        <div class="gallery-item-overlay">
+          <h4>Pennelli Pro</h4>
+          <p>€45.00</p>
+        </div>
+      </div>
+      <div class="gallery-item">
+        <img src="https://images.unsplash.com/photo-1551103782-8ab07afd45c1?w=600&q=80" alt="Gallery 10">
+        <div class="gallery-item-overlay">
+          <h4>Creatura Fantasy</h4>
+          <p>€135.00</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PRODUCTS SECTION -->
+  <section class="products-section" id="products">
+    <div class="section-header">
+      <p class="section-label">Novità</p>
+      <h2 class="section-title">Le Ultime Creazioni</h2>
+    </div>
+
+    <div class="products-grid">
+      <div class="product-card">
+        <div class="product-card-image">
+          <img src="https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=500&q=80" alt="Product 1">
+        </div>
+        <div class="product-card-info">
+          <p class="product-card-category">Featured Brand</p>
+          <h3 class="product-card-name">Gladiatore Romano</h3>
+          <p class="product-card-price">€79.00</p>
+        </div>
+      </div>
+
+      <div class="product-card">
+        <div class="product-card-image">
+          <img src="https://images.unsplash.com/photo-1551103782-8ab07afd45c1?w=500&q=80" alt="Product 2">
+        </div>
+        <div class="product-card-info">
+          <p class="product-card-category">Premium Models</p>
+          <h3 class="product-card-name">Drago Ancestrale</h3>
+          <p class="product-card-price">€119.00</p>
+        </div>
+      </div>
+
+      <div class="product-card">
+        <div class="product-card-image">
+          <img src="https://images.unsplash.com/photo-1578662996442-48f60103fc96?w=500&q=80" alt="Product 3">
+        </div>
+        <div class="product-card-info">
+          <p class="product-card-category">Featured Brand</p>
+          <h3 class="product-card-name">Samurai Shogun</h3>
+          <p class="product-card-price">€89.00</p>
+        </div>
+      </div>
+
+      <div class="product-card">
+        <div class="product-card-image">
+          <img src="https://images.unsplash.com/photo-1513364776144-60967b0f800f?w=500&q=80" alt="Product 4">
+        </div>
+        <div class="product-card-info">
+          <p class="product-card-category">Paints</p>
+          <h3 class="product-card-name">Premium Kolors Set</h3>
+          <p class="product-card-price">€149.00</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- NEWSLETTER -->
+  <section class="newsletter" id="newsletter">
+    <div class="newsletter-bg"></div>
+    <div class="newsletter-content">
+      <h2>Resta Connesso</h2>
+      <p>Iscriviti per anteprime esclusive, tutorial e offerte speciali.</p>
+      <form class="newsletter-form">
+        <input type="email" placeholder="La tua email">
+        <button type="submit">Iscriviti</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer>
+    <div class="footer-content">
+      <div class="footer-logo">ecommerceerp</div>
+      <div class="footer-links">
+        <a href="#">Privacy</a>
+        <a href="#">Termini</a>
+        <a href="#">Spedizioni</a>
+        <a href="#">Contatti</a>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    // ============================================
+    // GSAP & ScrollTrigger Setup
+    // ============================================
+    gsap.registerPlugin(ScrollTrigger, ScrollToPlugin);
+
+    // ============================================
+    // Lenis Smooth Scroll
+    // ============================================
+    const lenis = new Lenis({
+      duration: 1.2,
+      easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
+      orientation: 'vertical',
+      smoothWheel: true,
+    });
+
+    lenis.on('scroll', ScrollTrigger.update);
+
+    gsap.ticker.add((time) => {
+      lenis.raf(time * 1000);
+    });
+
+    gsap.ticker.lagSmoothing(0);
+
+    // ============================================
+    // Custom Cursor
+    // ============================================
+    const cursor = document.getElementById('cursor');
+    let mouseX = 0, mouseY = 0;
+    let cursorX = 0, cursorY = 0;
+
+    document.addEventListener('mousemove', (e) => {
+      mouseX = e.clientX;
+      mouseY = e.clientY;
+    });
+
+    gsap.ticker.add(() => {
+      cursorX += (mouseX - cursorX) * 0.15;
+      cursorY += (mouseY - cursorY) * 0.15;
+      gsap.set(cursor, { x: cursorX - 10, y: cursorY - 10 });
+    });
+
+    // Cursor hover effect
+    document.querySelectorAll('a, button, .product-card, .gallery-item').forEach(el => {
+      el.addEventListener('mouseenter', () => cursor.classList.add('hover'));
+      el.addEventListener('mouseleave', () => cursor.classList.remove('hover'));
+    });
+
+    // ============================================
+    // Loading Animation
+    // ============================================
+    const loader = document.getElementById('loader');
+    const loaderBar = document.getElementById('loader-bar');
+    const loaderChars = document.querySelectorAll('.loader-text span');
+
+    // Animate loader text
+    gsap.to(loaderChars, {
+      y: 0,
+      duration: 0.6,
+      stagger: 0.05,
+      ease: 'power3.out',
+      delay: 0.3
+    });
+
+    // Animate progress bar
+    gsap.to(loaderBar, {
+      width: '100%',
+      duration: 2,
+      ease: 'power2.inOut',
+      onComplete: () => {
+        gsap.to(loader, {
+          yPercent: -100,
+          duration: 0.8,
+          ease: 'power3.inOut',
+          onComplete: () => {
+            loader.style.display = 'none';
+            initAnimations();
+          }
+        });
+      }
+    });
+
+    // ============================================
+    // Main Animations
+    // ============================================
+    function initAnimations() {
+      // Hero Text Animation
+      const heroChars = document.querySelectorAll('.hero-title .char');
+
+      gsap.to(heroChars, {
+        y: 0,
+        duration: 1,
+        stagger: 0.03,
+        ease: 'power3.out',
+        delay: 0.2
+      });
+
+      gsap.to('.hero-subtitle', {
+        opacity: 1,
+        y: 0,
+        duration: 1,
+        delay: 0.5
+      });
+
+      gsap.to('.hero-description', {
+        opacity: 1,
+        duration: 1,
+        delay: 0.8
+      });
+
+      gsap.to('.hero-cta', {
+        opacity: 1,
+        y: 0,
+        duration: 1,
+        delay: 1
+      });
+
+      // ============================================
+      // Hero 3D Scene (Rotating Cube as placeholder)
+      // ============================================
+      const heroCanvas = document.getElementById('hero-canvas');
+      const heroScene = new THREE.Scene();
+      const heroCamera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+      const heroRenderer = new THREE.WebGLRenderer({ canvas: heroCanvas, alpha: true, antialias: true });
+      heroRenderer.setSize(window.innerWidth, window.innerHeight);
+      heroRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+      // Create a more interesting geometry - Icosahedron (like a gem/crystal)
+      const geometry = new THREE.IcosahedronGeometry(2, 0);
+      const material = new THREE.MeshBasicMaterial({
+        color: 0xc9a227,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.6
+      });
+      const icosahedron = new THREE.Mesh(geometry, material);
+      heroScene.add(icosahedron);
+
+      // Add inner solid
+      const innerGeometry = new THREE.IcosahedronGeometry(1.5, 0);
+      const innerMaterial = new THREE.MeshBasicMaterial({
+        color: 0x1a1a1a,
+        transparent: true,
+        opacity: 0.8
+      });
+      const innerMesh = new THREE.Mesh(innerGeometry, innerMaterial);
+      heroScene.add(innerMesh);
+
+      heroCamera.position.z = 5;
+
+      // Scroll-controlled rotation
+      let heroRotation = 0;
+
+      ScrollTrigger.create({
+        trigger: '.hero',
+        start: 'top top',
+        end: 'bottom top',
+        scrub: 1,
+        onUpdate: (self) => {
+          heroRotation = self.progress * Math.PI * 4;
+          icosahedron.rotation.x = heroRotation;
+          icosahedron.rotation.y = heroRotation * 0.5;
+          innerMesh.rotation.x = -heroRotation * 0.5;
+          innerMesh.rotation.y = heroRotation;
+
+          // Scale down as we scroll
+          const scale = 1 - self.progress * 0.5;
+          icosahedron.scale.setScalar(scale);
+          innerMesh.scale.setScalar(scale);
+
+          // Fade out
+          material.opacity = 0.6 * (1 - self.progress);
+          innerMaterial.opacity = 0.8 * (1 - self.progress);
+        }
+      });
+
+      function animateHero() {
+        requestAnimationFrame(animateHero);
+        // Subtle constant rotation
+        icosahedron.rotation.z += 0.002;
+        innerMesh.rotation.z -= 0.001;
+        heroRenderer.render(heroScene, heroCamera);
+      }
+      animateHero();
+
+      // ============================================
+      // Horizontal Scroll Section
+      // ============================================
+      const horizontalTrack = document.querySelector('.horizontal-track');
+      const horizontalPanels = gsap.utils.toArray('.horizontal-panel');
+
+      gsap.to(horizontalTrack, {
+        x: () => -(horizontalTrack.scrollWidth - window.innerWidth),
+        ease: 'none',
+        scrollTrigger: {
+          trigger: '.horizontal-section',
+          start: 'top top',
+          end: () => '+=' + (horizontalTrack.scrollWidth - window.innerWidth),
+          scrub: 1,
+          pin: true,
+          anticipatePin: 1
+        }
+      });
+
+      // Animate each panel's content
+      horizontalPanels.forEach((panel, i) => {
+        const img = panel.querySelector('.panel-image img');
+        const title = panel.querySelector('.panel-text h2');
+        const text = panel.querySelector('.panel-text p');
+
+        gsap.to(img, {
+          scale: 1,
+          opacity: 1,
+          scrollTrigger: {
+            trigger: panel,
+            containerAnimation: gsap.getById ? undefined : undefined,
+            start: 'left center',
+            end: 'center center',
+            scrub: 1,
+            horizontal: true
+          }
+        });
+      });
+
+      // ============================================
+      // Product 3D Reveal Section
+      // ============================================
+      const productCanvas = document.getElementById('product-canvas');
+      const productScene = new THREE.Scene();
+      const productCamera = new THREE.PerspectiveCamera(50, 1, 0.1, 1000);
+      const productRenderer = new THREE.WebGLRenderer({ canvas: productCanvas, alpha: true, antialias: true });
+      productRenderer.setSize(productCanvas.parentElement.offsetWidth, productCanvas.parentElement.offsetHeight);
+      productRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+      // Create a stylized figure (placeholder for actual 3D model)
+      const figureGroup = new THREE.Group();
+
+      // Body
+      const bodyGeometry = new THREE.CylinderGeometry(0.4, 0.6, 2, 8);
+      const bodyMaterial = new THREE.MeshBasicMaterial({ color: 0xc9a227, wireframe: true });
+      const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+      figureGroup.add(body);
+
+      // Head
+      const headGeometry = new THREE.SphereGeometry(0.35, 8, 8);
+      const headMaterial = new THREE.MeshBasicMaterial({ color: 0xc9a227, wireframe: true });
+      const head = new THREE.Mesh(headGeometry, headMaterial);
+      head.position.y = 1.3;
+      figureGroup.add(head);
+
+      // Base
+      const baseGeometry = new THREE.CylinderGeometry(0.8, 1, 0.2, 16);
+      const baseMaterial = new THREE.MeshBasicMaterial({ color: 0x333333 });
+      const base = new THREE.Mesh(baseGeometry, baseMaterial);
+      base.position.y = -1.1;
+      figureGroup.add(base);
+
+      productScene.add(figureGroup);
+      productCamera.position.z = 5;
+
+      // Scroll-controlled rotation and info reveal
+      const infoLayers = [
+        document.getElementById('info-layer-1'),
+        document.getElementById('info-layer-2'),
+        document.getElementById('info-layer-3'),
+        document.getElementById('info-layer-4')
+      ];
+
+      ScrollTrigger.create({
+        trigger: '.product-reveal',
+        start: 'top top',
+        end: 'bottom bottom',
+        scrub: 1,
+        pin: false,
+        onUpdate: (self) => {
+          const progress = self.progress;
+
+          // Rotate the figure
+          figureGroup.rotation.y = progress * Math.PI * 2;
+
+          // Show/hide info layers based on progress
+          infoLayers.forEach((layer, i) => {
+            const layerStart = i * 0.25;
+            const layerEnd = (i + 1) * 0.25;
+            const layerProgress = (progress - layerStart) / 0.25;
+
+            if (progress >= layerStart && progress < layerEnd) {
+              gsap.to(layer, { opacity: 1, duration: 0.3 });
+            } else {
+              gsap.to(layer, { opacity: 0, duration: 0.3 });
+            }
+          });
+        }
+      });
+
+      function animateProduct() {
+        requestAnimationFrame(animateProduct);
+        productRenderer.render(productScene, productCamera);
+      }
+      animateProduct();
+
+      // ============================================
+      // Features Zoom Section
+      // ============================================
+      const zoomImage = document.getElementById('zoom-image');
+
+      ScrollTrigger.create({
+        trigger: '.features-zoom',
+        start: 'top top',
+        end: 'bottom bottom',
+        scrub: 1,
+        pin: false,
+        onUpdate: (self) => {
+          const scale = 2 - self.progress * 1.2;
+          const opacity = 0.3 + self.progress * 0.4;
+          gsap.set(zoomImage, { scale: scale, opacity: opacity });
+        }
+      });
+
+      // Animate content
+      gsap.to('.zoom-content h2', {
+        opacity: 1,
+        scale: 1,
+        scrollTrigger: {
+          trigger: '.features-zoom',
+          start: 'top center',
+          end: 'center center',
+          scrub: 1
+        }
+      });
+
+      gsap.to('.zoom-content p', {
+        opacity: 1,
+        scrollTrigger: {
+          trigger: '.features-zoom',
+          start: '20% center',
+          end: 'center center',
+          scrub: 1
+        }
+      });
+
+      // Counter animation
+      const detailPoints = document.querySelectorAll('.detail-point');
+      detailPoints.forEach((point, i) => {
+        const numberEl = point.querySelector('.detail-number');
+        const targetNumber = parseInt(numberEl.dataset.count);
+
+        ScrollTrigger.create({
+          trigger: '.features-zoom',
+          start: '40% center',
+          onEnter: () => {
+            gsap.to(point, {
+              opacity: 1,
+              y: 0,
+              duration: 0.6,
+              delay: i * 0.15
+            });
+
+            gsap.to(numberEl, {
+              innerHTML: targetNumber,
+              duration: 2,
+              snap: { innerHTML: 1 },
+              delay: i * 0.15
+            });
+          }
+        });
+      });
+
+      // ============================================
+      // Text Reveal Section
+      // ============================================
+      const revealWords = document.querySelectorAll('.reveal-text .word');
+
+      ScrollTrigger.create({
+        trigger: '.text-reveal',
+        start: 'top 80%',
+        end: 'bottom 20%',
+        scrub: 1,
+        onUpdate: (self) => {
+          const progress = self.progress;
+          const activeIndex = Math.floor(progress * revealWords.length);
+
+          revealWords.forEach((word, i) => {
+            if (i <= activeIndex) {
+              word.classList.add('active');
+            } else {
+              word.classList.remove('active');
+            }
+          });
+        }
+      });
+
+      // ============================================
+      // Gallery Parallax
+      // ============================================
+      const galleryRow1 = document.getElementById('gallery-row-1');
+      const galleryRow2 = document.getElementById('gallery-row-2');
+
+      gsap.to(galleryRow1, {
+        x: '10%',
+        ease: 'none',
+        scrollTrigger: {
+          trigger: '.gallery-parallax',
+          start: 'top bottom',
+          end: 'bottom top',
+          scrub: 1
+        }
+      });
+
+      gsap.to(galleryRow2, {
+        x: '-10%',
+        ease: 'none',
+        scrollTrigger: {
+          trigger: '.gallery-parallax',
+          start: 'top bottom',
+          end: 'bottom top',
+          scrub: 1
+        }
+      });
+
+      // ============================================
+      // Products Grid Animation
+      // ============================================
+      const productCards = gsap.utils.toArray('.product-card');
+
+      productCards.forEach((card, i) => {
+        gsap.from(card, {
+          y: 100,
+          opacity: 0,
+          duration: 0.8,
+          delay: i * 0.1,
+          scrollTrigger: {
+            trigger: card,
+            start: 'top 85%'
+          }
+        });
+      });
+
+      // ============================================
+      // Scroll Progress Dots
+      // ============================================
+      const sections = ['hero', 'categories', 'product-reveal', 'features', 'products'];
+      const dots = document.querySelectorAll('.scroll-dot');
+
+      sections.forEach((sectionId, i) => {
+        ScrollTrigger.create({
+          trigger: `#${sectionId}`,
+          start: 'top center',
+          end: 'bottom center',
+          onEnter: () => {
+            dots.forEach(d => d.classList.remove('active'));
+            dots[i].classList.add('active');
+          },
+          onEnterBack: () => {
+            dots.forEach(d => d.classList.remove('active'));
+            dots[i].classList.add('active');
+          }
+        });
+      });
+
+      // ============================================
+      // Resize Handler
+      // ============================================
+      window.addEventListener('resize', () => {
+        heroRenderer.setSize(window.innerWidth, window.innerHeight);
+        heroCamera.aspect = window.innerWidth / window.innerHeight;
+        heroCamera.updateProjectionMatrix();
+
+        productRenderer.setSize(productCanvas.parentElement.offsetWidth, productCanvas.parentElement.offsetHeight);
+
+        ScrollTrigger.refresh();
+      });
+    }
+  </script>
+</body>
+</html>

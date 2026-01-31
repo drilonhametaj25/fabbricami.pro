@@ -1,0 +1,709 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================
+   Theme CSS Variables
+   ============================================ */
+
+/* Default theme: Default Dark */
+:root {
+  /* Background colors */
+  --color-bg-primary: #0a0a0a;
+  --color-bg-secondary: #0f0f0f;
+  --color-bg-surface: #141414;
+  --color-bg-card: #1f1f1f;
+  --color-bg-hover: #2a2a2a;
+  --color-bg-overlay: #1a1a1a;
+
+  /* Text colors */
+  --color-text-primary: #ffffff;
+  --color-text-secondary: #a1a1aa;
+  --color-text-muted: #71717a;
+  --color-text-inverted: #0a0a0a;
+
+  /* Accent colors */
+  --color-accent: #c9a227;
+  --color-accent-hover: #d4b23a;
+  --color-accent-muted: rgba(201, 162, 39, 0.3);
+
+  /* Borders */
+  --color-border-default: rgba(255, 255, 255, 0.1);
+  --color-border-hover: rgba(255, 255, 255, 0.2);
+
+  /* Shadows */
+  --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.4);
+  --shadow-accent: 0 4px 20px -2px rgba(201, 162, 39, 0.25);
+
+  /* Typography */
+  --font-heading: 'Cormorant Garamond', serif;
+  --font-body: 'Inter', sans-serif;
+  --font-heading-weight: 600;
+
+  /* Transitions */
+  --transition-colors: color 0.3s ease, background-color 0.3s ease, border-color 0.3s ease;
+}
+
+/* ============================================
+   DEFAULT LAYOUT
+   ============================================ */
+
+/* Default Dark */
+[data-layout="default"][data-color-mode="dark"],
+.default.dark {
+  --color-bg-primary: #0a0a0a;
+  --color-bg-secondary: #0f0f0f;
+  --color-bg-surface: #141414;
+  --color-bg-card: #1f1f1f;
+  --color-bg-hover: #2a2a2a;
+  --color-bg-overlay: #1a1a1a;
+  --color-text-primary: #ffffff;
+  --color-text-secondary: #a1a1aa;
+  --color-text-muted: #71717a;
+  --color-text-inverted: #0a0a0a;
+  --color-accent: #c9a227;
+  --color-accent-hover: #d4b23a;
+  --color-accent-muted: rgba(201, 162, 39, 0.3);
+  --color-border-default: rgba(255, 255, 255, 0.1);
+  --color-border-hover: rgba(255, 255, 255, 0.2);
+  --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.4);
+  --shadow-accent: 0 4px 20px -2px rgba(201, 162, 39, 0.25);
+  --font-heading: 'Cormorant Garamond', serif;
+  --font-heading-weight: 600;
+}
+
+/* Default Light */
+[data-layout="default"][data-color-mode="light"],
+.default.light {
+  --color-bg-primary: #fafafa;
+  --color-bg-secondary: #f5f5f5;
+  --color-bg-surface: #ffffff;
+  --color-bg-card: #ffffff;
+  --color-bg-hover: #f0f0f0;
+  --color-bg-overlay: #ffffff;
+  --color-text-primary: #1a1a1a;
+  --color-text-secondary: #525252;
+  --color-text-muted: #737373;
+  --color-text-inverted: #ffffff;
+  --color-accent: #b8960f;
+  --color-accent-hover: #a08400;
+  --color-accent-muted: rgba(184, 150, 15, 0.2);
+  --color-border-default: rgba(0, 0, 0, 0.1);
+  --color-border-hover: rgba(0, 0, 0, 0.2);
+  --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.08);
+  --shadow-accent: 0 4px 20px -2px rgba(184, 150, 15, 0.2);
+  --font-heading: 'Cormorant Garamond', serif;
+  --font-heading-weight: 600;
+}
+
+/* ============================================
+   BIOSCIENCE LAYOUT
+   ============================================ */
+
+/* Bioscience Dark */
+[data-layout="bioscience"][data-color-mode="dark"],
+.bioscience.dark {
+  --color-bg-primary: #0f1514;
+  --color-bg-secondary: #141a19;
+  --color-bg-surface: #1a2120;
+  --color-bg-card: #1e2726;
+  --color-bg-hover: #252e2d;
+  --color-bg-overlay: #1a2120;
+  --color-text-primary: #e8ebe8;
+  --color-text-secondary: #a3aba8;
+  --color-text-muted: #6b7c78;
+  --color-text-inverted: #0f1514;
+  --color-accent: #6b9b9c;
+  --color-accent-hover: #7fb0b1;
+  --color-accent-muted: rgba(107, 155, 156, 0.3);
+  --color-border-default: rgba(255, 255, 255, 0.08);
+  --color-border-hover: rgba(255, 255, 255, 0.15);
+  --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.3);
+  --shadow-accent: 0 4px 20px -2px rgba(107, 155, 156, 0.2);
+  --font-heading: var(--font-manrope), 'Manrope', sans-serif;
+  --font-heading-weight: 400;
+}
+
+/* Bioscience Light */
+[data-layout="bioscience"][data-color-mode="light"],
+.bioscience.light {
+  --color-bg-primary: #f7f5f2;
+  --color-bg-secondary: #f0ede8;
+  --color-bg-surface: #ffffff;
+  --color-bg-card: #ffffff;
+  --color-bg-hover: #ebe8e3;
+  --color-bg-overlay: #ffffff;
+  --color-text-primary: #222f30;
+  --color-text-secondary: #4a5556;
+  --color-text-muted: #6b7c7d;
+  --color-text-inverted: #ffffff;
+  --color-accent: #445e5f;
+  --color-accent-hover: #3a5152;
+  --color-accent-muted: rgba(68, 94, 95, 0.15);
+  --color-border-default: rgba(34, 47, 48, 0.1);
+  --color-border-hover: rgba(34, 47, 48, 0.2);
+  --shadow-card: 0 4px 20px rgba(34, 47, 48, 0.08);
+  --shadow-accent: 0 4px 20px -2px rgba(68, 94, 95, 0.15);
+  --font-heading: var(--font-manrope), 'Manrope', sans-serif;
+  --font-heading-weight: 400;
+}
+
+/* ============================================
+   HERITAGE LAYOUT
+   ============================================ */
+
+/* Heritage Dark */
+[data-layout="heritage"][data-color-mode="dark"],
+.heritage.dark {
+  --color-bg-primary: #1a1614;
+  --color-bg-secondary: #1f1b18;
+  --color-bg-surface: #262220;
+  --color-bg-card: #2c2724;
+  --color-bg-hover: #332e2a;
+  --color-bg-overlay: #262220;
+  --color-text-primary: #f0ebe8;
+  --color-text-secondary: #b8aea6;
+  --color-text-muted: #8a7d74;
+  --color-text-inverted: #1a1614;
+  --color-accent: #d4693d;
+  --color-accent-hover: #e07a4e;
+  --color-accent-muted: rgba(212, 105, 61, 0.3);
+  --color-border-default: rgba(255, 255, 255, 0.08);
+  --color-border-hover: rgba(255, 255, 255, 0.15);
+  --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.3);
+  --shadow-accent: 0 4px 20px -2px rgba(212, 105, 61, 0.25);
+  --font-heading: var(--font-dm-sans), 'DM Sans', sans-serif;
+  --font-heading-weight: 500;
+}
+
+/* Heritage Light */
+[data-layout="heritage"][data-color-mode="light"],
+.heritage.light {
+  --color-bg-primary: #ebf0eb;
+  --color-bg-secondary: #e3e8e3;
+  --color-bg-surface: #ffffff;
+  --color-bg-card: #ffffff;
+  --color-bg-hover: #dce2dc;
+  --color-bg-overlay: #ffffff;
+  --color-text-primary: #121212;
+  --color-text-secondary: #4a4540;
+  --color-text-muted: #8a6d5e;
+  --color-text-inverted: #ffffff;
+  --color-accent: #ad4b1a;
+  --color-accent-hover: #964012;
+  --color-accent-muted: rgba(173, 75, 26, 0.15);
+  --color-border-default: rgba(18, 18, 18, 0.1);
+  --color-border-hover: rgba(18, 18, 18, 0.2);
+  --shadow-card: 0 4px 20px rgba(18, 18, 18, 0.08);
+  --shadow-accent: 0 4px 20px -2px rgba(173, 75, 26, 0.2);
+  --font-heading: var(--font-dm-sans), 'DM Sans', sans-serif;
+  --font-heading-weight: 500;
+}
+
+/* ============================================
+   COSMOS LAYOUT
+   ============================================ */
+
+/* Cosmos Dark */
+[data-layout="cosmos"][data-color-mode="dark"],
+.cosmos.dark {
+  --color-bg-primary: #0a1020;
+  --color-bg-secondary: #0e1428;
+  --color-bg-surface: #121830;
+  --color-bg-card: #181e38;
+  --color-bg-hover: #1e2540;
+  --color-bg-overlay: #121830;
+  --color-text-primary: #e2e8f0;
+  --color-text-secondary: #94a3b8;
+  --color-text-muted: #64748b;
+  --color-text-inverted: #0a1020;
+  --color-accent: #22c8ff;
+  --color-accent-hover: #4dd4ff;
+  --color-accent-muted: rgba(34, 200, 255, 0.3);
+  --color-border-default: rgba(255, 255, 255, 0.08);
+  --color-border-hover: rgba(255, 255, 255, 0.15);
+  --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.4);
+  --shadow-accent: 0 4px 20px -2px rgba(34, 200, 255, 0.25);
+  --font-heading: 'Inter', sans-serif;
+  --font-heading-weight: 700;
+}
+
+/* Cosmos Light */
+[data-layout="cosmos"][data-color-mode="light"],
+.cosmos.light {
+  --color-bg-primary: #ffffff;
+  --color-bg-secondary: #f8fafc;
+  --color-bg-surface: #ffffff;
+  --color-bg-card: #ffffff;
+  --color-bg-hover: #f1f5f9;
+  --color-bg-overlay: #ffffff;
+  --color-text-primary: #1e293b;
+  --color-text-secondary: #475569;
+  --color-text-muted: #64748b;
+  --color-text-inverted: #ffffff;
+  --color-accent: #00a6e2;
+  --color-accent-hover: #0090c7;
+  --color-accent-muted: rgba(0, 166, 226, 0.15);
+  --color-border-default: rgba(30, 41, 59, 0.1);
+  --color-border-hover: rgba(30, 41, 59, 0.2);
+  --shadow-card: 0 4px 20px rgba(30, 41, 59, 0.08);
+  --shadow-accent: 0 4px 20px -2px rgba(0, 166, 226, 0.2);
+  --font-heading: 'Inter', sans-serif;
+  --font-heading-weight: 700;
+}
+
+/* ============================================
+   NORDIC LAYOUT
+   ============================================ */
+
+/* Nordic Dark */
+[data-layout="nordic"][data-color-mode="dark"],
+.nordic.dark {
+  --color-bg-primary: #0a0a0c;
+  --color-bg-secondary: #101012;
+  --color-bg-surface: #16161a;
+  --color-bg-card: #1c1c20;
+  --color-bg-hover: #232328;
+  --color-bg-overlay: #16161a;
+  --color-text-primary: #e5e5e5;
+  --color-text-secondary: #a3a3a3;
+  --color-text-muted: #737373;
+  --color-text-inverted: #0a0a0c;
+  --color-accent: #8ac8f0;
+  --color-accent-hover: #a0d4f5;
+  --color-accent-muted: rgba(138, 200, 240, 0.3);
+  --color-border-default: rgba(255, 255, 255, 0.08);
+  --color-border-hover: rgba(255, 255, 255, 0.15);
+  --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.3);
+  --shadow-accent: 0 4px 20px -2px rgba(138, 200, 240, 0.2);
+  --font-heading: var(--font-dm-sans), 'DM Sans', sans-serif;
+  --font-heading-weight: 400;
+}
+
+/* Nordic Light */
+[data-layout="nordic"][data-color-mode="light"],
+.nordic.light {
+  --color-bg-primary: #ffffff;
+  --color-bg-secondary: #fafafa;
+  --color-bg-surface: #ffffff;
+  --color-bg-card: #ffffff;
+  --color-bg-hover: #f5f5f7;
+  --color-bg-overlay: #ffffff;
+  --color-text-primary: #333333;
+  --color-text-secondary: #666666;
+  --color-text-muted: #a9a9a9;
+  --color-text-inverted: #ffffff;
+  --color-accent: #65b2e8;
+  --color-accent-hover: #4da3de;
+  --color-accent-muted: rgba(101, 178, 232, 0.15);
+  --color-border-default: rgba(51, 51, 51, 0.1);
+  --color-border-hover: rgba(51, 51, 51, 0.2);
+  --shadow-card: 0 4px 20px rgba(51, 51, 51, 0.06);
+  --shadow-accent: 0 4px 20px -2px rgba(101, 178, 232, 0.15);
+  --font-heading: var(--font-dm-sans), 'DM Sans', sans-serif;
+  --font-heading-weight: 400;
+}
+
+/* ============================================
+   Base Styles
+   ============================================ */
+
+@layer base {
+  html {
+    @apply scroll-smooth;
+    scroll-behavior: smooth;
+    transition: var(--transition-colors);
+  }
+
+  body {
+    background-color: var(--color-bg-primary);
+    color: var(--color-text-primary);
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    transition: var(--transition-colors);
+  }
+
+  ::selection {
+    background-color: var(--color-accent-muted);
+    color: var(--color-text-primary);
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background-color: var(--color-bg-secondary);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--color-accent-muted);
+    border-radius: 9999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--color-accent);
+  }
+}
+
+/* ============================================
+   Typography
+   ============================================ */
+
+@layer components {
+  .heading-display {
+    font-family: var(--font-heading);
+    font-weight: var(--font-heading-weight);
+    @apply tracking-tight;
+  }
+
+  .heading-1 {
+    @apply heading-display text-display-lg md:text-display-xl;
+  }
+
+  .heading-2 {
+    @apply heading-display text-display-md md:text-display-lg;
+  }
+
+  .heading-3 {
+    @apply heading-display text-display-sm md:text-display-md;
+  }
+
+  .heading-4 {
+    font-family: var(--font-heading);
+    @apply text-3xl md:text-4xl font-medium;
+  }
+
+  .body-large {
+    @apply text-lg md:text-xl font-light leading-relaxed;
+    color: var(--color-text-secondary);
+  }
+
+  .body-base {
+    @apply text-base leading-relaxed;
+  }
+
+  .body-small {
+    @apply text-sm leading-relaxed;
+  }
+
+  .label {
+    @apply text-xs uppercase tracking-widest font-medium;
+    color: var(--color-text-muted);
+  }
+}
+
+/* ============================================
+   Buttons
+   ============================================ */
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 px-6 py-3 text-sm font-medium
+           rounded-full transition-all duration-300 ease-out-expo
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply btn active:scale-95;
+    background-color: var(--color-accent);
+    color: var(--color-text-inverted);
+  }
+
+  .btn-primary:hover {
+    background-color: var(--color-accent-hover);
+    box-shadow: var(--shadow-accent);
+  }
+
+  .btn-secondary {
+    @apply btn active:scale-95;
+    background-color: transparent;
+    border: 1px solid var(--color-border-default);
+    color: var(--color-text-primary);
+  }
+
+  .btn-secondary:hover {
+    background-color: var(--color-bg-hover);
+    border-color: var(--color-border-hover);
+  }
+
+  .btn-ghost {
+    @apply btn;
+    background-color: transparent;
+    color: var(--color-text-primary);
+  }
+
+  .btn-ghost:hover {
+    background-color: var(--color-bg-hover);
+  }
+
+  .btn-icon {
+    @apply p-3 rounded-full transition-all duration-300 active:scale-90;
+  }
+
+  .btn-icon:hover {
+    background-color: var(--color-bg-hover);
+  }
+
+  .btn-large {
+    @apply px-8 py-4 text-base;
+  }
+
+  .btn-small {
+    @apply px-4 py-2 text-xs;
+  }
+}
+
+/* ============================================
+   Cards
+   ============================================ */
+
+@layer components {
+  .card {
+    @apply rounded-2xl overflow-hidden transition-all duration-500 ease-out-expo;
+    background-color: var(--color-bg-card);
+    box-shadow: var(--shadow-card);
+  }
+
+  .card-hover {
+    @apply card hover:-translate-y-1;
+  }
+
+  .card-hover:hover {
+    background-color: var(--color-bg-hover);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+  }
+
+  .card-interactive {
+    @apply card-hover cursor-pointer active:scale-[0.98];
+  }
+}
+
+/* ============================================
+   Product Card
+   ============================================ */
+
+@layer components {
+  .product-card {
+    @apply relative overflow-hidden;
+  }
+
+  .product-card-image {
+    @apply aspect-[4/5] w-full overflow-hidden;
+    background-color: var(--color-bg-surface);
+  }
+
+  .product-card-image img {
+    @apply w-full h-full object-cover transition-transform duration-700 ease-out-expo;
+  }
+
+  .product-card:hover .product-card-image img {
+    @apply scale-105;
+  }
+
+  .product-card-overlay {
+    @apply absolute inset-0 opacity-0 transition-opacity duration-500;
+    background: linear-gradient(to top, rgba(0,0,0,0.6), transparent, transparent);
+  }
+
+  .product-card:hover .product-card-overlay {
+    @apply opacity-100;
+  }
+
+  .product-card-actions {
+    @apply absolute bottom-4 left-4 right-4 flex gap-2
+           translate-y-4 opacity-0 transition-all duration-500;
+  }
+
+  .product-card:hover .product-card-actions {
+    @apply translate-y-0 opacity-100;
+  }
+}
+
+/* ============================================
+   Forms
+   ============================================ */
+
+@layer components {
+  .input {
+    @apply w-full px-4 py-3 rounded-xl transition-all duration-300;
+    background-color: var(--color-bg-surface);
+    border: 1px solid var(--color-border-default);
+    color: var(--color-text-primary);
+  }
+
+  .input::placeholder {
+    color: var(--color-text-muted);
+  }
+
+  .input:focus {
+    outline: none;
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 2px var(--color-accent-muted);
+  }
+
+  .input-error {
+    @apply border-error focus:border-error focus:ring-error/20;
+  }
+
+  .label-text {
+    @apply block text-sm font-medium mb-2;
+    color: var(--color-text-secondary);
+  }
+
+  .error-text {
+    @apply text-xs text-error mt-1;
+  }
+}
+
+/* ============================================
+   Loading States
+   ============================================ */
+
+@layer components {
+  .skeleton {
+    @apply relative overflow-hidden rounded-lg;
+    background-color: var(--color-bg-surface);
+  }
+
+  .skeleton::after {
+    @apply absolute inset-0;
+    content: '';
+    background: linear-gradient(
+      90deg,
+      transparent,
+      var(--color-bg-hover),
+      transparent
+    );
+    animation: shimmer 1.5s infinite;
+  }
+
+  @keyframes shimmer {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(100%);
+    }
+  }
+}
+
+/* ============================================
+   Scrollbar Hide
+   ============================================ */
+
+@layer utilities {
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+/* ============================================
+   Prose (for product descriptions)
+   ============================================ */
+
+.prose {
+  line-height: 1.75;
+  color: var(--color-text-secondary);
+}
+
+.prose p {
+  margin-bottom: 1em;
+}
+
+.prose ul,
+.prose ol {
+  margin-left: 1.5em;
+  margin-bottom: 1em;
+}
+
+.prose li {
+  margin-bottom: 0.5em;
+}
+
+.prose strong {
+  color: var(--color-text-primary);
+}
+
+.prose a {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
+/* ============================================
+   Custom Cursor
+   ============================================ */
+
+@layer utilities {
+  /* Hide default cursor when custom cursor is active */
+  .custom-cursor-active,
+  .custom-cursor-active * {
+    cursor: none !important;
+  }
+}
+
+/* Cursor hover effects for interactive elements */
+@media (hover: hover) and (pointer: fine) {
+  body:has(.custom-cursor-container) {
+    cursor: none;
+  }
+
+  body:has(.custom-cursor-container) a,
+  body:has(.custom-cursor-container) button,
+  body:has(.custom-cursor-container) [role="button"],
+  body:has(.custom-cursor-container) input,
+  body:has(.custom-cursor-container) textarea,
+  body:has(.custom-cursor-container) select,
+  body:has(.custom-cursor-container) [data-cursor-hover] {
+    cursor: none;
+  }
+}
+
+/* ============================================
+   GSAP Animations
+   ============================================ */
+
+@layer utilities {
+  /* Initial states for GSAP animations */
+  .gsap-fade-up {
+    opacity: 0;
+    transform: translateY(40px);
+  }
+
+  .gsap-fade-down {
+    opacity: 0;
+    transform: translateY(-40px);
+  }
+
+  .gsap-fade-left {
+    opacity: 0;
+    transform: translateX(-40px);
+  }
+
+  .gsap-fade-right {
+    opacity: 0;
+    transform: translateX(40px);
+  }
+
+  .gsap-scale-in {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+
+  /* Will-change for performance */
+  .will-change-transform {
+    will-change: transform;
+  }
+
+  .will-change-opacity {
+    will-change: opacity;
+  }
+}
