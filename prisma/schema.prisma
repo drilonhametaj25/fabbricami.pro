@@ -1,0 +1,3935 @@
+// Prisma Schema per EcommerceERP
+// Database: PostgreSQL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USERS & AUTHENTICATION
+// ============================================
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  CONTABILE
+  MAGAZZINIERE
+  OPERATORE
+  COMMERCIALE
+  VIEWER
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  password     String
+  firstName    String    @map("first_name")
+  lastName     String    @map("last_name")
+  role         UserRole  @default(VIEWER)
+  isActive     Boolean   @default(true) @map("is_active")
+  lastLogin    DateTime? @map("last_login")
+  refreshToken String?   @map("refresh_token")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  employee                Employee?
+  tasks                   Task[]                   @relation("AssignedTasks")
+  createdTasks            Task[]                   @relation("CreatedByUser")
+  auditLogs               AuditLog[]
+  notifications           Notification[]
+  // Manufacturing relations
+  createdProductionOrders ProductionOrder[]        @relation("CreatedProductionOrders")
+  // Order notes
+  orderNotes              OrderNote[]
+  // Dashboard preferences
+  dashboardPreference     UserDashboardPreference?
+
+  @@map("users")
+}
+
+// ============================================
+// COMPANY SETTINGS (Dati aziendali per fatturazione)
+// ============================================
+
+model CompanySettings {
+  id String @id @default(uuid())
+
+  // Dati Azienda
+  companyName   String   @map("company_name")
+  legalName     String?  @map("legal_name")
+  vatNumber     String   @map("vat_number") // Partita IVA
+  fiscalCode    String?  @map("fiscal_code") // Codice Fiscale
+  reaNumber     String?  @map("rea_number") // Numero REA
+  capitalAmount Decimal? @map("capital_amount") @db.Decimal(12, 2)
+  legalForm     String?  @map("legal_form") // S.r.l., S.p.A., etc
+
+  // Indirizzo legale
+  address    String
+  city       String
+  province   String @db.VarChar(2) // Sigla provincia (MI, RM, etc)
+  postalCode String @map("postal_code") @db.VarChar(5)
+  country    String @default("IT") @db.VarChar(2)
+
+  // Contatti
+  phone   String?
+  email   String
+  pec     String? // PEC per fatturazione
+  website String?
+
+  // SDI (Sistema di Interscambio)
+  sdiCode              String? @map("sdi_code") @db.VarChar(7) // Codice destinatario SDI
+  sdiPec               String? @map("sdi_pec") // PEC per SDI
+  sdiProvider          String? @map("sdi_provider") // Es: "aruba", "infocert"
+  sdiProviderApiKey    String? @map("sdi_provider_api_key")
+  sdiProviderApiSecret String? @map("sdi_provider_api_secret")
+  sdiProviderEndpoint  String? @map("sdi_provider_endpoint")
+
+  // Regime fiscale
+  taxRegime String @default("RF01") @map("tax_regime") // RF01=Ordinario, RF19=Forfettario, etc
+
+  // Cassa Previdenziale (per professionisti)
+  socialSecurityType String?  @map("social_security_type") // TC01, TC02, etc
+  socialSecurityRate Decimal? @map("social_security_rate") @db.Decimal(5, 2)
+
+  // Ritenuta d'acconto (per professionisti)
+  withholdingTaxType String?  @map("withholding_tax_type") // RT01, RT02
+  withholdingTaxRate Decimal? @map("withholding_tax_rate") @db.Decimal(5, 2)
+
+  // Logo e branding
+  logoUrl String? @map("logo_url")
+
+  // Numerazione documenti
+  invoicePrefix        String @default("FV") @map("invoice_prefix")
+  invoiceNextNumber    Int    @default(1) @map("invoice_next_number")
+  creditNotePrefix     String @default("NC") @map("credit_note_prefix")
+  creditNoteNextNumber Int    @default(1) @map("credit_note_next_number")
+  ddtPrefix            String @default("DDT") @map("ddt_prefix")
+  ddtNextNumber        Int    @default(1) @map("ddt_next_number")
+
+  // Note default
+  invoiceFooterNotes  String? @map("invoice_footer_notes") @db.Text
+  paymentInstructions String? @map("payment_instructions") @db.Text
+
+  // Banca
+  bankName String? @map("bank_name")
+  iban     String? @db.VarChar(34)
+  bic      String? @db.VarChar(11) // Swift/BIC
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("company_settings")
+}
+
+// ============================================
+// WAREHOUSE
+// ============================================
+
+model Warehouse {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  name        String
+  description String?  @db.Text
+  address     Json? // {street, city, zip, country}
+  isActive    Boolean  @default(true) @map("is_active")
+  isPrimary   Boolean  @default(false) @map("is_primary") // Magazzino principale
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  inventoryItems       InventoryItem[]
+  // Manufacturing relations
+  materialConsumptions MaterialConsumption[]
+  // Material relations
+  materialInventory    MaterialInventory[]
+  // Goods receipts
+  goodsReceipts        GoodsReceipt[]
+  // Physical inventory
+  physicalCountSessions PhysicalCountSession[]
+
+  @@map("warehouses")
+}
+
+// ============================================
+// MATERIALS (Separato da Product)
+// ============================================
+
+model Material {
+  id              String   @id @default(uuid())
+  sku             String   @unique
+  name            String
+  description     String?  @db.Text
+  unit            String   @default("pz") // pz, kg, m, ml, g, etc
+  cost            Decimal  @db.Decimal(10, 4) // Costo unitario
+  minStock        Int      @default(0) @map("min_stock")
+  currentStock    Int      @default(0) @map("current_stock")
+  reorderPoint    Int      @default(0) @map("reorder_point")
+  reorderQuantity Int      @default(0) @map("reorder_quantity")
+  leadTimeDays    Int      @default(7) @map("lead_time_days")
+  supplierId      String?  @map("supplier_id")
+  category        String? // Categoria materiale
+  isConsumable    Boolean  @default(false) @map("is_consumable") // Guanti, detergenti, etc
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  supplier           Supplier?             @relation("MaterialSupplier", fields: [supplierId], references: [id])
+  phaseMaterials     PhaseMaterial[]
+  inventoryItems     MaterialInventory[]
+  movements          MaterialMovement[]
+  consumptions       MaterialConsumption[]
+  // Composizione prodotti (per etichetta/tracciabilità)
+  productMaterials   ProductMaterial[]
+  // Stock alerts
+  stockAlerts        StockAlert[]
+  // Supplier items and purchasing
+  supplierItems        SupplierItem[]
+  purchaseOrderItems   PurchaseOrderItem[]
+  goodsReceiptItems    GoodsReceiptItem[]
+  supplierInvoiceItems SupplierInvoiceItem[]
+  // Suggestions
+  suggestions        Suggestion[]          @relation("SuggestionMaterial")
+  // Physical inventory
+  physicalCountItems PhysicalCountItem[]   @relation("PhysicalCountMaterial")
+
+  @@index([sku])
+  @@index([supplierId])
+  @@index([category])
+  @@map("materials")
+}
+
+model MaterialInventory {
+  id               String            @id @default(uuid())
+  materialId       String            @map("material_id")
+  warehouseId      String            @map("warehouse_id")
+  location         InventoryLocation
+  quantity         Int               @default(0)
+  reservedQuantity Int               @default(0) @map("reserved_quantity")
+  lotNumber        String?           @map("lot_number")
+  expiryDate       DateTime?         @map("expiry_date")
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+
+  // Relations
+  material  Material  @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id])
+
+  @@unique([materialId, warehouseId, location, lotNumber])
+  @@index([materialId])
+  @@index([warehouseId])
+  @@map("material_inventory")
+}
+
+model MaterialMovement {
+  id           String             @id @default(uuid())
+  materialId   String             @map("material_id")
+  fromLocation InventoryLocation? @map("from_location")
+  toLocation   InventoryLocation? @map("to_location")
+  type         MovementType
+  quantity     Int
+  lotNumber    String?            @map("lot_number")
+  reference    String? // Riferimento ordine/documento
+  notes        String?            @db.Text
+  performedBy  String?            @map("performed_by")
+  createdAt    DateTime           @default(now()) @map("created_at")
+
+  // Relations
+  material    Material             @relation(fields: [materialId], references: [id])
+  consumption MaterialConsumption?
+
+  @@index([materialId])
+  @@index([type])
+  @@index([createdAt])
+  @@map("material_movements")
+}
+
+// ============================================
+// PRODUCTS & BOM
+// ============================================
+
+enum ProductType {
+  SIMPLE // Prodotto semplice
+  WITH_VARIANTS // Prodotto con varianti
+  RAW_MATERIAL // Materiale grezzo
+  DIGITAL // Prodotto digitale (come WordPress)
+}
+
+model Product {
+  id              String      @id @default(uuid())
+  sku             String      @unique
+  name            String
+  description     String?     @db.Text
+  type            ProductType @default(SIMPLE)
+  category        String? // Categoria prodotto per analytics
+  unit            String      @default("pz") // Unità di misura (pz, kg, m, ml, etc)
+  barcode         String?     @unique
+  cost            Decimal     @default(0) @db.Decimal(10, 2)
+  price           Decimal     @default(0) @db.Decimal(10, 2)
+  weight          Decimal?    @db.Decimal(10, 3) // kg
+  dimensions      Json? // {width, height, depth} cm
+  minStockLevel   Int         @default(0) @map("min_stock_level")
+  reorderQuantity Int         @default(0) @map("reorder_quantity")
+  leadTimeDays    Int         @default(0) @map("lead_time_days") // Tempo consegna fornitore
+  isActive        Boolean     @default(true) @map("is_active")
+  isSellable      Boolean     @default(true) @map("is_sellable") // Distingue prodotti da materiali
+
+  // Gestione scorte
+  minStock     Int  @default(0) @map("min_stock") // Scorta minima
+  maxStock     Int? @map("max_stock") // Scorta massima
+  reorderPoint Int  @default(0) @map("reorder_point") // Punto di riordino
+
+  // WordPress/WooCommerce - Identificatori
+  wordpressId   Int?      @unique @map("wordpress_id")
+  woocommerceId Int?      @unique @map("woocommerce_id")
+  syncStatus    String    @default("NOT_SYNCED") @map("sync_status") // NOT_SYNCED, SYNCED, PENDING, ERROR
+  lastSyncAt    DateTime? @map("last_sync_at")
+
+  // WooCommerce - Date
+  wcDateCreated  DateTime? @map("wc_date_created")
+  wcDateModified DateTime? @map("wc_date_modified")
+  wcPermalink    String?   @map("wc_permalink")
+
+  // WooCommerce - Stato e visibilità
+  wcStatus            String? @map("wc_status") // publish, draft, pending, private
+  wcFeatured          Boolean @default(false) @map("wc_featured")
+  wcCatalogVisibility String  @default("visible") @map("wc_catalog_visibility") // visible, catalog, search, hidden
+  wcMenuOrder         Int     @default(0) @map("wc_menu_order")
+
+  // WooCommerce - Prezzi e saldi
+  wcSalePrice      Decimal?  @map("wc_sale_price") @db.Decimal(10, 2)
+  wcOnSale         Boolean   @default(false) @map("wc_on_sale")
+  wcDateOnSaleFrom DateTime? @map("wc_date_on_sale_from")
+  wcDateOnSaleTo   DateTime? @map("wc_date_on_sale_to")
+  wcPriceHtml      String?   @map("wc_price_html") // HTML formattato del prezzo
+
+  // WooCommerce - Stock
+  wcStockStatus       String  @default("instock") @map("wc_stock_status") // instock, outofstock, onbackorder
+  wcBackorders        String  @default("no") @map("wc_backorders") // no, notify, yes
+  wcBackordersAllowed Boolean @default(false) @map("wc_backorders_allowed")
+  wcSoldIndividually  Boolean @default(false) @map("wc_sold_individually")
+
+  // WooCommerce - Spedizione e tasse
+  shippingClassSlug String? @map("shipping_class") // Slug classe spedizione (legacy, mantenuto per compatibilità)
+  shippingClassId   String? @map("shipping_class_id") // Relazione a ShippingClass
+  taxStatus         String  @default("taxable") @map("tax_status") // taxable, shipping, none
+  taxClass          String  @default("standard") @map("tax_class") // standard, reduced-rate, zero-rate
+  taxRate           Decimal @default(22) @map("tax_rate") @db.Decimal(5, 2) // Aliquota IVA default (22% Italia)
+  wcPurchasable     Boolean @default(true) @map("wc_purchasable")
+
+  // WooCommerce - Recensioni e statistiche
+  wcReviewsAllowed Boolean  @default(true) @map("wc_reviews_allowed")
+  wcAverageRating  Decimal? @map("wc_average_rating") @db.Decimal(3, 2)
+  wcRatingCount    Int      @default(0) @map("wc_rating_count")
+  wcTotalSales     Int      @default(0) @map("wc_total_sales")
+
+  // WooCommerce - Prodotti correlati
+  wcRelatedIds   Json? @map("wc_related_ids") // [id1, id2, ...]
+  wcUpsellIds    Json? @map("wc_upsell_ids") // [id1, id2, ...]
+  wcCrossSellIds Json? @map("wc_cross_sell_ids") // [id1, id2, ...]
+
+  // WooCommerce - Note e prodotti esterni
+  wcPurchaseNote String? @map("wc_purchase_note") @db.Text
+  wcExternalUrl  String? @map("wc_external_url") // Per prodotti external
+  wcButtonText   String? @map("wc_button_text") // Per prodotti external
+
+  // WooCommerce - Prodotti grouped/parent
+  wcParentId        Int?  @map("wc_parent_id")
+  wcGroupedProducts Json? @map("wc_grouped_products") // [id1, id2, ...] per prodotti grouped
+
+  // WooCommerce - Prodotti virtuali/downloadable
+  wcVirtual        Boolean @default(false) @map("wc_virtual")
+  wcDownloadable   Boolean @default(false) @map("wc_downloadable")
+  wcDownloadLimit  Int     @default(-1) @map("wc_download_limit") // -1 = illimitato
+  wcDownloadExpiry Int     @default(-1) @map("wc_download_expiry") // -1 = mai scade
+
+  // WooCommerce - Identificatori prodotto (GTIN, UPC, etc)
+  wcGlobalUniqueId String? @map("wc_global_unique_id") // GTIN/UPC/EAN
+
+  // WooCommerce - Attributi default (per prodotti variabili)
+  wcDefaultAttributes Json? @map("wc_default_attributes") // [{name, option}]
+
+  // WooCommerce - Tags
+  wcTags Json? @map("wc_tags") // [{id, name, slug}]
+
+  // WooCommerce - Meta data
+  wcMetaData Json? @map("wc_meta_data") // Tutti i meta data
+
+  // Immagine principale (separata dalla galleria)
+  mainImageUrl String? @map("main_image_url") // URL immagine principale
+  mainImageId  Int?    @map("main_image_id") // WooCommerce image ID
+
+  // Web-specific fields (per WooCommerce)
+  webPrice            Decimal? @map("web_price") @db.Decimal(10, 2) // Prezzo web (diverso da B2B)
+  webDescription      String?  @map("web_description") @db.Text // Descrizione SEO
+  webShortDescription String?  @map("web_short_description") @db.Text // Descrizione breve
+  webActive           Boolean  @default(false) @map("web_active") // Pubblica su sito web
+  webSlug             String?  @map("web_slug") // URL slug WooCommerce
+  webMetaTitle        String?  @map("web_meta_title") // Meta title SEO
+  webMetaDescription  String?  @map("web_meta_description") // Meta description SEO
+  webAttributes       Json?    @map("web_attributes") // [{name: "Colore", options: ["Rosso", "Blu"]}]
+  downloadFiles       Json?    @map("download_files") // Per digitali: [{name, url, expiry?}]
+
+  // Immagini
+  images Json @default("[]") // Array di URL immagini ordinate
+
+  supplierId String?  @map("supplier_id") // Fornitore principale per materiali
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  supplier            Supplier?                   @relation(fields: [supplierId], references: [id])
+  shippingClass       ShippingClass?              @relation(fields: [shippingClassId], references: [id])
+  variants            ProductVariant[]
+  bomItems            BomItem[]                   @relation("ParentProduct")
+  bomComponents       BomItem[]                   @relation("ComponentProduct")
+  operations          ProductOperation[]
+  inventory           InventoryItem[]
+  orderItems          OrderItem[]
+  purchaseOrderItems  PurchaseOrderItem[]
+  movements           InventoryMovement[]
+  // WooCommerce relations
+  categories          ProductCategoryAssignment[]
+  productImages       ProductImage[]
+  // Manufacturing relations
+  manufacturingPhases ManufacturingPhase[]
+  productionOrders    ProductionOrder[]
+  // Composizione materiali (per etichetta/tracciabilità)
+  productMaterials    ProductMaterial[]
+  // Price list relations
+  priceListItems      PriceListItem[]
+  // Stock alerts
+  stockAlerts         StockAlert[]
+  // Ideation/upfront costs for break-even analysis
+  ideationCosts       ProductIdeationCost[]
+  // Supplier items and purchasing
+  supplierItems        SupplierItem[]
+  goodsReceiptItems    GoodsReceiptItem[]
+  supplierInvoiceItems SupplierInvoiceItem[]
+  // E-commerce relations
+  cartItems           CartItem[]
+  wishlistItems       WishlistItem[]
+  reviews             ProductReview[]
+  // DDT and Suggestions relations
+  ddtItems            DDTItem[]
+  suggestions         Suggestion[]
+  // Physical inventory
+  physicalCountItems  PhysicalCountItem[]
+  // RMA relations
+  rmaItems            RMAItem[]
+
+  @@index([sku])
+  @@index([barcode])
+  @@index([type])
+  @@index([isSellable])
+  @@index([supplierId])
+  @@index([woocommerceId])
+  @@index([syncStatus])
+  @@index([shippingClassId])
+  @@map("products")
+}
+
+// Tipi di costi di ideazione/sviluppo prodotto
+enum IdeationCostType {
+  DESIGN // Design e prototipazione
+  RESEARCH // Ricerca e sviluppo
+  TOOLING // Attrezzature e stampi
+  MARKETING // Marketing iniziale
+  CERTIFICATION // Certificazioni e test
+  OTHER // Altri costi iniziali
+}
+
+// Costi di ideazione prodotto (one-time upfront costs per break-even analysis)
+model ProductIdeationCost {
+  id             String           @id @default(uuid())
+  productId      String           @map("product_id")
+  type           IdeationCostType
+  description    String
+  amount         Decimal          @db.Decimal(10, 2)
+  date           DateTime         @default(now())
+  amortizedUnits Int?             @map("amortized_units") // Su quante unità ammortizzare (opzionale)
+  notes          String?          @db.Text
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+
+  // Relations
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([type])
+  @@map("product_ideation_costs")
+}
+
+model ProductVariant {
+  id         String  @id @default(uuid())
+  productId  String  @map("product_id")
+  sku        String  @unique
+  name       String
+  attributes Json // {color: "red", size: "M"}
+  barcode    String? @unique
+  costDelta  Decimal @default(0) @map("cost_delta") @db.Decimal(10, 2)
+  priceDelta Decimal @default(0) @map("price_delta") @db.Decimal(10, 2)
+  isActive   Boolean @default(true) @map("is_active")
+
+  // Campi fisici (per varianti che differiscono in peso/dimensioni)
+  weight     Decimal? @db.Decimal(10, 3) // kg
+  dimensions Json? // {width, height, depth} cm
+
+  // WooCommerce fields
+  woocommerceVariationId Int?     @unique @map("woocommerce_variation_id")
+  webPrice               Decimal? @map("web_price") @db.Decimal(10, 2)
+  webActive              Boolean  @default(true) @map("web_active")
+  mainImageUrl           String?  @map("main_image_url") // Immagine variante
+  mainImageId            Int?     @map("main_image_id") // WooCommerce image ID
+  webDescription         String?  @map("web_description") @db.Text // Descrizione variante
+
+  // WooCommerce - Prezzi e saldi variante
+  wcSalePrice      Decimal?  @map("wc_sale_price") @db.Decimal(10, 2)
+  wcOnSale         Boolean   @default(false) @map("wc_on_sale")
+  wcDateOnSaleFrom DateTime? @map("wc_date_on_sale_from")
+  wcDateOnSaleTo   DateTime? @map("wc_date_on_sale_to")
+
+  // WooCommerce - Stock variante
+  wcStockStatus String  @default("instock") @map("wc_stock_status") // instock, outofstock, onbackorder
+  wcBackorders  String  @default("no") @map("wc_backorders") // no, notify, yes
+  wcManageStock Boolean @default(false) @map("wc_manage_stock")
+
+  // WooCommerce - Tipo variante
+  wcVirtual        Boolean @default(false) @map("wc_virtual")
+  wcDownloadable   Boolean @default(false) @map("wc_downloadable")
+  wcDownloads      Json?   @map("wc_downloads") // [{name, file}]
+  wcDownloadLimit  Int     @default(-1) @map("wc_download_limit")
+  wcDownloadExpiry Int     @default(-1) @map("wc_download_expiry")
+
+  // WooCommerce - Menu order
+  wcMenuOrder Int @default(0) @map("wc_menu_order")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  product            Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
+  inventory          InventoryItem[]
+  orderItems         OrderItem[]
+  images             ProductImage[]
+  // E-commerce relations
+  cartItems          CartItem[]
+  wishlistItems      WishlistItem[]
+  // BOM e Movimenti per variante
+  materials          ProductMaterial[]
+  inventoryMovements InventoryMovement[]
+  // DDT relations
+  ddtItems           DDTItem[]
+  // Physical inventory
+  physicalCountItems PhysicalCountItem[]
+  // RMA relations
+  rmaItems           RMAItem[]
+
+  @@index([productId])
+  @@index([woocommerceVariationId])
+  @@map("product_variants")
+}
+
+// Bill of Materials - Esplosione componenti multi-livello
+model BomItem {
+  id                 String   @id @default(uuid())
+  parentProductId    String   @map("parent_product_id")
+  componentProductId String   @map("component_product_id")
+  quantity           Decimal  @db.Decimal(10, 4)
+  unit               String   @default("pz") // pz, kg, m, ml, etc
+  scrapPercentage    Decimal  @default(0) @map("scrap_percentage") @db.Decimal(5, 2)
+  notes              String?  @db.Text
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  parentProduct    Product @relation("ParentProduct", fields: [parentProductId], references: [id], onDelete: Cascade)
+  componentProduct Product @relation("ComponentProduct", fields: [componentProductId], references: [id], onDelete: Cascade)
+
+  @@unique([parentProductId, componentProductId])
+  @@index([parentProductId])
+  @@map("bom_items")
+}
+
+// Composizione materiali del prodotto finito (per etichetta/tracciabilità)
+// Diverso da BOM (prodotto-prodotto) e PhaseMaterial (materiali per fase produzione)
+model ProductMaterial {
+  id               String   @id @default(uuid())
+  productId        String   @map("product_id")
+  variantId        String?  @map("variant_id") // Per BOM specifico per variante
+  materialId       String   @map("material_id")
+  quantity         Decimal  @db.Decimal(10, 4) // Quantità per unità di prodotto
+  unit             String   @default("pz") // pz, kg, g, ml, m, etc
+  percentage       Decimal? @db.Decimal(5, 2) // % composizione (per etichetta)
+  isMainIngredient Boolean  @default(false) @map("is_main_ingredient") // Ingrediente principale
+  displayOrder     Int      @default(0) @map("display_order") // Ordine visualizzazione etichetta
+  origin           String? // Origine materiale (Italia, UE, etc)
+  certifications   Json? // ["BIO", "DOP", "IGP", etc]
+  allergens        Json? // ["glutine", "lattosio", etc]
+  notes            String?  @db.Text
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  product  Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant  ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  material Material        @relation(fields: [materialId], references: [id])
+
+  @@unique([productId, variantId, materialId]) // Combinazione unica prodotto+variante+materiale
+  @@index([productId])
+  @@index([variantId])
+  @@index([materialId])
+  @@map("product_materials")
+}
+
+// Cicli di lavorazione
+model ProductOperation {
+  id            String   @id @default(uuid())
+  productId     String   @map("product_id")
+  operationName String   @map("operation_name")
+  sequence      Int // Ordine operazione
+  standardTime  Int      @map("standard_time") // minuti
+  hourlyRate    Decimal  @map("hourly_rate") @db.Decimal(10, 2) // costo orario
+  setupTime     Int      @default(0) @map("setup_time") // minuti setup
+  description   String?  @db.Text
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  product        Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  taskOperations TaskOperation[]
+
+  @@index([productId])
+  @@map("product_operations")
+}
+
+// ============================================
+// PRODUCT CATEGORIES (WooCommerce)
+// ============================================
+
+model ProductCategory {
+  id            String  @id @default(uuid())
+  name          String
+  slug          String  @unique
+  description   String? @db.Text
+  parentId      String? @map("parent_id")
+  woocommerceId Int?    @unique @map("woocommerce_id")
+  image         String? // URL immagine categoria
+  position      Int     @default(0) // Ordine visualizzazione (menu_order WC)
+  isActive      Boolean @default(true) @map("is_active")
+
+  // WooCommerce - Campi aggiuntivi
+  wcDisplay String @default("default") @map("wc_display") // default, products, subcategories, both
+  wcCount   Int    @default(0) @map("wc_count") // Numero prodotti in categoria
+  wcImageId Int?   @map("wc_image_id") // ID immagine su WooCommerce
+
+  // Sync status
+  syncStatus String    @default("NOT_SYNCED") @map("sync_status") // NOT_SYNCED, SYNCED, PENDING, ERROR
+  lastSyncAt DateTime? @map("last_sync_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  parent            ProductCategory?            @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children          ProductCategory[]           @relation("CategoryHierarchy")
+  products          ProductCategoryAssignment[]
+  categoryDiscounts CategoryDiscount[]
+
+  @@index([parentId])
+  @@index([woocommerceId])
+  @@index([syncStatus])
+  @@map("product_categories")
+}
+
+// Many-to-many tra Product e Category
+model ProductCategoryAssignment {
+  id         String   @id @default(uuid())
+  productId  String   @map("product_id")
+  categoryId String   @map("category_id")
+  isPrimary  Boolean  @default(false) @map("is_primary") // Categoria principale
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  // Relations
+  product  Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  category ProductCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, categoryId])
+  @@index([productId])
+  @@index([categoryId])
+  @@map("product_category_assignments")
+}
+
+// ============================================
+// PRODUCT IMAGES
+// ============================================
+
+model ProductImage {
+  id            String   @id @default(uuid())
+  productId     String   @map("product_id")
+  variantId     String?  @map("variant_id") // Se null, immagine del prodotto principale
+  woocommerceId Int?     @map("woocommerce_id") // ID immagine su WooCommerce
+  src           String // URL immagine
+  alt           String? // Testo alternativo
+  name          String? // Nome file
+  position      Int      @default(0) // Ordine visualizzazione
+  isMain        Boolean  @default(false) @map("is_main") // Immagine principale
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  product Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([variantId])
+  @@index([woocommerceId])
+  @@map("product_images")
+}
+
+// ============================================
+// SHIPPING CLASSES (WooCommerce)
+// ============================================
+
+model ShippingClass {
+  id            String   @id @default(uuid())
+  name          String
+  slug          String   @unique
+  description   String?  @db.Text
+  woocommerceId Int?     @unique @map("woocommerce_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  products Product[]
+
+  @@map("shipping_classes")
+}
+
+// ============================================
+// WOOCOMMERCE PRODUCT ATTRIBUTES (Global)
+// ============================================
+
+model WooCommerceAttribute {
+  id            String   @id @default(uuid())
+  woocommerceId Int      @unique @map("woocommerce_id")
+  name          String // "Colore", "Taglia", etc
+  slug          String   @unique // "pa_colore", "pa_taglia"
+  type          String   @default("select") // select, text, etc
+  orderBy       String   @default("menu_order") @map("order_by") // menu_order, name, id
+  hasArchives   Boolean  @default(false) @map("has_archives")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  terms WooCommerceAttributeTerm[]
+
+  @@map("woocommerce_attributes")
+}
+
+model WooCommerceAttributeTerm {
+  id            String   @id @default(uuid())
+  attributeId   String   @map("attribute_id")
+  woocommerceId Int      @map("woocommerce_id")
+  name          String // "Rosso", "Blu", "M", "L"
+  slug          String // "rosso", "blu"
+  description   String?  @db.Text
+  menuOrder     Int      @default(0) @map("menu_order")
+  count         Int      @default(0) // Numero prodotti che usano questo termine
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  attribute WooCommerceAttribute @relation(fields: [attributeId], references: [id], onDelete: Cascade)
+
+  @@unique([attributeId, woocommerceId])
+  @@unique([attributeId, slug])
+  @@index([attributeId])
+  @@map("woocommerce_attribute_terms")
+}
+
+// ============================================
+// WOOCOMMERCE PRODUCT TAGS
+// ============================================
+
+model WooCommerceTag {
+  id            String   @id @default(uuid())
+  woocommerceId Int      @unique @map("woocommerce_id")
+  name          String
+  slug          String   @unique
+  description   String?  @db.Text
+  count         Int      @default(0) // Numero prodotti con questo tag
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@map("woocommerce_tags")
+}
+
+// ============================================
+// INVENTORY & WAREHOUSE
+// ============================================
+
+enum InventoryLocation {
+  WEB // Giacenza per sito web
+  B2B // Giacenza per B2B
+  EVENTI // Giacenza per fiere/eventi
+  TRANSITO // In transito
+}
+
+model InventoryItem {
+  id               String            @id @default(uuid())
+  warehouseId      String            @map("warehouse_id")
+  productId        String            @map("product_id")
+  variantId        String?           @map("variant_id")
+  location         InventoryLocation
+  quantity         Int               @default(0)
+  reservedQuantity Int               @default(0) @map("reserved_quantity") // Quantità prenotata
+  lotNumber        String?           @map("lot_number")
+  expiryDate       DateTime?         @map("expiry_date")
+  lastCountDate    DateTime?         @map("last_count_date")
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+
+  // Relations
+  warehouse Warehouse       @relation(fields: [warehouseId], references: [id])
+  product   Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant   ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@unique([warehouseId, productId, variantId, location, lotNumber])
+  @@index([warehouseId])
+  @@index([productId])
+  @@index([location])
+  @@map("inventory_items")
+}
+
+enum MovementType {
+  IN // Carico
+  OUT // Scarico
+  TRANSFER // Trasferimento
+  ADJUSTMENT // Rettifica inventario
+  PRODUCTION // Produzione
+  RETURN // Reso
+}
+
+model InventoryMovement {
+  id           String             @id @default(uuid())
+  productId    String             @map("product_id")
+  variantId    String?            @map("variant_id") // Per tracciare movimenti variante
+  fromLocation InventoryLocation? @map("from_location")
+  toLocation   InventoryLocation? @map("to_location")
+  type         MovementType
+  quantity     Int
+  lotNumber    String?            @map("lot_number")
+  reference    String? // Riferimento ordine/documento
+  notes        String?            @db.Text
+  performedBy  String?            @map("performed_by")
+  createdAt    DateTime           @default(now()) @map("created_at")
+
+  // Relations
+  product Product         @relation(fields: [productId], references: [id])
+  variant ProductVariant? @relation(fields: [variantId], references: [id])
+
+  @@index([productId])
+  @@index([variantId])
+  @@index([type])
+  @@index([createdAt])
+  @@map("inventory_movements")
+}
+
+// ============================================
+// CUSTOMERS
+// ============================================
+
+enum CustomerType {
+  B2C
+  B2B
+}
+
+model Customer {
+  id           String       @id @default(uuid())
+  type         CustomerType
+  code         String       @unique
+  businessName String?      @map("business_name")
+  firstName    String?      @map("first_name")
+  lastName     String?      @map("last_name")
+  email        String?
+  phone        String?
+  taxId        String?      @unique @map("tax_id") // Partita IVA
+  fiscalCode   String?      @map("fiscal_code") // Codice fiscale
+  sdiCode      String?      @map("sdi_code") // Codice SDI per fatturazione elettronica
+  pecEmail     String?      @map("pec_email") // PEC per fatturazione elettronica
+
+  // E-commerce authentication (per shop frontend)
+  password                String? // Hashed password for e-commerce login
+  emailVerified           Boolean   @default(false) @map("email_verified")
+  lastLoginAt             DateTime? @map("last_login_at")
+  resetToken              String?   @map("reset_token")
+  resetTokenExpires       DateTime? @map("reset_token_expires")
+  emailVerifyToken        String?   @map("email_verify_token")
+  emailVerifyTokenExpires DateTime? @map("email_verify_token_expires")
+  dateOfBirth             DateTime? @map("date_of_birth")
+
+  // Indirizzi separati (come WooCommerce)
+  billingAddress  Json? @map("billing_address") // {firstName, lastName, company, address1, address2, city, state, postcode, country, email, phone}
+  shippingAddress Json? @map("shipping_address") // {firstName, lastName, company, address1, address2, city, state, postcode, country}
+  address         Json? // Legacy - {street, city, zip, country}
+
+  // Termini commerciali
+  paymentTerms Int      @default(30) @map("payment_terms") // giorni
+  creditLimit  Decimal? @map("credit_limit") @db.Decimal(10, 2)
+  discount     Decimal  @default(0) @db.Decimal(5, 2) // %
+  priceListId  String?  @map("price_list_id") // Listino prezzi assegnato
+
+  // B2B Payment settings
+  paymentPlanId        String?           @map("payment_plan_id")
+  defaultPaymentMethod B2BPaymentMethod? @map("default_payment_method")
+
+  // Stato
+  isActive Boolean @default(true) @map("is_active")
+
+  // WooCommerce integration
+  wordpressId        Int?      @unique @map("wordpress_id")
+  wcUsername         String?   @map("wc_username") // Username WooCommerce
+  wcAvatarUrl        String?   @map("wc_avatar_url") // Avatar URL
+  wcRole             String?   @map("wc_role") // customer, subscriber, etc
+  wcDateCreated      DateTime? @map("wc_date_created") // Data creazione su WC
+  wcDateModified     DateTime? @map("wc_date_modified") // Data modifica su WC
+  wcIsPayingCustomer Boolean   @default(false) @map("wc_is_paying_customer")
+  wcOrdersCount      Int       @default(0) @map("wc_orders_count") // Numero ordini da WC
+  wcTotalSpent       Decimal   @default(0) @map("wc_total_spent") @db.Decimal(10, 2) // Totale speso da WC
+  wcMetaData         Json?     @map("wc_meta_data") // Meta dati WooCommerce
+  syncStatus         String    @default("NOT_SYNCED") @map("sync_status") // NOT_SYNCED, SYNCED, PENDING, ERROR
+  lastSyncAt         DateTime? @map("last_sync_at")
+
+  // Statistiche gestionale
+  lastOrderDate DateTime? @map("last_order_date")
+  totalOrders   Int       @default(0) @map("total_orders")
+  totalSpent    Decimal   @default(0) @map("total_spent") @db.Decimal(10, 2)
+
+  // Gestionale - Classificazione
+  customerGroup     String? @map("customer_group") // VIP, Standard, etc
+  acquisitionSource String? @map("acquisition_source") // Come è stato acquisito
+  tags              Json? // ["tag1", "tag2"] per segmentazione
+
+  notes     String?  @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  orders         Order[]
+  invoices       Invoice[]
+  contacts       CustomerContact[]
+  bankInfo       CustomerBankInfo?
+  priceList      PriceList?        @relation(fields: [priceListId], references: [id])
+  // B2B Payment
+  paymentPlan    PaymentPlan?      @relation("CustomerPaymentPlan", fields: [paymentPlanId], references: [id])
+  paymentDues    PaymentDue[]
+  // E-commerce relations
+  carts          ShoppingCart[]
+  wishlistItems  WishlistItem[]
+  couponUsages   CouponUsage[]
+  reviews        ProductReview[]
+  loyaltyAccount LoyaltyAccount?
+  savedAddresses CustomerAddress[]
+  // DDT relations
+  ddts           DDT[]
+  // RMA relations
+  rmas           RMA[]
+
+  @@index([type])
+  @@index([code])
+  @@index([wordpressId])
+  @@index([email])
+  @@index([syncStatus])
+  @@index([priceListId])
+  @@index([paymentPlanId])
+  @@map("customers")
+}
+
+// ============================================
+// PRICE LISTS (Listini Prezzi B2B)
+// ============================================
+
+model PriceList {
+  id             String    @id @default(uuid())
+  code           String    @unique
+  name           String
+  description    String?   @db.Text
+  isActive       Boolean   @default(true) @map("is_active")
+  isDefault      Boolean   @default(false) @map("is_default")
+  globalDiscount Decimal   @default(0) @map("global_discount") @db.Decimal(5, 2) // Sconto % globale
+  validFrom      DateTime? @map("valid_from")
+  validTo        DateTime? @map("valid_to")
+  priority       Int       @default(0) // Per gestione conflitti
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  customers         Customer[]
+  items             PriceListItem[]
+  categoryDiscounts CategoryDiscount[]
+
+  @@map("price_lists")
+}
+
+model PriceListItem {
+  id              String   @id @default(uuid())
+  priceListId     String   @map("price_list_id")
+  productId       String   @map("product_id")
+  fixedPrice      Decimal? @map("fixed_price") @db.Decimal(10, 2) // Prezzo fisso (priorita massima)
+  discountPercent Decimal? @map("discount_percent") @db.Decimal(5, 2) // Sconto % specifico prodotto
+  minQuantity     Int      @default(1) @map("min_quantity") // Quantita minima per applicare prezzo
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  priceList PriceList @relation(fields: [priceListId], references: [id], onDelete: Cascade)
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([priceListId, productId, minQuantity])
+  @@index([priceListId])
+  @@index([productId])
+  @@map("price_list_items")
+}
+
+model CategoryDiscount {
+  id              String   @id @default(uuid())
+  priceListId     String   @map("price_list_id")
+  categoryId      String   @map("category_id")
+  discountPercent Decimal  @map("discount_percent") @db.Decimal(5, 2) // Sconto % per categoria
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  priceList PriceList       @relation(fields: [priceListId], references: [id], onDelete: Cascade)
+  category  ProductCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([priceListId, categoryId])
+  @@index([priceListId])
+  @@index([categoryId])
+  @@map("category_discounts")
+}
+
+// ============================================
+// CUSTOMER CONTACTS & BANK INFO (B2B)
+// ============================================
+
+model CustomerContact {
+  id         String   @id @default(uuid())
+  customerId String   @map("customer_id")
+  firstName  String   @map("first_name")
+  lastName   String   @map("last_name")
+  role       String? // Ruolo in azienda (Responsabile Acquisti, Titolare, etc.)
+  department String? // Dipartimento
+  email      String?
+  phone      String?
+  mobile     String?
+  isPrimary  Boolean  @default(false) @map("is_primary") // Contatto principale
+  isActive   Boolean  @default(true) @map("is_active")
+  notes      String?  @db.Text
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@map("customer_contacts")
+}
+
+model CustomerBankInfo {
+  id         String   @id @default(uuid())
+  customerId String   @unique @map("customer_id")
+  bankName   String?  @map("bank_name") // Nome banca
+  iban       String?
+  swift      String?
+  notes      String?  @db.Text
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@map("customer_bank_info")
+}
+
+// ============================================
+// ORDERS
+// ============================================
+
+enum OrderSource {
+  WORDPRESS
+  B2B
+  MANUAL
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PROCESSING
+  READY
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  REFUNDED
+}
+
+model Order {
+  id          String      @id @default(uuid())
+  orderNumber String      @unique @map("order_number")
+  customerId  String      @map("customer_id")
+  source      OrderSource
+  status      OrderStatus @default(PENDING)
+
+  // Totali
+  subtotal Decimal @db.Decimal(10, 2)
+  discount Decimal @default(0) @db.Decimal(10, 2)
+  tax      Decimal @default(0) @db.Decimal(10, 2)
+  shipping Decimal @default(0) @db.Decimal(10, 2)
+  total    Decimal @db.Decimal(10, 2)
+
+  // Indirizzi
+  shippingAddress Json? @map("shipping_address")
+  billingAddress  Json? @map("billing_address")
+
+  // Pagamento
+  paymentMethod      String? @map("payment_method")
+  paymentMethodTitle String? @map("payment_method_title")
+  paymentStatus      String? @default("pending") @map("payment_status")
+  transactionId      String? @map("transaction_id")
+
+  // Note
+  notes        String? @db.Text
+  customerNote String? @map("customer_note") @db.Text // Nota del cliente
+
+  // Date
+  orderDate     DateTime  @default(now()) @map("order_date")
+  shippedDate   DateTime? @map("shipped_date")
+  deliveredDate DateTime? @map("delivered_date")
+
+  // WooCommerce integration
+  wordpressId        Int?      @unique @map("wordpress_id")
+  wcNumber           String?   @map("wc_number") // Numero ordine WC (può differire da orderNumber)
+  wcStatus           String?   @map("wc_status") // Stato originale WC
+  wcDateCreated      DateTime? @map("wc_date_created")
+  wcDateModified     DateTime? @map("wc_date_modified")
+  wcDatePaid         DateTime? @map("wc_date_paid")
+  wcDateCompleted    DateTime? @map("wc_date_completed")
+  wcCurrency         String    @default("EUR") @map("wc_currency")
+  wcCurrencySymbol   String    @default("€") @map("wc_currency_symbol")
+  wcPricesIncludeTax Boolean   @default(true) @map("wc_prices_include_tax")
+
+  // WooCommerce - Tracking cliente
+  wcCustomerIpAddress String? @map("wc_customer_ip_address")
+  wcCustomerUserAgent String? @map("wc_customer_user_agent") @db.Text
+  wcCartHash          String? @map("wc_cart_hash")
+
+  // WooCommerce - Linee aggiuntive (fee, coupon, spedizione, tasse)
+  wcFeeLines      Json? @map("wc_fee_lines") // [{id, name, total, tax}]
+  wcCouponLines   Json? @map("wc_coupon_lines") // [{id, code, discount}]
+  wcShippingLines Json? @map("wc_shipping_lines") // [{id, method_id, method_title, total}]
+  wcTaxLines      Json? @map("wc_tax_lines") // [{id, rate_code, rate_id, label, compound, tax_total, shipping_tax_total}]
+  wcRefunds       Json? @map("wc_refunds") // [{id, reason, total}]
+
+  // WooCommerce - Meta data
+  wcMetaData Json? @map("wc_meta_data")
+
+  // WooCommerce - Info aggiuntive
+  wcCreatedVia String? @map("wc_created_via") // checkout, admin, rest-api
+  wcVersion    String? @map("wc_version") // Versione WooCommerce
+  wcOrderKey   String? @map("wc_order_key") // Chiave ordine WC
+  wcPaymentUrl String? @map("wc_payment_url") // URL pagamento
+
+  // Sync status
+  syncStatus String    @default("NOT_SYNCED") @map("sync_status")
+  lastSyncAt DateTime? @map("last_sync_at")
+
+  // Gestionale - Campi operativi
+  priority          Int       @default(0) // Priorità ordine (0=normale, 1=alta, 2=urgente)
+  assignedTo        String?   @map("assigned_to") // ID operatore assegnato
+  estimatedDelivery DateTime? @map("estimated_delivery") // Data consegna stimata
+  trackingNumber    String?   @map("tracking_number") // Numero tracciamento spedizione
+  trackingUrl       String?   @map("tracking_url") // URL tracking
+  carrier           String? // Corriere (GLS, BRT, etc)
+  internalNotes     String?   @map("internal_notes") @db.Text // Note interne (non visibili al cliente)
+
+  // B2B Payment Methods
+  b2bPaymentMethod  B2BPaymentMethod? @map("b2b_payment_method")
+  b2bPaymentDueDate DateTime?         @map("b2b_payment_due_date")
+  b2bPaymentTerms   Int?              @map("b2b_payment_terms") // Days for payment
+
+  // Allegati ordine
+  attachments Json? // [{name, url, type, size, addedAt, addedBy}]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  customer         Customer          @relation(fields: [customerId], references: [id])
+  items            OrderItem[]
+  tasks            Task[]
+  invoice          Invoice?
+  // Manufacturing relations
+  productionOrders ProductionOrder[]
+  // Order notes and refunds
+  orderNotes       OrderNote[]
+  refunds          OrderRefund[]
+  // Payment dues
+  paymentDues      PaymentDue[]
+  // DDT relations
+  ddts             DDT[]
+  // RMA relations
+  rmas             RMA[]
+
+  @@index([customerId])
+  @@index([status])
+  @@index([source])
+  @@index([orderDate])
+  @@index([wordpressId])
+  @@index([syncStatus])
+  @@index([priority])
+  @@map("orders")
+}
+
+model OrderItem {
+  id          String  @id @default(uuid())
+  orderId     String  @map("order_id")
+  productId   String  @map("product_id")
+  variantId   String? @map("variant_id")
+  productName String  @map("product_name")
+  sku         String
+  quantity    Int
+  unitPrice   Decimal @map("unit_price") @db.Decimal(10, 2)
+  discount    Decimal @default(0) @db.Decimal(5, 2) // Sconto percentuale applicato
+  taxRate     Decimal @default(22) @map("tax_rate") @db.Decimal(5, 2) // Aliquota IVA
+  subtotal    Decimal @default(0) @db.Decimal(10, 2)
+  tax         Decimal @default(0) @db.Decimal(10, 2)
+  taxClass    String? @map("tax_class")
+  total       Decimal @db.Decimal(10, 2)
+  notes       String? // Note per l'item
+
+  // B2B pricing info
+  priceSource String? @map("price_source") // Origine prezzo: manual, price_list_fixed, price_list_discount, category_discount, global_discount, customer_discount, product_base
+
+  // Inventory allocation
+  allocatedLocation String? @map("allocated_location") // Location da cui prelevare
+  allocatedQuantity Int?    @map("allocated_quantity") // Quantità allocata
+
+  // WooCommerce integration
+  wcLineItemId  Int?    @map("wc_line_item_id") // ID riga su WooCommerce
+  wcProductId   Int?    @map("wc_product_id") // ID prodotto WC
+  wcVariationId Int?    @map("wc_variation_id") // ID variazione WC
+  wcMetaData    Json?   @map("wc_meta_data") // Meta dati (personalizzazioni, opzioni)
+  wcParentName  String? @map("wc_parent_name") // Nome prodotto parent (per varianti)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  order       Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product     Product           @relation(fields: [productId], references: [id])
+  variant     ProductVariant?   @relation(fields: [variantId], references: [id])
+  // Refund items
+  refundItems OrderRefundItem[]
+
+  @@index([orderId])
+  @@index([productId])
+  @@map("order_items")
+}
+
+// ============================================
+// PURCHASE ORDERS (Ordini d'Acquisto)
+// ============================================
+
+enum PurchaseOrderStatus {
+  DRAFT
+  SENT
+  CONFIRMED
+  PARTIALLY_RECEIVED
+  RECEIVED
+  CANCELLED
+}
+
+enum PurchaseOrderType {
+  MATERIAL // Acquisto materiali
+  FINISHED_PRODUCT // Acquisto prodotti finiti (conto terzi/dropshipping)
+  MIXED // Ordine misto
+}
+
+enum DeliveryStatus {
+  PENDING // In attesa spedizione
+  SHIPPED // Spedito
+  IN_TRANSIT // In transito
+  DELIVERED // Consegnato
+  DELAYED // In ritardo
+  PARTIAL_DELIVERY // Consegna parziale
+}
+
+enum GoodsReceiptStatus {
+  PENDING // In attesa
+  PARTIAL // Ricevuto parzialmente
+  COMPLETED // Completato
+  CANCELLED // Annullato
+}
+
+enum InspectionStatus {
+  NOT_REQUIRED // Non richiesta
+  PENDING // In attesa ispezione
+  PASSED // Superata
+  FAILED // Non superata
+  CONDITIONAL // Accettata con riserva
+}
+
+enum QualityStatus {
+  PENDING // Da verificare
+  APPROVED // Approvato
+  REJECTED // Rifiutato
+  CONDITIONAL // Accettato con riserva
+}
+
+model Supplier {
+  id           String  @id @default(uuid())
+  code         String  @unique
+  businessName String  @map("business_name")
+  email        String?
+  phone        String?
+  taxId        String? @unique @map("tax_id")
+  website      String? // Sito web fornitore
+  address      Json?
+  paymentTerms Int     @default(30) @map("payment_terms")
+  isActive     Boolean @default(true) @map("is_active")
+  notes        String? @db.Text
+
+  // Performance metrics
+  avgDeliveryDays     Int?     @map("avg_delivery_days") // Media giorni consegna
+  onTimeDeliveryRate  Decimal? @map("on_time_delivery_rate") @db.Decimal(5, 2) // % consegne puntuali
+  qualityRating       Decimal? @map("quality_rating") @db.Decimal(3, 2) // Rating qualita 1-5
+  totalDeliveries     Int      @default(0) @map("total_deliveries")
+  lateDeliveries      Int      @default(0) @map("late_deliveries")
+  defectiveDeliveries Int      @default(0) @map("defective_deliveries")
+
+  // Lead time default
+  defaultLeadTimeDays Int @default(7) @map("default_lead_time_days")
+
+  // Bank info for payments
+  bankName String? @map("bank_name")
+  iban     String?
+  swift    String?
+
+  // Payment plan
+  paymentPlanId String? @map("payment_plan_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  products       Product[] // Prodotti/materiali forniti
+  materials      Material[]           @relation("MaterialSupplier") // Materiali forniti
+  purchaseOrders PurchaseOrder[]
+  invoices       SupplierInvoice[]
+  // Manufacturing relations
+  externalPhases ManufacturingPhase[] @relation("ExternalPhases")
+  // Payment plan
+  paymentPlan    PaymentPlan?         @relation("SupplierPaymentPlan", fields: [paymentPlanId], references: [id])
+  // Payment dues
+  paymentDues    PaymentDue[]         @relation("SupplierPaymentDues")
+  // Supplier items catalog
+  supplierItems  SupplierItem[]
+  // Goods receipts
+  goodsReceipts  GoodsReceipt[]
+  // Suggestions
+  suggestions    Suggestion[]
+  // Scorecards
+  scorecards     SupplierScorecard[]
+
+  @@index([paymentPlanId])
+  @@map("suppliers")
+}
+
+// Storico Scorecard Fornitore (snapshot periodico)
+model SupplierScorecard {
+  id         String   @id @default(uuid())
+  supplierId String   @map("supplier_id")
+  period     String   // "2025-01", "2025-Q1", "2025" per mese/trimestre/anno
+  periodType String   @map("period_type") // MONTHLY, QUARTERLY, YEARLY
+
+  // Metriche di consegna
+  totalOrders         Int     @default(0) @map("total_orders")
+  onTimeDeliveries    Int     @default(0) @map("on_time_deliveries")
+  lateDeliveries      Int     @default(0) @map("late_deliveries")
+  onTimeDeliveryRate  Decimal @default(0) @map("on_time_delivery_rate") @db.Decimal(5, 2)
+  avgLeadTimeDays     Int     @default(0) @map("avg_lead_time_days")
+  avgLateDays         Int     @default(0) @map("avg_late_days")
+
+  // Metriche di qualità
+  totalReceipts        Int     @default(0) @map("total_receipts")
+  passedInspections    Int     @default(0) @map("passed_inspections")
+  failedInspections    Int     @default(0) @map("failed_inspections")
+  qualityRate          Decimal @default(100) @map("quality_rate") @db.Decimal(5, 2)
+  totalItemsReceived   Int     @default(0) @map("total_items_received")
+  rejectedItems        Int     @default(0) @map("rejected_items")
+  rejectionRate        Decimal @default(0) @map("rejection_rate") @db.Decimal(5, 2)
+
+  // Metriche di costo
+  totalSpent      Decimal @default(0) @map("total_spent") @db.Decimal(12, 2)
+  avgOrderValue   Decimal @default(0) @map("avg_order_value") @db.Decimal(10, 2)
+  priceVariance   Decimal @default(0) @map("price_variance") @db.Decimal(5, 2) // % variazione prezzo medio
+
+  // Score complessivo (0-100)
+  overallScore           Int     @default(0) @map("overall_score")
+  deliveryScore          Int     @default(0) @map("delivery_score")
+  qualityScore           Int     @default(0) @map("quality_score")
+  costScore              Int     @default(0) @map("cost_score")
+  reliabilityScore       Int     @default(0) @map("reliability_score")
+
+  // Rating (A, B, C, D, F)
+  rating String @default("C")
+
+  // Note e commenti
+  notes String? @db.Text
+
+  calculatedAt DateTime @default(now()) @map("calculated_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  // Relations
+  supplier Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  @@unique([supplierId, period, periodType])
+  @@index([supplierId])
+  @@index([period])
+  @@map("supplier_scorecards")
+}
+
+model PurchaseOrder {
+  id           String              @id @default(uuid())
+  orderNumber  String              @unique @map("order_number")
+  supplierId   String              @map("supplier_id")
+  status       PurchaseOrderStatus @default(DRAFT)
+  subtotal     Decimal             @db.Decimal(10, 2)
+  tax          Decimal             @default(0) @db.Decimal(10, 2)
+  total        Decimal             @db.Decimal(10, 2)
+  expectedDate DateTime?           @map("expected_date")
+  receivedDate DateTime?           @map("received_date")
+  paymentTerms Int                 @default(30) @map("payment_terms") // Termini pagamento in giorni
+  notes        String?             @db.Text
+
+  // Delivery tracking
+  shippedDate           DateTime? @map("shipped_date")
+  actualDeliveryDate    DateTime? @map("actual_delivery_date")
+  carrier               String? // Corriere: GLS, BRT, DHL, etc.
+  trackingNumber        String?   @map("tracking_number")
+  trackingUrl           String?   @map("tracking_url")
+  estimatedDeliveryDate DateTime? @map("estimated_delivery_date")
+
+  // Delivery status
+  deliveryStatus DeliveryStatus @default(PENDING) @map("delivery_status")
+  deliveryNotes  String?        @map("delivery_notes") @db.Text
+
+  // Order type (materials vs finished products)
+  orderType PurchaseOrderType @default(MATERIAL) @map("order_type")
+
+  // Reference to customer orders this PO supports
+  relatedOrderIds Json? @map("related_order_ids") // [orderId1, orderId2, ...]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  supplier        Supplier            @relation(fields: [supplierId], references: [id])
+  items           PurchaseOrderItem[]
+  goodsReceipts   GoodsReceipt[]
+  threeWayMatches ThreeWayMatch[]
+
+  @@index([supplierId])
+  @@index([status])
+  @@index([deliveryStatus])
+  @@index([orderType])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderItem {
+  id               String  @id @default(uuid())
+  purchaseOrderId  String  @map("purchase_order_id")
+  productId        String? @map("product_id")
+  materialId       String? @map("material_id")
+  quantity         Int
+  receivedQuantity Int     @default(0) @map("received_quantity")
+  unitPrice        Decimal @map("unit_price") @db.Decimal(10, 2)
+  tax              Decimal @default(0) @db.Decimal(10, 2)
+  total            Decimal @db.Decimal(10, 2)
+
+  // Cost tracking
+  lastPurchasePrice Decimal? @map("last_purchase_price") @db.Decimal(10, 4)
+  priceVariance     Decimal? @map("price_variance") @db.Decimal(10, 4)
+
+  // Quality notes
+  qualityStatus QualityStatus @default(PENDING) @map("quality_status")
+  qualityNotes  String?       @map("quality_notes") @db.Text
+
+  // Delivery allocation (per customer orders)
+  allocatedToOrders Json? @map("allocated_to_orders") // [{orderId, quantity}]
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  purchaseOrder        PurchaseOrder         @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  product              Product?              @relation(fields: [productId], references: [id])
+  material             Material?             @relation(fields: [materialId], references: [id])
+  goodsReceiptItems    GoodsReceiptItem[]
+  supplierInvoiceItems SupplierInvoiceItem[]
+
+  @@index([purchaseOrderId])
+  @@index([productId])
+  @@index([materialId])
+  @@map("purchase_order_items")
+}
+
+// ============================================
+// ACCOUNTING
+// ============================================
+
+enum InvoiceType {
+  SALE
+  PURCHASE
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PAID
+  PARTIALLY_PAID
+  OVERDUE
+  CANCELLED
+}
+
+// Stato invio SDI (Fatturazione Elettronica)
+enum SdiStatus {
+  NOT_SENT // Non ancora inviata
+  PENDING // In attesa di risposta SDI
+  DELIVERED // Consegnata al destinatario
+  ACCEPTED // Accettata dal destinatario
+  REJECTED // Rifiutata (errori formali o di contenuto)
+  NOT_DELIVERABLE // Non recapitabile (es. PEC piena)
+}
+
+// Tipi documento FatturaPA (TD = Tipo Documento)
+enum FatturapaDocumentType {
+  TD01 // Fattura
+  TD02 // Acconto/Anticipo su fattura
+  TD03 // Acconto/Anticipo su parcella
+  TD04 // Nota di credito
+  TD05 // Nota di debito
+  TD06 // Parcella
+  TD16 // Integrazione fattura reverse charge interno
+  TD17 // Integrazione/autofattura acquisto servizi estero
+  TD18 // Integrazione acquisto beni intracomunitari
+  TD19 // Integrazione/autofattura acquisto beni ex art.17 c.2 DPR 633/72
+  TD20 // Autofattura per regolarizzazione
+  TD24 // Fattura differita (art.21 c.4 lett.a)
+  TD25 // Fattura differita (art.21 c.4 terzo periodo lett.b)
+  TD26 // Cessione beni ammortizzabili e passaggi interni
+  TD27 // Autoconsumo o cessioni gratuite senza rivalsa
+}
+
+// Modalità di pagamento FatturaPA (MP = Modalità Pagamento)
+enum PaymentMethodPA {
+  MP01 // Contanti
+  MP02 // Assegno
+  MP03 // Assegno circolare
+  MP04 // Contanti presso Tesoreria
+  MP05 // Bonifico
+  MP06 // Vaglia cambiario
+  MP07 // Bollettino bancario
+  MP08 // Carta di pagamento
+  MP09 // RID
+  MP10 // RID utenze
+  MP11 // RID veloce
+  MP12 // RIBA
+  MP13 // MAV
+  MP14 // Quietanza erario
+  MP15 // Giroconto su conti di contabilità speciale
+  MP16 // Domiciliazione bancaria
+  MP17 // Domiciliazione postale
+  MP18 // Bollettino di c/c postale
+  MP19 // SEPA Direct Debit
+  MP20 // SEPA Direct Debit CORE
+  MP21 // SEPA Direct Debit B2B
+  MP22 // Trattenuta su somme già riscosse
+  MP23 // PagoPA
+}
+
+model Invoice {
+  id            String        @id @default(uuid())
+  invoiceNumber String        @unique @map("invoice_number")
+  type          InvoiceType
+  customerId    String?       @map("customer_id")
+  orderId       String?       @unique @map("order_id")
+  status        InvoiceStatus @default(DRAFT)
+  issueDate     DateTime      @map("issue_date")
+  dueDate       DateTime      @map("due_date")
+  paidDate      DateTime?     @map("paid_date")
+  subtotal      Decimal       @db.Decimal(10, 2)
+  tax           Decimal       @db.Decimal(10, 2)
+  total         Decimal       @db.Decimal(10, 2)
+  paidAmount    Decimal       @default(0) @map("paid_amount") @db.Decimal(10, 2)
+  notes         String?       @db.Text
+
+  // ========== Campi FatturaPA / SDI ==========
+  documentType    FatturapaDocumentType? @map("document_type") // TD01, TD04, etc
+  sdiStatus       SdiStatus              @default(NOT_SENT) @map("sdi_status")
+  sdiId           String?                @map("sdi_id") // ID univoco assegnato da SDI
+  sdiFileName     String?                @map("sdi_file_name") // Nome file XML inviato
+  sdiSentAt       DateTime?              @map("sdi_sent_at") // Data/ora invio
+  sdiReceivedAt   DateTime?              @map("sdi_received_at") // Data/ora consegna
+  sdiErrorCode    String?                @map("sdi_error_code") // Codice errore SDI
+  sdiErrorMessage String?                @map("sdi_error_message") @db.Text
+
+  // File generati
+  xmlFilePath String? @map("xml_file_path") // Path XML FatturaPA
+  pdfFilePath String? @map("pdf_file_path") // Path PDF
+
+  // Modalità pagamento FatturaPA
+  paymentMethodPa PaymentMethodPA? @map("payment_method_pa") // MP01, MP05, etc
+
+  // Bollo virtuale (art. 6 DM 17/6/2014)
+  bolloAmount  Decimal? @map("bollo_amount") @db.Decimal(5, 2)
+  bolloVirtual Boolean  @default(false) @map("bollo_virtual")
+
+  // Cassa Previdenziale (per professionisti)
+  socialSecurityType    String?  @map("social_security_type") // TC01, TC02, etc
+  socialSecurityRate    Decimal? @map("social_security_rate") @db.Decimal(5, 2)
+  socialSecurityAmount  Decimal? @map("social_security_amount") @db.Decimal(10, 2)
+  socialSecurityTaxable Boolean  @default(true) @map("social_security_taxable")
+
+  // Ritenuta d'acconto (per professionisti)
+  withholdingTaxType   String?  @map("withholding_tax_type") // RT01, RT02
+  withholdingTaxRate   Decimal? @map("withholding_tax_rate") @db.Decimal(5, 2)
+  withholdingTaxAmount Decimal? @map("withholding_tax_amount") @db.Decimal(10, 2)
+  withholdingTaxReason String?  @map("withholding_tax_reason") // A, B, C, D...
+
+  // Riferimento DDT (se fattura differita)
+  ddtReference  String?   @map("ddt_reference") // Numeri DDT collegati
+  transportDate DateTime? @map("transport_date")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  customer         Customer?         @relation(fields: [customerId], references: [id])
+  order            Order?            @relation(fields: [orderId], references: [id])
+  payments         Payment[]
+  paymentDues      PaymentDue[]
+  sdiNotifications SdiNotification[]
+
+  @@index([customerId])
+  @@index([status])
+  @@index([dueDate])
+  @@index([sdiStatus])
+  @@index([documentType])
+  @@map("invoices")
+}
+
+model SupplierInvoice {
+  id            String        @id @default(uuid())
+  invoiceNumber String        @unique @map("invoice_number")
+  supplierId    String        @map("supplier_id")
+  status        InvoiceStatus @default(DRAFT)
+  issueDate     DateTime      @map("issue_date")
+  dueDate       DateTime      @map("due_date")
+  paidDate      DateTime?     @map("paid_date")
+  subtotal      Decimal       @db.Decimal(10, 2)
+  tax           Decimal       @db.Decimal(10, 2)
+  total         Decimal       @db.Decimal(10, 2)
+  paidAmount    Decimal       @default(0) @map("paid_amount") @db.Decimal(10, 2)
+  notes         String?       @db.Text
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  // Three-way matching fields
+  matchStatus       ThreeWayMatchStatus @default(PENDING) @map("match_status")
+  matchedAt         DateTime?           @map("matched_at")
+  matchedBy         String?             @map("matched_by")
+  autoMatched       Boolean             @default(false) @map("auto_matched")
+
+  // Tolerance settings (can override company defaults)
+  priceTolerance    Decimal?            @map("price_tolerance") @db.Decimal(5, 2) // % tolerance
+  quantityTolerance Decimal?            @map("quantity_tolerance") @db.Decimal(5, 2) // % tolerance
+
+  // Relations
+  supplier       Supplier          @relation(fields: [supplierId], references: [id])
+  payments       Payment[]
+  paymentDues    PaymentDue[]
+  items          SupplierInvoiceItem[]
+  threeWayMatches ThreeWayMatch[]
+
+  @@index([supplierId])
+  @@index([status])
+  @@index([dueDate])
+  @@index([matchStatus])
+  @@map("supplier_invoices")
+}
+
+// Supplier Invoice Items (for three-way matching)
+model SupplierInvoiceItem {
+  id                  String  @id @default(uuid())
+  supplierInvoiceId   String  @map("supplier_invoice_id")
+  purchaseOrderItemId String? @map("purchase_order_item_id")
+  productId           String? @map("product_id")
+  materialId          String? @map("material_id")
+  description         String? @db.Text
+  quantity            Int
+  unitPrice           Decimal @map("unit_price") @db.Decimal(10, 4)
+  tax                 Decimal @default(0) @db.Decimal(10, 2)
+  total               Decimal @db.Decimal(10, 2)
+
+  // Matching status per item
+  matchStatus ThreeWayMatchStatus @default(PENDING) @map("match_status")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  supplierInvoice   SupplierInvoice    @relation(fields: [supplierInvoiceId], references: [id], onDelete: Cascade)
+  purchaseOrderItem PurchaseOrderItem? @relation(fields: [purchaseOrderItemId], references: [id])
+  product           Product?           @relation(fields: [productId], references: [id])
+  material          Material?          @relation(fields: [materialId], references: [id])
+
+  @@index([supplierInvoiceId])
+  @@index([purchaseOrderItemId])
+  @@map("supplier_invoice_items")
+}
+
+// Three-Way Match Status
+enum ThreeWayMatchStatus {
+  PENDING      // Non ancora verificato
+  MATCHED      // Tutto corrisponde
+  DISCREPANCY  // Discrepanza trovata (prezzo/quantità)
+  APPROVED     // Discrepanza approvata manualmente
+  REJECTED     // Fattura rifiutata
+  PARTIAL      // Matching parziale
+}
+
+// Three-Way Match Record
+model ThreeWayMatch {
+  id                  String  @id @default(uuid())
+  supplierInvoiceId   String  @map("supplier_invoice_id")
+  purchaseOrderId     String  @map("purchase_order_id")
+  goodsReceiptId      String? @map("goods_receipt_id")
+
+  // Matching results
+  status          ThreeWayMatchStatus @default(PENDING)
+  matchDate       DateTime            @default(now()) @map("match_date")
+  matchedBy       String?             @map("matched_by")
+
+  // PO Comparison
+  poTotal         Decimal @map("po_total") @db.Decimal(10, 2)
+  poQuantity      Int     @map("po_quantity")
+
+  // GR Comparison
+  grTotal         Decimal? @map("gr_total") @db.Decimal(10, 2)
+  grQuantity      Int?     @map("gr_quantity")
+
+  // Invoice values
+  invoiceTotal    Decimal @map("invoice_total") @db.Decimal(10, 2)
+  invoiceQuantity Int     @map("invoice_quantity")
+
+  // Discrepancies
+  priceVariance   Decimal @default(0) @map("price_variance") @db.Decimal(10, 2) // Differenza in EUR
+  priceVariancePct Decimal @default(0) @map("price_variance_pct") @db.Decimal(5, 2) // Differenza in %
+  qtyVariance     Int     @default(0) @map("qty_variance") // Differenza quantità
+  qtyVariancePct  Decimal @default(0) @map("qty_variance_pct") @db.Decimal(5, 2) // Differenza in %
+
+  // Tolerance check
+  withinTolerance Boolean @default(false) @map("within_tolerance")
+  toleranceUsed   Decimal @default(0) @map("tolerance_used") @db.Decimal(5, 2) // % tolerance applicata
+
+  // Resolution
+  resolutionStatus MatchResolutionStatus? @map("resolution_status")
+  resolutionNotes  String?                @map("resolution_notes") @db.Text
+  resolvedAt       DateTime?              @map("resolved_at")
+  resolvedBy       String?                @map("resolved_by")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  supplierInvoice SupplierInvoice @relation(fields: [supplierInvoiceId], references: [id], onDelete: Cascade)
+  purchaseOrder   PurchaseOrder   @relation(fields: [purchaseOrderId], references: [id])
+  goodsReceipt    GoodsReceipt?   @relation(fields: [goodsReceiptId], references: [id])
+
+  @@unique([supplierInvoiceId, purchaseOrderId])
+  @@index([supplierInvoiceId])
+  @@index([purchaseOrderId])
+  @@index([status])
+  @@map("three_way_matches")
+}
+
+// Match Resolution Status
+enum MatchResolutionStatus {
+  PENDING           // In attesa di risoluzione
+  APPROVED          // Discrepanza approvata
+  CREDIT_NOTE       // Richiesta nota di credito
+  DEBIT_NOTE        // Emessa nota di debito
+  PRICE_ADJUSTMENT  // Accordo su nuovo prezzo
+  QUANTITY_ADJUSTMENT // Accordo su quantità
+  REJECTED          // Fattura rifiutata
+}
+
+enum PaymentMethod {
+  CASH
+  BANK_TRANSFER
+  CREDIT_CARD
+  PAYPAL
+  OTHER
+}
+
+// ============================================
+// B2B PAYMENT & SCADENZARIO
+// ============================================
+
+enum B2BPaymentMethod {
+  BONIFICO // Bonifico bancario
+  RIBA // Ricevuta Bancaria
+  CONTANTI // Contanti alla consegna
+  FIDO // Credito con termini di pagamento
+  ASSEGNO // Assegno bancario
+  CARTA // Carta di credito
+  OTHER // Altro
+}
+
+enum PaymentDueType {
+  RECEIVABLE // Credito (da incassare)
+  PAYABLE // Debito (da pagare)
+}
+
+enum PaymentDueStatus {
+  PENDING // Da pagare/incassare
+  PARTIAL // Parzialmente pagato
+  PAID // Pagato
+  OVERDUE // Scaduto
+  CANCELLED // Annullato
+}
+
+// Piano di pagamento (rate predefinite)
+model PaymentPlan {
+  id          String   @id @default(uuid())
+  code        String   @unique // "30_70_60GG", "50_50_30GG"
+  name        String // "30% anticipo, 70% a 60gg"
+  description String?  @db.Text
+  isDefault   Boolean  @default(false) @map("is_default")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  installments PaymentPlanInstallment[]
+  customers    Customer[]               @relation("CustomerPaymentPlan")
+  suppliers    Supplier[]               @relation("SupplierPaymentPlan")
+
+  @@map("payment_plans")
+}
+
+// Rate del piano di pagamento
+model PaymentPlanInstallment {
+  id              String   @id @default(uuid())
+  paymentPlanId   String   @map("payment_plan_id")
+  sequence        Int // 1, 2, 3...
+  percentage      Decimal  @db.Decimal(5, 2) // 30.00, 70.00
+  daysFromInvoice Int      @map("days_from_invoice") // 0 = immediato, 30, 60, 90...
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  // Relations
+  paymentPlan PaymentPlan @relation(fields: [paymentPlanId], references: [id], onDelete: Cascade)
+
+  @@unique([paymentPlanId, sequence])
+  @@index([paymentPlanId])
+  @@map("payment_plan_installments")
+}
+
+// Scadenza singola (può essere rata di fattura o scadenza standalone)
+model PaymentDue {
+  id     String           @id @default(uuid())
+  type   PaymentDueType // RECEIVABLE or PAYABLE
+  status PaymentDueStatus @default(PENDING)
+
+  // Riferimenti
+  invoiceId         String? @map("invoice_id")
+  supplierInvoiceId String? @map("supplier_invoice_id")
+  orderId           String? @map("order_id")
+  customerId        String? @map("customer_id")
+  supplierId        String? @map("supplier_id")
+
+  // Dati scadenza
+  description       String
+  installmentNumber Int?      @map("installment_number") // Numero rata (1, 2, 3...)
+  totalInstallments Int?      @map("total_installments") // Totale rate
+  amount            Decimal   @db.Decimal(10, 2)
+  paidAmount        Decimal   @default(0) @map("paid_amount") @db.Decimal(10, 2)
+  dueDate           DateTime  @map("due_date")
+  paidDate          DateTime? @map("paid_date")
+
+  // Metodo pagamento
+  paymentMethod B2BPaymentMethod? @map("payment_method")
+  bankReference String?           @map("bank_reference") // IBAN, CRO, etc
+  ribaReference String?           @map("riba_reference") // Riferimento RiBa
+
+  // Notifiche
+  reminderSent   Boolean   @default(false) @map("reminder_sent")
+  reminderSentAt DateTime? @map("reminder_sent_at")
+
+  notes     String?  @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  invoice         Invoice?            @relation(fields: [invoiceId], references: [id])
+  supplierInvoice SupplierInvoice?    @relation(fields: [supplierInvoiceId], references: [id])
+  order           Order?              @relation(fields: [orderId], references: [id])
+  customer        Customer?           @relation(fields: [customerId], references: [id])
+  supplier        Supplier?           @relation("SupplierPaymentDues", fields: [supplierId], references: [id])
+  payments        PaymentDuePayment[]
+
+  @@index([type])
+  @@index([status])
+  @@index([dueDate])
+  @@index([customerId])
+  @@index([supplierId])
+  @@index([invoiceId])
+  @@index([type, status]) // Composite index for financial dashboard queries
+  @@index([type, status, dueDate]) // Composite index for aging reports
+  @@map("payment_dues")
+}
+
+// Pagamenti collegati alla scadenza
+model PaymentDuePayment {
+  id           String           @id @default(uuid())
+  paymentDueId String           @map("payment_due_id")
+  amount       Decimal          @db.Decimal(10, 2)
+  paymentDate  DateTime         @map("payment_date")
+  method       B2BPaymentMethod
+  reference    String? // CRO, numero assegno, etc
+  notes        String?          @db.Text
+  createdAt    DateTime         @default(now()) @map("created_at")
+
+  // Relations
+  paymentDue PaymentDue @relation(fields: [paymentDueId], references: [id], onDelete: Cascade)
+
+  @@index([paymentDueId])
+  @@map("payment_due_payments")
+}
+
+model Payment {
+  id                String        @id @default(uuid())
+  invoiceId         String?       @map("invoice_id")
+  supplierInvoiceId String?       @map("supplier_invoice_id")
+  amount            Decimal       @db.Decimal(10, 2)
+  method            PaymentMethod
+  reference         String?
+  paymentDate       DateTime      @map("payment_date")
+  notes             String?       @db.Text
+  createdAt         DateTime      @default(now()) @map("created_at")
+
+  // Relations
+  invoice         Invoice?         @relation(fields: [invoiceId], references: [id])
+  supplierInvoice SupplierInvoice? @relation(fields: [supplierInvoiceId], references: [id])
+
+  @@index([invoiceId])
+  @@index([supplierInvoiceId])
+  @@map("payments")
+}
+
+// Costi generali da spalmare
+enum OverheadCategory {
+  RENT
+  UTILITIES
+  INSURANCE
+  MAINTENANCE
+  OTHER
+}
+
+model OverheadCost {
+  id               String           @id @default(uuid())
+  category         OverheadCategory
+  description      String
+  amount           Decimal          @db.Decimal(10, 2)
+  startDate        DateTime         @map("start_date")
+  endDate          DateTime?        @map("end_date")
+  isRecurring      Boolean          @default(false) @map("is_recurring")
+  frequency        String? // monthly, yearly
+  allocationMethod String           @default("labor_hours") @map("allocation_method") // labor_hours, production_volume
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+
+  @@index([category])
+  @@map("overhead_costs")
+}
+
+// ============================================
+// EMPLOYEES
+// ============================================
+
+model Employee {
+  id           String   @id @default(uuid())
+  userId       String   @unique @map("user_id")
+  employeeCode String   @unique @map("employee_code")
+  position     String
+  hourlyRate   Decimal  @map("hourly_rate") @db.Decimal(10, 2)
+  hireDate     DateTime @map("hire_date")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user                        User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  timeEntries                 TimeEntry[]
+  leaves                      EmployeeLeave[]
+  // Manufacturing relations
+  qualifiedPhases             PhaseEmployee[]
+  assignedProductionPhases    ProductionPhase[]       @relation("AssignedProductionPhases")
+  operationTypeQualifications OperationTypeEmployee[]
+
+  @@map("employees")
+}
+
+enum TimeEntryType {
+  WORK
+  OVERTIME
+  BREAK
+}
+
+model TimeEntry {
+  id         String        @id @default(uuid())
+  employeeId String        @map("employee_id")
+  type       TimeEntryType @default(WORK)
+  clockIn    DateTime      @map("clock_in")
+  clockOut   DateTime?     @map("clock_out")
+  duration   Int? // minuti
+  taskId     String?       @map("task_id")
+  notes      String?       @db.Text
+  createdAt  DateTime      @default(now()) @map("created_at")
+
+  // Relations
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+  @@index([clockIn])
+  @@map("time_entries")
+}
+
+enum LeaveType {
+  VACATION
+  SICK
+  PERSONAL
+  OTHER
+}
+
+model EmployeeLeave {
+  id         String    @id @default(uuid())
+  employeeId String    @map("employee_id")
+  type       LeaveType
+  startDate  DateTime  @map("start_date")
+  endDate    DateTime  @map("end_date")
+  days       Decimal   @db.Decimal(5, 2)
+  status     String    @default("pending")
+  notes      String?   @db.Text
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  // Relations
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+  @@map("employee_leaves")
+}
+
+// ============================================
+// TASK MANAGEMENT & WORKFLOW
+// ============================================
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  ON_HOLD
+  COMPLETED
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model Task {
+  id             String       @id @default(uuid())
+  title          String
+  description    String?      @db.Text
+  orderId        String?      @map("order_id")
+  assignedToId   String?      @map("assigned_to_id")
+  createdById    String       @map("created_by_id")
+  workflowId     String?      @map("workflow_id")
+  workflowStep   Int?         @map("workflow_step")
+  status         TaskStatus   @default(TODO)
+  priority       TaskPriority @default(MEDIUM)
+  estimatedHours Decimal?     @map("estimated_hours") @db.Decimal(5, 2)
+  actualHours    Decimal?     @map("actual_hours") @db.Decimal(5, 2)
+  dueDate        DateTime?    @map("due_date")
+  completedDate  DateTime?    @map("completed_date")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  // Relations
+  order      Order?          @relation(fields: [orderId], references: [id])
+  assignedTo User?           @relation("AssignedTasks", fields: [assignedToId], references: [id])
+  createdBy  User            @relation("CreatedByUser", fields: [createdById], references: [id])
+  workflow   Workflow?       @relation(fields: [workflowId], references: [id])
+  operations TaskOperation[]
+
+  @@index([assignedToId])
+  @@index([status])
+  @@index([orderId])
+  @@map("tasks")
+}
+
+// Traccia le operazioni effettivamente eseguite
+model TaskOperation {
+  id          String    @id @default(uuid())
+  taskId      String    @map("task_id")
+  operationId String    @map("operation_id")
+  startTime   DateTime? @map("start_time")
+  endTime     DateTime? @map("end_time")
+  actualTime  Int?      @map("actual_time") // minuti
+  notes       String?   @db.Text
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  // Relations
+  task      Task             @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  operation ProductOperation @relation(fields: [operationId], references: [id])
+
+  @@index([taskId])
+  @@map("task_operations")
+}
+
+// Workflow configurabili per tipo ordine
+model Workflow {
+  id          String       @id @default(uuid())
+  name        String
+  description String?      @db.Text
+  orderSource OrderSource? @map("order_source")
+  steps       Json // [{step: 1, name: "Preparazione", autoAssign: true, role: "MAGAZZINIERE"}]
+  isActive    Boolean      @default(true) @map("is_active")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  // Relations
+  tasks Task[]
+
+  @@map("workflows")
+}
+
+// ============================================
+// NOTIFICATIONS & CALENDAR
+// ============================================
+
+enum NotificationType {
+  LOW_STOCK
+  OUT_OF_STOCK
+  OVERSTOCK
+  REORDER_POINT
+  EXPIRING_SOON
+  TASK_ASSIGNED
+  TASK_OVERDUE
+  PAYMENT_DUE
+  PAYMENT_OVERDUE
+  ORDER_RECEIVED
+  SYSTEM
+  CALENDAR_EVENT
+  PRODUCTION_PHASE_COMPLETED
+  PRODUCTION_ORDER_COMPLETED
+  MATERIAL_SHORTAGE
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String           @map("user_id")
+  type      NotificationType
+  title     String
+  message   String           @db.Text
+  link      String?
+  isRead    Boolean          @default(false) @map("is_read")
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+  @@map("notifications")
+}
+
+model CalendarEvent {
+  id              String    @id @default(uuid())
+  title           String
+  description     String?   @db.Text
+  eventType       String // payment, reminder, event, meeting
+  startDate       DateTime  @map("start_date")
+  endDate         DateTime? @map("end_date")
+  allDay          Boolean   @default(false) @map("all_day")
+  location        String?
+  relatedId       String?   @map("related_id") // ID fattura, task, etc
+  reminderMinutes Int?      @map("reminder_minutes")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([startDate])
+  @@index([eventType])
+  @@map("calendar_events")
+}
+
+// Stock Alerts - Log degli alert generati per scorte
+model StockAlert {
+  id             String    @id @default(uuid())
+  productId      String?   @map("product_id")
+  materialId     String?   @map("material_id")
+  alertType      String    @map("alert_type") // LOW_STOCK, OUT_OF_STOCK, OVERSTOCK, REORDER_POINT, EXPIRING_SOON
+  currentValue   Decimal   @map("current_value") @db.Decimal(10, 2)
+  thresholdValue Decimal   @map("threshold_value") @db.Decimal(10, 2)
+  status         String    @default("ACTIVE") // ACTIVE, ACKNOWLEDGED, RESOLVED
+  acknowledgedBy String?   @map("acknowledged_by")
+  acknowledgedAt DateTime? @map("acknowledged_at")
+  resolvedAt     DateTime? @map("resolved_at")
+  notes          String?   @db.Text
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  // Relations
+  product  Product?  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  material Material? @relation(fields: [materialId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([materialId])
+  @@index([alertType])
+  @@index([status])
+  @@index([createdAt])
+  @@map("stock_alerts")
+}
+
+// ============================================
+// AUDIT LOG
+// ============================================
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  action    String // CREATE, UPDATE, DELETE
+  entity    String // Product, Order, etc
+  entityId  String   @map("entity_id")
+  changes   Json? // {before: {}, after: {}}
+  ipAddress String?  @map("ip_address")
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([entity])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ============================================
+// MANUFACTURING & PRODUCTION
+// ============================================
+
+// Tipi di operazione configurabili (Mansioni)
+model OperationType {
+  id                    String   @id @default(uuid())
+  code                  String   @unique // "SCATOLAMENTO", "PROD_INTERNA"
+  name                  String // "Scatolamento"
+  description           String?  @db.Text
+  isExternal            Boolean  @default(false) @map("is_external") // Produzione esterna (terzista)
+  defaultHourlyRate     Decimal? @map("default_hourly_rate") @db.Decimal(10, 2)
+  requiresLiquidProduct Boolean  @default(false) @map("requires_liquid_product") // Solo per liquidi
+  isActive              Boolean  @default(true) @map("is_active")
+  sortOrder             Int      @default(0) @map("sort_order")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  manufacturingPhases ManufacturingPhase[]
+  qualifiedEmployees  OperationTypeEmployee[]
+
+  @@map("operation_types")
+}
+
+// Operatori qualificati per tipo di operazione
+model OperationTypeEmployee {
+  id              String   @id @default(uuid())
+  operationTypeId String   @map("operation_type_id")
+  employeeId      String   @map("employee_id")
+  isPrimary       Boolean  @default(false) @map("is_primary") // Operatore primario per questa fase
+  certifiedAt     DateTime @default(now()) @map("certified_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  // Relations
+  operationType OperationType @relation(fields: [operationTypeId], references: [id], onDelete: Cascade)
+  employee      Employee      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([operationTypeId, employeeId])
+  @@index([operationTypeId])
+  @@index([employeeId])
+  @@map("operation_type_employees")
+}
+
+// Fase della pipeline produttiva di un prodotto
+model ManufacturingPhase {
+  id                  String   @id @default(uuid())
+  productId           String   @map("product_id")
+  operationTypeId     String   @map("operation_type_id")
+  sequence            Int // Ordine nella pipeline (1, 2, 3...)
+  name                String // Nome custom fase
+  description         String?  @db.Text
+  standardTime        Int      @map("standard_time") // Tempo standard in minuti
+  setupTime           Int      @default(0) @map("setup_time") // Tempo setup in minuti
+  externalCostPerUnit Decimal? @map("external_cost_per_unit") @db.Decimal(10, 2) // Costo terzista per unità
+  supplierId          String?  @map("supplier_id") // Fornitore esterno per questa fase
+  isActive            Boolean  @default(true) @map("is_active")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  product            Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+  operationType      OperationType     @relation(fields: [operationTypeId], references: [id])
+  externalSupplier   Supplier?         @relation("ExternalPhases", fields: [supplierId], references: [id])
+  materials          PhaseMaterial[]
+  qualifiedEmployees PhaseEmployee[]
+  productionPhases   ProductionPhase[]
+
+  @@unique([productId, sequence])
+  @@index([productId])
+  @@index([operationTypeId])
+  @@map("manufacturing_phases")
+}
+
+// Materiali consumati per fase (inclusi consumabili)
+model PhaseMaterial {
+  id              String   @id @default(uuid())
+  phaseId         String   @map("phase_id")
+  materialId      String   @map("material_id") // Riferimento a Material
+  quantity        Decimal  @db.Decimal(10, 4)
+  unit            String   @default("pz")
+  scrapPercentage Decimal  @default(0) @map("scrap_percentage") @db.Decimal(5, 2)
+  isConsumable    Boolean  @default(false) @map("is_consumable") // Guanti, detergenti, etc.
+  notes           String?  @db.Text
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  phase    ManufacturingPhase @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  material Material           @relation(fields: [materialId], references: [id])
+
+  @@unique([phaseId, materialId])
+  @@index([phaseId])
+  @@index([materialId])
+  @@map("phase_materials")
+}
+
+// Pool dipendenti qualificati per fase
+model PhaseEmployee {
+  id          String   @id @default(uuid())
+  phaseId     String   @map("phase_id")
+  employeeId  String   @map("employee_id")
+  isPrimary   Boolean  @default(false) @map("is_primary") // Operatore preferito
+  certifiedAt DateTime @default(now()) @map("certified_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  // Relations
+  phase    ManufacturingPhase @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  employee Employee           @relation(fields: [employeeId], references: [id])
+
+  @@unique([phaseId, employeeId])
+  @@index([phaseId])
+  @@index([employeeId])
+  @@map("phase_employees")
+}
+
+// Ordine di produzione
+enum ProductionOrderStatus {
+  DRAFT
+  PLANNED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model ProductionOrder {
+  id               String                @id @default(uuid())
+  orderNumber      String                @unique @map("order_number")
+  productId        String                @map("product_id")
+  quantity         Int
+  status           ProductionOrderStatus @default(DRAFT)
+  salesOrderId     String?               @map("sales_order_id") // Collegamento a ordine vendita
+  salesOrderItemId String?               @map("sales_order_item_id")
+  priority         Int                   @default(0) // Higher = more urgent
+  plannedStartDate DateTime?             @map("planned_start_date")
+  plannedEndDate   DateTime?             @map("planned_end_date")
+  actualStartDate  DateTime?             @map("actual_start_date")
+  actualEndDate    DateTime?             @map("actual_end_date")
+  notes            String?               @db.Text
+  createdById      String                @map("created_by_id")
+  createdAt        DateTime              @default(now()) @map("created_at")
+  updatedAt        DateTime              @updatedAt @map("updated_at")
+
+  // Relations
+  product    Product           @relation(fields: [productId], references: [id])
+  salesOrder Order?            @relation(fields: [salesOrderId], references: [id])
+  createdBy  User              @relation("CreatedProductionOrders", fields: [createdById], references: [id])
+  phases     ProductionPhase[]
+
+  @@index([productId])
+  @@index([salesOrderId])
+  @@index([status])
+  @@map("production_orders")
+}
+
+// Esecuzione effettiva di una fase
+enum ProductionPhaseStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  SKIPPED
+}
+
+model ProductionPhase {
+  id                   String                @id @default(uuid())
+  productionOrderId    String                @map("production_order_id")
+  manufacturingPhaseId String                @map("manufacturing_phase_id")
+  sequence             Int
+  status               ProductionPhaseStatus @default(PENDING)
+  assignedEmployeeId   String?               @map("assigned_employee_id")
+  startedAt            DateTime?             @map("started_at")
+  completedAt          DateTime?             @map("completed_at")
+  actualTime           Int?                  @map("actual_time") // Minuti effettivi
+  laborCost            Decimal?              @map("labor_cost") @db.Decimal(10, 2)
+  materialCost         Decimal?              @map("material_cost") @db.Decimal(10, 2)
+  externalCost         Decimal?              @map("external_cost") @db.Decimal(10, 2)
+  notes                String?               @db.Text
+  createdAt            DateTime              @default(now()) @map("created_at")
+  updatedAt            DateTime              @updatedAt @map("updated_at")
+
+  // Relations
+  productionOrder      ProductionOrder       @relation(fields: [productionOrderId], references: [id], onDelete: Cascade)
+  manufacturingPhase   ManufacturingPhase    @relation(fields: [manufacturingPhaseId], references: [id])
+  assignedEmployee     Employee?             @relation("AssignedProductionPhases", fields: [assignedEmployeeId], references: [id])
+  materialConsumptions MaterialConsumption[]
+
+  @@unique([productionOrderId, sequence])
+  @@index([productionOrderId])
+  @@index([manufacturingPhaseId])
+  @@index([status])
+  @@map("production_phases")
+}
+
+// Consumo effettivo materiali (tracciabilità)
+model MaterialConsumption {
+  id                String            @id @default(uuid())
+  productionPhaseId String            @map("production_phase_id")
+  materialId        String            @map("material_id")
+  plannedQuantity   Decimal           @map("planned_quantity") @db.Decimal(10, 4)
+  actualQuantity    Decimal           @map("actual_quantity") @db.Decimal(10, 4)
+  unit              String
+  warehouseId       String            @map("warehouse_id")
+  location          InventoryLocation
+  lotNumber         String?           @map("lot_number")
+  movementId        String?           @unique @map("movement_id")
+  createdAt         DateTime          @default(now()) @map("created_at")
+
+  // Relations
+  productionPhase ProductionPhase   @relation(fields: [productionPhaseId], references: [id], onDelete: Cascade)
+  material        Material          @relation(fields: [materialId], references: [id])
+  warehouse       Warehouse         @relation(fields: [warehouseId], references: [id])
+  movement        MaterialMovement? @relation(fields: [movementId], references: [id])
+
+  @@index([productionPhaseId])
+  @@index([materialId])
+  @@map("material_consumptions")
+}
+
+// ============================================
+// SETTINGS & CONFIGURATION
+// ============================================
+
+model SystemSetting {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       Json
+  description String?  @db.Text
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("system_settings")
+}
+
+// ============================================
+// WORDPRESS INTEGRATION
+// ============================================
+
+// Credenziali Basic Auth per plugin WordPress
+model WordPressPluginAuth {
+  id        String    @id @default(uuid())
+  username  String    @unique
+  password  String // Password hashata con bcrypt
+  label     String? // Descrizione (es. "Plugin Sito Principale")
+  isActive  Boolean   @default(true) @map("is_active")
+  lastUsed  DateTime? @map("last_used")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  @@map("wordpress_plugin_auth")
+}
+
+// Log sincronizzazione WordPress
+model WordPressSyncLog {
+  id        String   @id @default(uuid())
+  direction String // TO_WP, FROM_WP
+  entity    String // PRODUCT, ORDER, CUSTOMER, INVENTORY
+  entityId  String   @map("entity_id")
+  action    String // CREATE, UPDATE, DELETE, SYNC_INVENTORY
+  status    String // SUCCESS, FAILED, PENDING
+  request   Json? // Dati inviati
+  response  Json? // Risposta ricevuta
+  error     String?  @db.Text // Messaggio errore
+  duration  Int? // Durata in ms
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([entity])
+  @@index([entityId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("wordpress_sync_logs")
+}
+
+// ============================================
+// SUPPLIER ITEMS (Listino Fornitore)
+// ============================================
+
+// Listino Fornitore - articoli forniti e prezzi
+model SupplierItem {
+  id                String    @id @default(uuid())
+  supplierId        String    @map("supplier_id")
+  productId         String?   @map("product_id") // For finished products
+  materialId        String?   @map("material_id") // For materials
+  supplierSku       String?   @map("supplier_sku") // SKU del fornitore
+  lastPurchasePrice Decimal   @map("last_purchase_price") @db.Decimal(10, 4)
+  avgPurchasePrice  Decimal?  @map("avg_purchase_price") @db.Decimal(10, 4)
+  minOrderQuantity  Int       @default(1) @map("min_order_quantity")
+  packagingUnit     Int       @default(1) @map("packaging_unit") // Colli/multipli
+  leadTimeDays      Int?      @map("lead_time_days") // Lead time specifico articolo
+  isPreferred       Boolean   @default(false) @map("is_preferred") // Fornitore preferito per questo articolo
+  lastPurchaseDate  DateTime? @map("last_purchase_date")
+  totalPurchased    Int       @default(0) @map("total_purchased")
+  notes             String?   @db.Text
+  isActive          Boolean   @default(true) @map("is_active")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  supplier Supplier  @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  product  Product?  @relation(fields: [productId], references: [id])
+  material Material? @relation(fields: [materialId], references: [id])
+
+  // Volume discounts
+  volumeDiscounts SupplierVolumeDiscount[]
+
+  @@unique([supplierId, productId])
+  @@unique([supplierId, materialId])
+  @@index([supplierId])
+  @@index([productId])
+  @@index([materialId])
+  @@map("supplier_items")
+}
+
+// Sconti quantita fornitore
+model SupplierVolumeDiscount {
+  id              String   @id @default(uuid())
+  supplierItemId  String   @map("supplier_item_id")
+  minQuantity     Int      @map("min_quantity")
+  discountPercent Decimal  @map("discount_percent") @db.Decimal(5, 2)
+  fixedPrice      Decimal? @map("fixed_price") @db.Decimal(10, 4)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  // Relations
+  supplierItem SupplierItem @relation(fields: [supplierItemId], references: [id], onDelete: Cascade)
+
+  @@unique([supplierItemId, minQuantity])
+  @@index([supplierItemId])
+  @@map("supplier_volume_discounts")
+}
+
+// ============================================
+// GOODS RECEIPT (Entrata Merce)
+// ============================================
+
+// Documento di Entrata Merce
+model GoodsReceipt {
+  id              String @id @default(uuid())
+  receiptNumber   String @unique @map("receipt_number") // EM-2026-000001
+  purchaseOrderId String @map("purchase_order_id")
+  supplierId      String @map("supplier_id")
+  warehouseId     String @map("warehouse_id")
+
+  // Receipt info
+  receiptDate       DateTime  @default(now()) @map("receipt_date")
+  documentDate      DateTime? @map("document_date") // Data DDT fornitore
+  supplierDocNumber String?   @map("supplier_doc_number") // Numero DDT fornitore
+
+  // Carrier info
+  carrier        String?
+  trackingNumber String? @map("tracking_number")
+  deliveryNote   String? @map("delivery_note") @db.Text
+
+  // Status
+  status GoodsReceiptStatus @default(PENDING)
+
+  // Quality inspection
+  inspectionRequired Boolean          @default(false) @map("inspection_required")
+  inspectionStatus   InspectionStatus @default(NOT_REQUIRED) @map("inspection_status")
+  inspectionDate     DateTime?        @map("inspection_date")
+  inspectionNotes    String?          @map("inspection_notes") @db.Text
+  inspectedBy        String?          @map("inspected_by")
+
+  // Documents and photos
+  attachments Json? // [{name, url, type}]
+
+  // Performed by
+  receivedBy String? @map("received_by")
+  notes      String? @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  purchaseOrder   PurchaseOrder      @relation(fields: [purchaseOrderId], references: [id])
+  supplier        Supplier           @relation(fields: [supplierId], references: [id])
+  warehouse       Warehouse          @relation(fields: [warehouseId], references: [id])
+  items           GoodsReceiptItem[]
+  threeWayMatches ThreeWayMatch[]
+
+  @@index([purchaseOrderId])
+  @@index([supplierId])
+  @@index([status])
+  @@index([receiptDate])
+  @@map("goods_receipts")
+}
+
+// Riga Entrata Merce
+model GoodsReceiptItem {
+  id                  String  @id @default(uuid())
+  goodsReceiptId      String  @map("goods_receipt_id")
+  purchaseOrderItemId String  @map("purchase_order_item_id")
+  productId           String? @map("product_id")
+  materialId          String? @map("material_id")
+
+  // Quantities
+  expectedQuantity Int @map("expected_quantity")
+  receivedQuantity Int @map("received_quantity")
+  acceptedQuantity Int @map("accepted_quantity")
+  rejectedQuantity Int @default(0) @map("rejected_quantity")
+
+  // Quality
+  qualityStatus QualityStatus @default(PENDING) @map("quality_status")
+  qualityNotes  String?       @map("quality_notes") @db.Text
+
+  // Lot tracking
+  lotNumber  String?   @map("lot_number")
+  expiryDate DateTime? @map("expiry_date")
+
+  // Storage location
+  storageLocation String? @map("storage_location") // Ubicazione specifica nel magazzino
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  goodsReceipt      GoodsReceipt      @relation(fields: [goodsReceiptId], references: [id], onDelete: Cascade)
+  purchaseOrderItem PurchaseOrderItem @relation(fields: [purchaseOrderItemId], references: [id])
+  product           Product?          @relation(fields: [productId], references: [id])
+  material          Material?         @relation(fields: [materialId], references: [id])
+
+  @@index([goodsReceiptId])
+  @@index([purchaseOrderItemId])
+  @@map("goods_receipt_items")
+}
+
+// ============================================
+// ORDER NOTES & REFUNDS
+// ============================================
+
+// Note ordine (interne e visibili al cliente)
+model OrderNote {
+  id                  String   @id @default(uuid())
+  orderId             String   @map("order_id")
+  type                String // INTERNAL, CUSTOMER, STATUS_CHANGE, SYSTEM
+  content             String   @db.Text
+  isVisibleToCustomer Boolean  @default(false) @map("is_visible_to_customer")
+  createdBy           String?  @map("created_by") // User ID
+  wcNoteId            Int?     @map("wc_note_id") // WooCommerce note ID
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  // Relations
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  user  User? @relation(fields: [createdBy], references: [id])
+
+  @@index([orderId])
+  @@map("order_notes")
+}
+
+// Rimborso ordine
+model OrderRefund {
+  id           String    @id @default(uuid())
+  orderId      String    @map("order_id")
+  wcRefundId   Int?      @map("wc_refund_id")
+  amount       Decimal   @db.Decimal(10, 2)
+  reason       String?   @db.Text
+  status       String    @default("PENDING") // PENDING, COMPLETED, FAILED
+  restockItems Boolean   @default(true) @map("restock_items")
+  processedAt  DateTime? @map("processed_at")
+  processedBy  String?   @map("processed_by")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  // Relations
+  order Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  items OrderRefundItem[]
+
+  @@index([orderId])
+  @@map("order_refunds")
+}
+
+// Riga rimborso
+model OrderRefundItem {
+  id          String  @id @default(uuid())
+  refundId    String  @map("refund_id")
+  orderItemId String  @map("order_item_id")
+  quantity    Int
+  restocked   Boolean @default(false)
+
+  // Relations
+  refund    OrderRefund @relation(fields: [refundId], references: [id], onDelete: Cascade)
+  orderItem OrderItem   @relation(fields: [orderItemId], references: [id])
+
+  @@index([refundId])
+  @@index([orderItemId])
+  @@map("order_refund_items")
+}
+
+// ============================================
+// RMA (RETURNS MANAGEMENT)
+// ============================================
+
+enum RmaStatus {
+  REQUESTED    // Richiesta ricevuta
+  PENDING      // In attesa di approvazione
+  APPROVED     // Approvato, in attesa di spedizione cliente
+  SHIPPED      // Cliente ha spedito il reso
+  RECEIVED     // Reso ricevuto in magazzino
+  INSPECTING   // In fase di ispezione
+  COMPLETED    // RMA completato (rimborso/sostituzione)
+  REJECTED     // RMA rifiutato
+  CANCELLED    // Annullato dal cliente
+}
+
+enum RmaReason {
+  DEFECTIVE          // Prodotto difettoso
+  WRONG_ITEM         // Articolo errato spedito
+  DAMAGED_SHIPPING   // Danneggiato durante la spedizione
+  NOT_AS_DESCRIBED   // Non conforme alla descrizione
+  CHANGED_MIND       // Ripensamento cliente
+  WRONG_SIZE         // Taglia/misura sbagliata
+  DUPLICATE_ORDER    // Ordine duplicato
+  OTHER              // Altro
+}
+
+enum RmaResolution {
+  REFUND           // Rimborso completo
+  PARTIAL_REFUND   // Rimborso parziale
+  EXCHANGE         // Sostituzione prodotto
+  REPAIR           // Riparazione
+  STORE_CREDIT     // Credito negozio
+  REJECTED         // Reso rifiutato dopo ispezione
+}
+
+model RMA {
+  id        String    @id @default(uuid())
+  rmaNumber String    @unique @map("rma_number") // ES: RMA-2025-00001
+  orderId   String    @map("order_id")
+  customerId String   @map("customer_id")
+  status    RmaStatus @default(REQUESTED)
+
+  // Motivo reso
+  reason       RmaReason
+  reasonDetail String?   @map("reason_detail") @db.Text // Descrizione dettagliata
+
+  // Risoluzione
+  resolution       RmaResolution? // Tipo di risoluzione finale
+  resolutionNotes  String?        @map("resolution_notes") @db.Text
+  refundAmount     Decimal?       @map("refund_amount") @db.Decimal(10, 2)
+  exchangeOrderId  String?        @map("exchange_order_id") // ID ordine sostitutivo
+  storeCreditCode  String?        @map("store_credit_code") // Codice credito negozio
+
+  // Spedizione reso
+  returnShippingMethod String?   @map("return_shipping_method") // Come il cliente spedisce
+  returnTrackingNumber String?   @map("return_tracking_number") // Tracking reso cliente
+  returnCarrier        String?   @map("return_carrier")
+  returnLabelUrl       String?   @map("return_label_url") // Etichetta prepagata
+  shippedByCustomerAt  DateTime? @map("shipped_by_customer_at")
+
+  // Ricezione e ispezione
+  receivedAt           DateTime? @map("received_at")
+  receivedBy           String?   @map("received_by") // ID utente che ha ricevuto
+  inspectionNotes      String?   @map("inspection_notes") @db.Text
+  inspectionPhotos     Json?     @map("inspection_photos") // [{url, description}]
+  inspectedAt          DateTime? @map("inspected_at")
+  inspectedBy          String?   @map("inspected_by") // ID utente che ha ispezionato
+  itemCondition        String?   @map("item_condition") // LIKE_NEW, GOOD, DAMAGED, etc
+
+  // Rimborso collegato
+  refundId String? @map("refund_id")
+
+  // Note interne
+  internalNotes String? @map("internal_notes") @db.Text
+
+  // Date
+  requestedAt DateTime  @default(now()) @map("requested_at")
+  approvedAt  DateTime? @map("approved_at")
+  approvedBy  String?   @map("approved_by") // ID utente che ha approvato
+  rejectedAt  DateTime? @map("rejected_at")
+  rejectedBy  String?   @map("rejected_by")
+  completedAt DateTime? @map("completed_at")
+  completedBy String?   @map("completed_by")
+
+  // Comunicazioni
+  customerEmail   String? @map("customer_email") // Email per notifiche
+  emailsSent      Json?   @map("emails_sent") // [{type, sentAt}]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  order    Order      @relation(fields: [orderId], references: [id])
+  customer Customer   @relation(fields: [customerId], references: [id])
+  items    RMAItem[]
+
+  @@index([orderId])
+  @@index([customerId])
+  @@index([status])
+  @@index([requestedAt])
+  @@map("rmas")
+}
+
+model RMAItem {
+  id          String  @id @default(uuid())
+  rmaId       String  @map("rma_id")
+  orderItemId String  @map("order_item_id")
+  productId   String  @map("product_id")
+  variantId   String? @map("variant_id")
+
+  // Info prodotto (snapshot al momento del reso)
+  sku         String
+  productName String @map("product_name")
+
+  // Quantità
+  quantityRequested Int  @map("quantity_requested")
+  quantityReceived  Int? @map("quantity_received") // Può differire se danneggiato
+  quantityRestocked Int? @map("quantity_restocked")
+
+  // Stato item
+  itemStatus  String @default("PENDING") @map("item_status") // PENDING, APPROVED, RECEIVED, RESTOCKED, REJECTED
+
+  // Ispezione singolo item
+  condition       String? // LIKE_NEW, GOOD, FAIR, DAMAGED, UNUSABLE
+  conditionNotes  String? @map("condition_notes") @db.Text
+  canRestock      Boolean @default(false) @map("can_restock")
+
+  // Valori
+  unitPrice   Decimal @map("unit_price") @db.Decimal(10, 2)
+  totalValue  Decimal @map("total_value") @db.Decimal(10, 2) // unitPrice * quantityReceived
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  rma       RMA             @relation(fields: [rmaId], references: [id], onDelete: Cascade)
+  product   Product         @relation(fields: [productId], references: [id])
+  variant   ProductVariant? @relation(fields: [variantId], references: [id])
+
+  @@index([rmaId])
+  @@index([orderItemId])
+  @@map("rma_items")
+}
+
+// ============================================
+// E-COMMERCE: CARRELLO
+// ============================================
+
+model ShoppingCart {
+  id         String  @id @default(uuid())
+  customerId String? @map("customer_id") // null = guest
+  sessionId  String? @map("session_id") // per guest checkout
+  couponId   String? @map("coupon_id")
+
+  // Cart totals (cached for performance)
+  subtotal Decimal @default(0) @db.Decimal(10, 2)
+  discount Decimal @default(0) @db.Decimal(10, 2)
+  shipping Decimal @default(0) @db.Decimal(10, 2)
+  tax      Decimal @default(0) @db.Decimal(10, 2)
+  total    Decimal @default(0) @db.Decimal(10, 2)
+
+  // Selected shipping method
+  shippingMethodId String? @map("shipping_method_id")
+  shippingAddress  Json?   @map("shipping_address")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  expiresAt DateTime @map("expires_at") // auto-delete dopo 7 giorni
+
+  // Relations
+  customer       Customer?           @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  coupon         Coupon?             @relation(fields: [couponId], references: [id])
+  shippingMethod ShopShippingMethod? @relation(fields: [shippingMethodId], references: [id])
+  items          CartItem[]
+
+  @@unique([sessionId])
+  @@index([customerId])
+  @@index([expiresAt])
+  @@map("shopping_carts")
+}
+
+model CartItem {
+  id        String  @id @default(uuid())
+  cartId    String  @map("cart_id")
+  productId String  @map("product_id")
+  variantId String? @map("variant_id")
+  quantity  Int
+
+  // Price snapshot al momento aggiunta (per confronto)
+  unitPrice Decimal @map("unit_price") @db.Decimal(10, 2)
+
+  // Stock reservation
+  reservedUntil DateTime? @map("reserved_until")
+  reservedQty   Int?      @map("reserved_qty")
+
+  addedAt   DateTime @default(now()) @map("added_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  cart    ShoppingCart    @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  product Product         @relation(fields: [productId], references: [id])
+  variant ProductVariant? @relation(fields: [variantId], references: [id])
+
+  @@unique([cartId, productId, variantId])
+  @@index([cartId])
+  @@index([productId])
+  @@map("cart_items")
+}
+
+// ============================================
+// E-COMMERCE: WISHLIST
+// ============================================
+
+model WishlistItem {
+  id         String  @id @default(uuid())
+  customerId String  @map("customer_id")
+  productId  String  @map("product_id")
+  variantId  String? @map("variant_id")
+
+  // Notifica quando torna disponibile
+  notifyRestock Boolean @default(false) @map("notify_restock")
+
+  addedAt DateTime @default(now()) @map("added_at")
+
+  // Relations
+  customer Customer        @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  product  Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant  ProductVariant? @relation(fields: [variantId], references: [id])
+
+  @@unique([customerId, productId, variantId])
+  @@index([customerId])
+  @@index([productId])
+  @@map("wishlist_items")
+}
+
+// ============================================
+// E-COMMERCE: COUPON SYSTEM
+// ============================================
+
+enum CouponType {
+  FIXED // Sconto fisso in euro
+  PERCENTAGE // Sconto percentuale
+  FREE_SHIPPING // Spedizione gratuita
+}
+
+enum CouponScope {
+  ENTIRE_ORDER // Tutto l'ordine
+  CATEGORY // Solo alcune categorie
+  PRODUCT // Solo alcuni prodotti
+  FIRST_ORDER // Solo primo ordine
+}
+
+model Coupon {
+  id            String      @id @default(uuid())
+  code          String      @unique
+  name          String? // Nome descrittivo interno
+  type          CouponType
+  discountValue Decimal     @map("discount_value") @db.Decimal(10, 2)
+  scope         CouponScope @default(ENTIRE_ORDER)
+
+  // Applicabilita
+  applicableIds Json? @map("applicable_ids") // Product/Category IDs when scope is CATEGORY/PRODUCT
+  excludedIds   Json? @map("excluded_ids") // Prodotti/categorie escluse
+
+  // Limiti
+  minimumOrderAmount Decimal? @map("minimum_order_amount") @db.Decimal(10, 2)
+  maximumDiscount    Decimal? @map("maximum_discount") @db.Decimal(10, 2) // Cap per coupon percentuali
+
+  // Validita
+  validFrom DateTime @map("valid_from")
+  validTo   DateTime @map("valid_to")
+
+  // Utilizzi
+  maxUses            Int? @map("max_uses") // null = illimitato
+  usageCount         Int  @default(0) @map("usage_count")
+  maxUsesPerCustomer Int? @map("max_uses_per_customer") // null = illimitato
+
+  // Solo per specifici clienti
+  customerIds   Json? @map("customer_ids") // null = tutti
+  customerTiers Json? @map("customer_tiers") // Loyalty tiers eligibili
+
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  usages CouponUsage[]
+  carts  ShoppingCart[]
+
+  @@index([code])
+  @@index([isActive, validFrom, validTo])
+  @@map("coupons")
+}
+
+model CouponUsage {
+  id         String @id @default(uuid())
+  couponId   String @map("coupon_id")
+  customerId String @map("customer_id")
+  orderId    String @map("order_id")
+
+  discountAmount Decimal  @map("discount_amount") @db.Decimal(10, 2)
+  usedAt         DateTime @default(now()) @map("used_at")
+
+  // Relations
+  coupon   Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id])
+
+  @@index([couponId])
+  @@index([customerId])
+  @@index([orderId])
+  @@map("coupon_usages")
+}
+
+// ============================================
+// E-COMMERCE: PAGAMENTI
+// ============================================
+
+enum PaymentProvider {
+  STRIPE
+  PAYPAL
+  BANK_TRANSFER
+  CASH_ON_DELIVERY
+}
+
+enum PaymentStatus {
+  PENDING
+  AUTHORIZED
+  CAPTURED
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+  CANCELLED
+  EXPIRED
+}
+
+model PaymentTransaction {
+  id       String          @id @default(uuid())
+  orderId  String          @map("order_id")
+  provider PaymentProvider
+
+  // Provider transaction info
+  transactionId String? @map("transaction_id") // ID transazione provider
+  sessionId     String? @map("session_id") // Stripe checkout session / PayPal order ID
+
+  status PaymentStatus @default(PENDING)
+
+  // Amounts
+  amount         Decimal @db.Decimal(10, 2)
+  amountRefunded Decimal @default(0) @map("amount_refunded") @db.Decimal(10, 2)
+  currency       String  @default("EUR")
+
+  // Payment method details
+  paymentMethod String? @map("payment_method") // visa, mastercard, paypal, etc
+  last4         String? // Ultime 4 cifre carta
+
+  // 3D Secure / SCA
+  threeDSecure Boolean @default(false) @map("three_d_secure")
+
+  // Metadata
+  metadata    Json? // Provider-specific metadata
+  webhookData Json? @map("webhook_data") // Last webhook payload
+
+  // Fraud detection
+  riskScore Int?    @map("risk_score")
+  riskLevel String? @map("risk_level") // low, medium, high
+
+  // Timestamps
+  authorizedAt DateTime? @map("authorized_at")
+  capturedAt   DateTime? @map("captured_at")
+  failedAt     DateTime? @map("failed_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([orderId])
+  @@index([provider])
+  @@index([status])
+  @@index([transactionId])
+  @@map("payment_transactions")
+}
+
+// ============================================
+// E-COMMERCE: SPEDIZIONI
+// ============================================
+
+model ShopShippingZone {
+  id        String   @id @default(uuid())
+  name      String // "Italia Continentale", "Europa UE", etc
+  countries Json // ["IT"] o ["FR", "DE", "ES"]
+  regions   Json? // Regioni specifiche ["sicilia", "sardegna"]
+  postcodes Json? // Range CAP specifici ["98*", "09*"]
+  priority  Int      @default(0) // Per matching (più alto = più specifico)
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  methods ShopShippingMethod[]
+
+  @@index([isActive])
+  @@map("shop_shipping_zones")
+}
+
+enum ShippingType {
+  FLAT_RATE // Costo fisso
+  WEIGHT_BASED // Per peso
+  PRICE_BASED // Per totale ordine
+  FREE_ABOVE // Gratis sopra soglia
+  PICKUP // Ritiro in sede
+}
+
+model ShopShippingMethod {
+  id      String       @id @default(uuid())
+  zoneId  String       @map("zone_id")
+  name    String // "Standard", "Express", "Economy"
+  carrier String // "GLS", "BRT", "DHL", "POSTE"
+  type    ShippingType
+
+  // Costi
+  baseCost        Decimal  @map("base_cost") @db.Decimal(10, 2)
+  costPerKg       Decimal? @map("cost_per_kg") @db.Decimal(10, 4)
+  costPerItem     Decimal? @map("cost_per_item") @db.Decimal(10, 2) // Costo extra per item
+  freeAboveAmount Decimal? @map("free_above_amount") @db.Decimal(10, 2)
+
+  // Limiti
+  minWeight      Decimal? @map("min_weight") @db.Decimal(10, 3) // kg
+  maxWeight      Decimal? @map("max_weight") @db.Decimal(10, 3) // kg
+  minOrderAmount Decimal? @map("min_order_amount") @db.Decimal(10, 2)
+  maxOrderAmount Decimal? @map("max_order_amount") @db.Decimal(10, 2)
+
+  // Tempi
+  estimatedDaysMin Int @default(1) @map("estimated_days_min")
+  estimatedDaysMax Int @default(5) @map("estimated_days_max")
+
+  // Carrier integration
+  carrierServiceCode String? @map("carrier_service_code") // Codice servizio corriere
+
+  // Display
+  description String? @db.Text
+  logoUrl     String? @map("logo_url")
+  sortOrder   Int     @default(0) @map("sort_order")
+
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  zone  ShopShippingZone @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+  carts ShoppingCart[]
+
+  @@index([zoneId])
+  @@index([carrier])
+  @@index([isActive])
+  @@map("shop_shipping_methods")
+}
+
+// ============================================
+// E-COMMERCE: RECENSIONI PRODOTTO
+// ============================================
+
+enum ReviewStatus {
+  PENDING // In attesa moderazione
+  APPROVED // Approvata
+  REJECTED // Rifiutata
+  SPAM // Marcata come spam
+}
+
+model ProductReview {
+  id          String  @id @default(uuid())
+  productId   String  @map("product_id")
+  customerId  String  @map("customer_id")
+  orderId     String? @map("order_id") // Per verificare acquisto
+  orderItemId String? @map("order_item_id")
+
+  rating  Int // 1-5 stelle
+  title   String?
+  comment String? @db.Text
+
+  // Pros/Cons structure
+  pros Json? // ["Qualità ottima", "Dettagli precisi"]
+  cons Json? // ["Prezzo alto"]
+
+  // Media allegati
+  images Json? // [{url, thumbnail}]
+
+  // Verified purchase
+  verified Boolean @default(false)
+
+  // Moderation
+  status         ReviewStatus @default(PENDING)
+  moderatedBy    String?      @map("moderated_by")
+  moderatedAt    DateTime?    @map("moderated_at")
+  moderationNote String?      @map("moderation_note") @db.Text
+
+  // Helpfulness
+  helpfulCount Int @default(0) @map("helpful_count")
+  reportCount  Int @default(0) @map("report_count")
+
+  // Response from business
+  response    String?   @db.Text
+  respondedAt DateTime? @map("responded_at")
+  respondedBy String?   @map("responded_by")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  product  Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id])
+
+  @@unique([productId, customerId, orderId])
+  @@index([productId, status])
+  @@index([customerId])
+  @@index([status])
+  @@index([rating])
+  @@map("product_reviews")
+}
+
+// ============================================
+// E-COMMERCE: LOYALTY POINTS
+// ============================================
+
+enum LoyaltyTier {
+  BRONZE
+  SILVER
+  GOLD
+  PLATINUM
+}
+
+model LoyaltyAccount {
+  id         String @id @default(uuid())
+  customerId String @unique @map("customer_id")
+
+  // Points balance
+  points Int @default(0)
+
+  // Tier
+  tier          LoyaltyTier @default(BRONZE)
+  tierExpiresAt DateTime?   @map("tier_expires_at")
+
+  // Lifetime stats
+  totalEarned Int     @default(0) @map("total_earned")
+  totalSpent  Int     @default(0) @map("total_spent") // Punti spesi
+  totalOrders Int     @default(0) @map("total_orders")
+  totalAmount Decimal @default(0) @map("total_amount") @db.Decimal(12, 2) // Totale acquisti €
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  customer     Customer             @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  transactions LoyaltyTransaction[]
+
+  @@index([tier])
+  @@index([points])
+  @@map("loyalty_accounts")
+}
+
+enum LoyaltyTxType {
+  EARN // Guadagnati da acquisto
+  REDEEM // Usati per sconto
+  EXPIRE // Scaduti
+  BONUS // Bonus (welcome, birthday, promo)
+  ADJUSTMENT // Aggiustamento manuale
+  REFUND // Restituiti per rimborso
+}
+
+model LoyaltyTransaction {
+  id        String        @id @default(uuid())
+  accountId String        @map("account_id")
+  orderId   String?       @map("order_id")
+  type      LoyaltyTxType
+  points    Int // Positivo per earn/bonus, negativo per redeem/expire
+
+  // Balance after this transaction
+  balanceAfter Int @map("balance_after")
+
+  description String?
+  reference   String? // Codice riferimento (promo code, etc)
+
+  // For expiring points
+  expiresAt DateTime? @map("expires_at")
+  expired   Boolean   @default(false)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  account LoyaltyAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+  @@index([orderId])
+  @@index([type])
+  @@index([expiresAt, expired])
+  @@map("loyalty_transactions")
+}
+
+// ============================================
+// E-COMMERCE: AGE VERIFICATION
+// ============================================
+
+model AgeVerification {
+  id         String  @id @default(uuid())
+  sessionId  String? @map("session_id")
+  customerId String? @map("customer_id")
+
+  verified   Boolean
+  verifiedAt DateTime @map("verified_at")
+  method     String // "self_declaration", "id_check"
+
+  // Device fingerprint per persistenza
+  deviceHash String? @map("device_hash")
+
+  ipAddress String? @map("ip_address")
+  userAgent String? @map("user_agent") @db.Text
+
+  expiresAt DateTime @map("expires_at") // Cookie expiry
+
+  @@index([sessionId])
+  @@index([customerId])
+  @@index([deviceHash])
+  @@map("age_verifications")
+}
+
+// ============================================
+// E-COMMERCE: USER BEHAVIOR TRACKING
+// ============================================
+
+model UserEvent {
+  id         String  @id @default(uuid())
+  sessionId  String  @map("session_id")
+  customerId String? @map("customer_id")
+
+  eventType String // page_view, product_view, add_to_cart, checkout_start, purchase, search, etc
+  eventData Json // {productId, categoryId, searchQuery, etc}
+
+  pageUrl  String? @map("page_url") @db.Text
+  referrer String? @db.Text
+
+  // Device info
+  userAgent  String? @map("user_agent") @db.Text
+  ipAddress  String? @map("ip_address")
+  country    String?
+  city       String?
+  deviceType String? @map("device_type") // desktop, mobile, tablet
+
+  // UTM tracking
+  utmSource   String? @map("utm_source")
+  utmMedium   String? @map("utm_medium")
+  utmCampaign String? @map("utm_campaign")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([sessionId])
+  @@index([customerId])
+  @@index([eventType])
+  @@index([createdAt])
+  @@map("user_events")
+}
+
+// ============================================
+// E-COMMERCE: NEWSLETTER
+// ============================================
+
+enum SubscriptionStatus {
+  PENDING // In attesa conferma (double opt-in)
+  CONFIRMED // Confermato
+  UNSUBSCRIBED // Disiscritto
+}
+
+model NewsletterSubscription {
+  id         String  @id @default(uuid())
+  email      String  @unique
+  customerId String? @map("customer_id")
+
+  status SubscriptionStatus @default(PENDING)
+
+  // Preferences
+  preferences Json? // {promotions: true, news: false, new_products: true}
+
+  // Tags for segmentation
+  tags Json? // ["vip", "frequent_buyer", "wholesale"]
+
+  // Double opt-in
+  confirmToken String?   @map("confirm_token")
+  confirmedAt  DateTime? @map("confirmed_at")
+
+  // Unsubscribe info
+  unsubscribedAt    DateTime? @map("unsubscribed_at")
+  unsubscribeReason String?   @map("unsubscribe_reason") @db.Text
+
+  // Source
+  source String? // checkout, popup, footer, account
+
+  // Mailchimp integration
+  mailchimpId String?   @map("mailchimp_id")
+  lastSyncAt  DateTime? @map("last_sync_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@index([customerId])
+  @@map("newsletter_subscriptions")
+}
+
+// ============================================
+// E-COMMERCE: SAVED ADDRESSES
+// ============================================
+
+model CustomerAddress {
+  id         String @id @default(uuid())
+  customerId String @map("customer_id")
+
+  // Address type
+  type      String // "shipping", "billing"
+  isDefault Boolean @default(false) @map("is_default")
+
+  // Name
+  firstName String  @map("first_name")
+  lastName  String  @map("last_name")
+  company   String?
+
+  // Address
+  address1 String
+  address2 String?
+  city     String
+  state    String? // Provincia
+  postcode String
+  country  String  @default("IT")
+
+  // Contact
+  phone String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@index([customerId, type, isDefault])
+  @@map("customer_addresses")
+}
+
+// ============================================
+// SUGGESTIONS (Motore Suggerimenti Intelligenti)
+// ============================================
+
+enum SuggestionType {
+  REORDER // Riordino materiale/prodotto
+  STOCKOUT_ALERT // Allarme esaurimento scorte
+  MARGIN_ALERT // Allarme margine basso
+  TREND_UP // Trend vendite in crescita
+  TREND_DOWN // Trend vendite in calo
+  SEASONAL_PEAK // Picco stagionale previsto
+  BATCH_PRODUCTION // Suggerimento produzione batch
+  ORDER_GROUPING // Raggruppa ordini fornitore
+  DEAD_STOCK // Prodotto/materiale fermo
+  PAYMENT_DUE // Scadenza pagamento imminente
+  SUPPLIER_ISSUE // Problema fornitore (ritardi, qualità)
+}
+
+enum SuggestionPriority {
+  CRITICAL // Azione immediata richiesta
+  HIGH // Entro 24 ore
+  MEDIUM // Entro 7 giorni
+  LOW // Quando possibile
+}
+
+enum SuggestionStatus {
+  PENDING // In attesa di azione
+  DISMISSED // Ignorato dall'utente
+  ACTED // Azione eseguita
+  EXPIRED // Scaduto (non più rilevante)
+  AUTO_RESOLVED // Risolto automaticamente
+}
+
+enum PhysicalCountStatus {
+  DRAFT // In preparazione
+  IN_PROGRESS // Conteggio in corso
+  PENDING_REVIEW // In attesa di revisione
+  COMPLETED // Completato e riconciliato
+  CANCELLED // Annullato
+}
+
+enum PhysicalCountItemStatus {
+  NOT_COUNTED // Non ancora conteggiato
+  COUNTED // Conteggiato
+  VERIFIED // Verificato (secondo conteggio)
+  DISCREPANCY // Discrepanza rilevata
+  RECONCILED // Riconciliato
+}
+
+// ============================================
+// IMPORT JOBS (Background job persistence)
+// ============================================
+
+enum ImportJobStatus {
+  RUNNING
+  PAUSED
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum ImportJobType {
+  CUSTOMERS
+  PRODUCTS
+  ORDERS
+}
+
+model ImportJob {
+  id          String          @id @default(uuid())
+  type        ImportJobType
+  status      ImportJobStatus @default(RUNNING)
+  currentPage Int             @default(1) @map("current_page")
+  totalPages  Int?            @map("total_pages")
+  totalItems  Int?            @map("total_items")
+  imported    Int             @default(0)
+  updated     Int             @default(0)
+  errors      Int             @default(0)
+  errorLog    Json?           @map("error_log") // Lista errori dettagliati
+  startedAt   DateTime        @default(now()) @map("started_at")
+  pausedAt    DateTime?       @map("paused_at")
+  completedAt DateTime?       @map("completed_at")
+  resumedFrom String?         @map("resumed_from") // ID del job da cui è stato ripreso
+  createdBy   String?         @map("created_by") // userId
+  bullmqJobId String?         @map("bullmq_job_id") // ID del job BullMQ
+
+  @@index([type])
+  @@index([status])
+  @@index([createdBy])
+  @@index([startedAt])
+  @@map("import_jobs")
+}
+
+// ============================================
+// SDI NOTIFICATIONS (Log notifiche fatturazione elettronica)
+// ============================================
+
+model SdiNotification {
+  id               String    @id @default(uuid())
+  invoiceId        String    @map("invoice_id")
+  notificationType String    @map("notification_type") // RC, NS, MC, NE, AT, DT, etc
+  messageId        String?   @map("message_id") // ID messaggio SDI
+  fileName         String?   @map("file_name") // Nome file notifica
+  content          String?   @db.Text // Contenuto XML notifica
+  errorCode        String?   @map("error_code")
+  errorMessage     String?   @map("error_message") @db.Text
+  receivedAt       DateTime  @default(now()) @map("received_at")
+  processedAt      DateTime? @map("processed_at")
+  isProcessed      Boolean   @default(false) @map("is_processed")
+
+  // Relations
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@index([notificationType])
+  @@index([receivedAt])
+  @@map("sdi_notifications")
+}
+
+// ============================================
+// DDT - Documento Di Trasporto
+// ============================================
+
+model DDT {
+  id         String  @id @default(uuid())
+  ddtNumber  String  @unique @map("ddt_number") // Numero progressivo
+  orderId    String? @map("order_id")
+  customerId String  @map("customer_id")
+
+  // Date
+  issueDate     DateTime @map("issue_date")
+  transportDate DateTime @map("transport_date")
+
+  // Indirizzo di spedizione
+  shippingAddress Json @map("shipping_address") // {street, city, province, zip, country}
+
+  // Trasporto
+  carrier            String? // Vettore
+  carrierNotes       String?  @map("carrier_notes")
+  numberOfPackages   Int      @default(1) @map("number_of_packages")
+  totalWeight        Decimal? @map("total_weight") @db.Decimal(10, 3) // kg
+  transportReason    String   @default("VENDITA") @map("transport_reason") // VENDITA, CONTO_VISIONE, RESO, etc
+  shipmentAppearance String?  @map("shipment_appearance") // Aspetto esteriore merce
+
+  // Note
+  notes         String? @db.Text
+  internalNotes String? @map("internal_notes") @db.Text
+
+  // Fatturazione
+  invoiceId  String? @map("invoice_id") // Riferimento fattura se già fatturato
+  isInvoiced Boolean @default(false) @map("is_invoiced")
+
+  // File
+  pdfFilePath String? @map("pdf_file_path")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  order    Order?    @relation(fields: [orderId], references: [id])
+  customer Customer  @relation(fields: [customerId], references: [id])
+  items    DDTItem[]
+
+  @@index([customerId])
+  @@index([orderId])
+  @@index([issueDate])
+  @@index([isInvoiced])
+  @@map("ddt")
+}
+
+model DDTItem {
+  id        String  @id @default(uuid())
+  ddtId     String  @map("ddt_id")
+  productId String? @map("product_id")
+  variantId String? @map("variant_id")
+
+  // Dati riga
+  sku          String
+  description  String
+  quantity     Int
+  unit         String  @default("pz") // Unità di misura
+  lotNumber    String? @map("lot_number")
+  serialNumber String? @map("serial_number")
+
+  // Prezzo (per riferimento, non fiscale)
+  unitPrice Decimal? @map("unit_price") @db.Decimal(10, 2)
+
+  // Posizione nel DDT
+  lineNumber Int @map("line_number")
+
+  // Relations
+  ddt     DDT             @relation(fields: [ddtId], references: [id], onDelete: Cascade)
+  product Product?        @relation(fields: [productId], references: [id])
+  variant ProductVariant? @relation(fields: [variantId], references: [id])
+
+  @@index([ddtId])
+  @@index([productId])
+  @@map("ddt_items")
+}
+
+// ============================================
+// SUGGESTION (Suggerimenti intelligenti)
+// ============================================
+
+model Suggestion {
+  id       String             @id @default(uuid())
+  type     SuggestionType
+  priority SuggestionPriority @default(MEDIUM)
+  status   SuggestionStatus   @default(PENDING)
+
+  // Titolo e descrizione
+  title       String
+  description String  @db.Text
+  actionLabel String? @map("action_label") // "Ordina ora", "Avvia produzione"
+
+  // Riferimenti entità correlate
+  productId  String? @map("product_id")
+  materialId String? @map("material_id")
+  supplierId String? @map("supplier_id")
+  customerId String? @map("customer_id")
+  orderId    String? @map("order_id")
+
+  // Dati suggerimento (JSON flessibile per algoritmi diversi)
+  data Json? // {quantity, daysUntilStockout, trend, etc}
+
+  // Link per azione rapida
+  actionUrl String? @map("action_url") // Route frontend per azione
+
+  // Impatto stimato
+  potentialSaving  Decimal? @map("potential_saving") @db.Decimal(10, 2)
+  potentialRevenue Decimal? @map("potential_revenue") @db.Decimal(10, 2)
+
+  // Scadenza suggerimento
+  expiresAt DateTime? @map("expires_at")
+
+  // Tracking azione utente
+  dismissedBy   String?   @map("dismissed_by") // userId
+  dismissedAt   DateTime? @map("dismissed_at")
+  dismissReason String?   @map("dismiss_reason")
+  actedBy       String?   @map("acted_by") // userId
+  actedAt       DateTime? @map("acted_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations (optional, for filtering)
+  product  Product?  @relation(fields: [productId], references: [id])
+  material Material? @relation("SuggestionMaterial", fields: [materialId], references: [id])
+  supplier Supplier? @relation(fields: [supplierId], references: [id])
+
+  @@index([type])
+  @@index([priority])
+  @@index([status])
+  @@index([productId])
+  @@index([materialId])
+  @@index([createdAt])
+  @@index([expiresAt])
+  @@map("suggestions")
+}
+
+// ============================================
+// DAILY SUMMARY (KPI giornalieri pre-calcolati)
+// ============================================
+
+model DailySummary {
+  id   String   @id @default(uuid())
+  date DateTime @unique @db.Date // Data del summary
+
+  // Ordini
+  ordersCount        Int     @default(0) @map("orders_count")
+  ordersTotal        Decimal @default(0) @map("orders_total") @db.Decimal(12, 2)
+  ordersAvgValue     Decimal @default(0) @map("orders_avg_value") @db.Decimal(10, 2)
+  newCustomers       Int     @default(0) @map("new_customers")
+  returningCustomers Int     @default(0) @map("returning_customers")
+
+  // Produzione
+  productionOrdersStarted   Int @default(0) @map("production_orders_started")
+  productionOrdersCompleted Int @default(0) @map("production_orders_completed")
+  itemsProduced             Int @default(0) @map("items_produced")
+
+  // Magazzino
+  inventoryMovements    Int @default(0) @map("inventory_movements")
+  stockAlertsCount      Int @default(0) @map("stock_alerts_count")
+  lowStockProductsCount Int @default(0) @map("low_stock_products_count")
+
+  // Fatturazione
+  invoicesIssued    Int     @default(0) @map("invoices_issued")
+  invoicesTotal     Decimal @default(0) @map("invoices_total") @db.Decimal(12, 2)
+  invoicesPaid      Int     @default(0) @map("invoices_paid")
+  invoicesPaidTotal Decimal @default(0) @map("invoices_paid_total") @db.Decimal(12, 2)
+
+  // Fornitori
+  purchaseOrdersCreated Int     @default(0) @map("purchase_orders_created")
+  purchaseOrdersTotal   Decimal @default(0) @map("purchase_orders_total") @db.Decimal(12, 2)
+  goodsReceiptsCount    Int     @default(0) @map("goods_receipts_count")
+
+  // Task
+  tasksCreated   Int @default(0) @map("tasks_created")
+  tasksCompleted Int @default(0) @map("tasks_completed")
+  tasksOverdue   Int @default(0) @map("tasks_overdue")
+
+  // Suggerimenti
+  suggestionsGenerated Int @default(0) @map("suggestions_generated")
+  suggestionsActed     Int @default(0) @map("suggestions_acted")
+  suggestionsDismissed Int @default(0) @map("suggestions_dismissed")
+
+  // Marginalità
+  grossMargin      Decimal? @map("gross_margin") @db.Decimal(10, 2)
+  marginPercentage Decimal? @map("margin_percentage") @db.Decimal(5, 2)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([date])
+  @@map("daily_summaries")
+}
+
+// ============================================
+// USER DASHBOARD PREFERENCE
+// ============================================
+
+model UserDashboardPreference {
+  id     String @id @default(uuid())
+  userId String @unique @map("user_id")
+
+  // Layout preferito
+  layout Json? // {widgets: [{id, position, size, visible}]}
+
+  // Notifiche
+  emailDailyDigest  Boolean @default(true) @map("email_daily_digest")
+  emailWeeklyDigest Boolean @default(true) @map("email_weekly_digest")
+  emailUrgentAlerts Boolean @default(true) @map("email_urgent_alerts")
+
+  // Suggerimenti
+  showSuggestions Boolean @default(true) @map("show_suggestions")
+  suggestionTypes Json?   @map("suggestion_types") // Tipi di suggerimenti da mostrare
+
+  // Personalizzazione dashboard
+  defaultDateRange String  @default("7d") @map("default_date_range") // 1d, 7d, 30d, 90d
+  showKpis         Boolean @default(true) @map("show_kpis")
+  showUrgentTasks  Boolean @default(true) @map("show_urgent_tasks")
+  showDayPlan      Boolean @default(true) @map("show_day_plan")
+
+  // Theme
+  compactMode Boolean @default(false) @map("compact_mode")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_dashboard_preferences")
+}
+
+// ============================================
+// PHYSICAL INVENTORY (Inventario Fisico)
+// ============================================
+
+model PhysicalCountSession {
+  id          String              @id @default(uuid())
+  code        String              @unique // Es: "INV-2024-001"
+  warehouseId String              @map("warehouse_id")
+  status      PhysicalCountStatus @default(DRAFT)
+
+  // Info sessione
+  name        String // "Inventario Q1 2024", "Conteggio Ciclico Marzo"
+  description String? @db.Text
+  countType   String  @default("FULL") // FULL, CYCLE, SPOT
+
+  // Date
+  plannedDate DateTime? @map("planned_date")
+  startedAt   DateTime? @map("started_at")
+  completedAt DateTime? @map("completed_at")
+
+  // Opzioni conteggio
+  requireDoubleCount  Boolean @default(false) @map("require_double_count") // Richiede verifica
+  freezeInventory     Boolean @default(false) @map("freeze_inventory") // Blocca movimenti durante conteggio
+  allowBlindCount     Boolean @default(true) @map("allow_blind_count") // Non mostra quantità prevista
+
+  // Filtri opzionali (JSON per flessibilità)
+  filters Json? // {categories: [], locations: [], sku_prefix: ""}
+
+  // Statistiche calcolate post-conteggio
+  totalItems         Int      @default(0) @map("total_items")
+  countedItems       Int      @default(0) @map("counted_items")
+  discrepancyCount   Int      @default(0) @map("discrepancy_count")
+  totalVarianceValue Decimal? @map("total_variance_value") @db.Decimal(12, 2)
+
+  // Utenti
+  createdById   String  @map("created_by_id")
+  startedById   String? @map("started_by_id")
+  completedById String? @map("completed_by_id")
+
+  // Note
+  notes String? @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  warehouse Warehouse            @relation(fields: [warehouseId], references: [id])
+  items     PhysicalCountItem[]
+
+  @@index([warehouseId])
+  @@index([status])
+  @@index([plannedDate])
+  @@map("physical_count_sessions")
+}
+
+model PhysicalCountItem {
+  id        String @id @default(uuid())
+  sessionId String @map("session_id")
+
+  // Riferimento al prodotto/materiale
+  productId  String? @map("product_id")
+  variantId  String? @map("variant_id")
+  materialId String? @map("material_id")
+
+  // SKU e descrizione (per report anche se prodotto cancellato)
+  sku         String
+  description String
+  unit        String @default("pz")
+
+  // Posizione nel magazzino
+  location String? // Es: "A-01-02" (scaffale-ripiano-posizione)
+
+  // Quantità
+  expectedQuantity Int                      @map("expected_quantity") // Da sistema al momento del conteggio
+  countedQuantity  Int?                     @map("counted_quantity") // Prima conta
+  verifiedQuantity Int?                     @map("verified_quantity") // Seconda conta (se richiesta)
+  finalQuantity    Int?                     @map("final_quantity") // Quantità finale approvata
+  variance         Int?                     @default(0) // finalQuantity - expectedQuantity
+  varianceValue    Decimal?                 @map("variance_value") @db.Decimal(10, 2) // Valore economico varianza
+
+  // Stato
+  status PhysicalCountItemStatus @default(NOT_COUNTED)
+
+  // Conteggi
+  countedAt   DateTime? @map("counted_at")
+  countedById String?   @map("counted_by_id")
+  verifiedAt  DateTime? @map("verified_at")
+  verifiedBy  String?   @map("verified_by")
+
+  // Note
+  notes String? @db.Text
+
+  // Costo unitario al momento del conteggio (per calcolo varianza)
+  unitCost Decimal? @map("unit_cost") @db.Decimal(10, 4)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  session  PhysicalCountSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  product  Product?             @relation(fields: [productId], references: [id])
+  variant  ProductVariant?      @relation(fields: [variantId], references: [id])
+  material Material?            @relation("PhysicalCountMaterial", fields: [materialId], references: [id])
+
+  @@unique([sessionId, productId, variantId, materialId, location])
+  @@index([sessionId])
+  @@index([productId])
+  @@index([materialId])
+  @@index([status])
+  @@map("physical_count_items")
+}
