@@ -493,7 +493,7 @@ const loadInvoices = async () => {
 
 const loadCustomers = async () => {
   try {
-    const response = await apiService.get('/customers', { params: { limit: 1000 } });
+    const response = await apiService.get('/customers', { params: { limit: 500 } });
     customers.value = (response.data.items || response.data || []).map((c: any) => ({
       ...c,
       displayName: c.businessName || `${c.firstName} ${c.lastName}`,

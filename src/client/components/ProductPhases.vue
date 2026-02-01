@@ -452,7 +452,7 @@ const loadOperationTypes = async () => {
 const loadSuppliers = async () => {
   loadingSuppliers.value = true;
   try {
-    const response = await api.get('/suppliers?limit=1000');
+    const response = await api.get('/suppliers?limit=500');
     if (response.success) {
       suppliers.value = response.data;
     }

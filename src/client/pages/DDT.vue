@@ -555,7 +555,7 @@ const loadDDTs = async () => {
 
 const loadCustomers = async () => {
   try {
-    const response = await apiService.get('/customers', { params: { limit: 1000 } });
+    const response = await apiService.get('/customers', { params: { limit: 500 } });
     customers.value = (response.data.items || response.data || []).map((c: any) => ({
       ...c,
       displayName: c.businessName || `${c.firstName} ${c.lastName}`,
@@ -567,7 +567,7 @@ const loadCustomers = async () => {
 
 const loadProducts = async () => {
   try {
-    const response = await apiService.get('/products', { params: { limit: 1000, isActive: true } });
+    const response = await apiService.get('/products', { params: { limit: 500, isActive: true } });
     products.value = response.data.items || response.data || [];
   } catch (error) {
     console.error('Error loading products:', error);

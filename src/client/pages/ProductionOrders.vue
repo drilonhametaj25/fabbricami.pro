@@ -506,7 +506,7 @@ const loadStats = async () => {
 
 const loadProducts = async () => {
   try {
-    const response = await api.get('/products?limit=1000');
+    const response = await api.get('/products?limit=500');
     products.value = response.data?.items || response.data || [];
   } catch (error) {
     console.error('Error loading products:', error);
