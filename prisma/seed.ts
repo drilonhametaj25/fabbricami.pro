@@ -295,6 +295,7 @@ async function main() {
       data: {
         materialId: material.id,
         warehouseId: mainWarehouse.id,
+        location: 'WEB',
         quantity: mat.stock,
         reservedQuantity: 0,
       },
