@@ -32,11 +32,16 @@ ENV NODE_ENV=production
 RUN apk add --no-cache openssl libc6-compat
 
 COPY package*.json ./
+COPY tsconfig*.json ./
 RUN npm ci --only=production
+# Installa ts-node per poter eseguire il seed
+RUN npm install -g ts-node typescript
 
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
+# Copia src per il seed (usa import da src/server/utils)
+COPY --from=build /app/src ./src
 
 RUN npx prisma generate
 
