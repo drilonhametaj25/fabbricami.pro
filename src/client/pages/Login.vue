@@ -9,7 +9,7 @@
           <div class="logo">
             <span>E</span>
           </div>
-          <h1>EcommerceERP</h1>
+          <h1>FabbricaMi.pro</h1>
           <p class="tagline">Sistema Gestionale Completo per E-commerce</p>
         </div>
 
@@ -87,7 +87,7 @@
 
         <!-- Footer -->
         <div class="info-footer">
-          <p>&copy; 2024 EcommerceERP. Tutti i diritti riservati.</p>
+          <p>&copy; 2026 FabbricaMi.pro. Tutti i diritti riservati.</p>
         </div>
       </div>
 
@@ -107,7 +107,7 @@
           <div class="logo-small">
             <span>E</span>
           </div>
-          <h2>EcommerceERP</h2>
+          <h2>FabbricaMi.pro</h2>
         </div>
 
         <!-- Login Card -->
@@ -125,7 +125,7 @@
             <div class="demo-content">
               <strong>Credenziali Demo</strong>
               <div class="credentials-list">
-                <span><i class="pi pi-envelope"></i> admin@ecommerceerp.com</span>
+                <span><i class="pi pi-envelope"></i> admin@fabbricami.pro</span>
                 <span><i class="pi pi-lock"></i> admin123</span>
               </div>
             </div>
@@ -184,7 +184,7 @@
 
           <!-- Footer -->
           <div class="card-footer">
-            <p>Hai bisogno di aiuto? <a href="mailto:support@ecommerceerp.com">Contatta il supporto</a></p>
+            <p>Hai bisogno di aiuto? <a href="mailto:support@fabbricami.pro">Contatta il supporto</a></p>
           </div>
         </div>
       </div>

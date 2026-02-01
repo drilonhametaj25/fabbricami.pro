@@ -4,7 +4,7 @@
       <div class="sidebar-header">
         <div class="logo" v-show="!sidebarCollapsed">
           <span class="logo-icon">E</span>
-          <h2>EcommerceERP</h2>
+          <h2>FabbricaMi.pro</h2>
         </div>
         <button
           class="sidebar-toggle"
