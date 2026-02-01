@@ -34,8 +34,8 @@ RUN apk add --no-cache openssl libc6-compat
 COPY package*.json ./
 COPY tsconfig*.json ./
 RUN npm ci --only=production
-# Installa ts-node per poter eseguire il seed
-RUN npm install -g ts-node typescript
+# Installa tsx per poter eseguire il seed
+RUN npm install -g tsx
 
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
