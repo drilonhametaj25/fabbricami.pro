@@ -82,7 +82,13 @@
       "Bash(cut:*)",
       "Bash(git init:*)",
       "Bash(git add:*)",
-      "Bash(git commit -m \"$\\(cat <<''EOF''\nfeat\\(phase5\\): complete supplier scorecard and three-way matching\n\nPhase 5: Completing Existing Modules\n\nSupplier Scorecard:\n- Add SupplierScorecard model with delivery, quality, cost metrics\n- Implement scorecard calculation with weighted scoring \\(A-F rating\\)\n- Add historical tracking \\(monthly, quarterly, yearly periods\\)\n- Add supplier comparison and ranking endpoints\n- Add scorecard report generation\n\nThree-Way Matching \\(PO-GR-Invoice\\):\n- Add SupplierInvoice, SupplierInvoiceItem models\n- Add ThreeWayMatch model for reconciliation tracking\n- Implement auto-matching based on PO item links\n- Add configurable tolerances for auto-approval\n- Add discrepancy resolution workflow with multiple resolution types\n- Add matching statistics and reporting\n\nRMA Module:\n- Add returns management service\n- Add RMA API endpoints\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfeat\\(phase5\\): complete supplier scorecard and three-way matching\n\nPhase 5: Completing Existing Modules\n\nSupplier Scorecard:\n- Add SupplierScorecard model with delivery, quality, cost metrics\n- Implement scorecard calculation with weighted scoring \\(A-F rating\\)\n- Add historical tracking \\(monthly, quarterly, yearly periods\\)\n- Add supplier comparison and ranking endpoints\n- Add scorecard report generation\n\nThree-Way Matching \\(PO-GR-Invoice\\):\n- Add SupplierInvoice, SupplierInvoiceItem models\n- Add ThreeWayMatch model for reconciliation tracking\n- Implement auto-matching based on PO item links\n- Add configurable tolerances for auto-approval\n- Add discrepancy resolution workflow with multiple resolution types\n- Add matching statistics and reporting\n\nRMA Module:\n- Add returns management service\n- Add RMA API endpoints\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(./node_modules/.bin/tsc:*)",
+      "Bash(npm test:*)",
+      "Bash(node -e:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(chmod:*)"
     ]
   }
 }

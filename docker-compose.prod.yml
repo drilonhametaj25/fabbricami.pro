@@ -1,73 +1,240 @@
+# EcommerceERP - Production Deployment
+# Ottimizzato per Hetzner VPS con Traefik + Let's Encrypt
+#
+# Requisiti: Docker 24+, Docker Compose v2
+# Setup:
+#   1. Copia .env.production.example in .env
+#   2. Configura le variabili d'ambiente
+#   3. docker compose -f docker-compose.prod.yml up -d
+#   4. docker compose exec backend npx prisma migrate deploy
+
 services:
+  # ===========================================
+  # DATABASE (PostgreSQL 16)
+  # ===========================================
   postgres:
     image: postgres:16-alpine
-    container_name: ecommerceerp-postgres-prod
+    container_name: ecommerceerp-postgres
     restart: always
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ecommerce_erp
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     networks:
-      - ecommerceerp-network
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ecommerce_erp"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
+  # ===========================================
+  # CACHE & QUEUE (Redis 7)
+  # ===========================================
   redis:
     image: redis:7-alpine
-    container_name: ecommerceerp-redis-prod
+    container_name: ecommerceerp-redis
     restart: always
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
     volumes:
       - redis_data:/data
     networks:
-      - ecommerceerp-network
+      - internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
+  # ===========================================
+  # BACKEND API (Fastify)
+  # ===========================================
   backend:
     build:
       context: .
       dockerfile: docker/backend/Dockerfile
       target: production
-    container_name: ecommerceerp-backend-prod
+    container_name: ecommerceerp-backend
     restart: always
-    env_file:
-      - .env.production
-    depends_on:
-      - postgres
-      - redis
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/ecommerce_erp?schema=public
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-30d}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      WORDPRESS_SYNC_ENABLED: ${WORDPRESS_SYNC_ENABLED:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # SDI Fatturazione Elettronica
+      SDI_ENABLED: ${SDI_ENABLED:-false}
+      SDI_MODE: ${SDI_MODE:-test}
+    volumes:
+      - uploads_data:/app/uploads
+      - ./logs:/app/logs
     networks:
-      - ecommerceerp-network
+      - internal
+      - web
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      # API Router
+      - "traefik.http.routers.api.rule=Host(`api.${DOMAIN}`)"
+      - "traefik.http.routers.api.entrypoints=websecure"
+      - "traefik.http.routers.api.tls.certresolver=letsencrypt"
+      - "traefik.http.services.api.loadbalancer.server.port=3000"
+      # CORS Middleware
+      - "traefik.http.middlewares.api-cors.headers.accesscontrolallowmethods=GET,POST,PUT,PATCH,DELETE,OPTIONS"
+      - "traefik.http.middlewares.api-cors.headers.accesscontrolallowheaders=Content-Type,Authorization,X-Requested-With"
+      - "traefik.http.middlewares.api-cors.headers.accesscontrolalloworiginlist=${ALLOWED_ORIGINS}"
+      - "traefik.http.middlewares.api-cors.headers.accesscontrolmaxage=100"
+      - "traefik.http.middlewares.api-cors.headers.accesscontrolallowcredentials=true"
+      # Security Headers
+      - "traefik.http.middlewares.api-security.headers.frameDeny=true"
+      - "traefik.http.middlewares.api-security.headers.browserXssFilter=true"
+      - "traefik.http.middlewares.api-security.headers.contentTypeNosniff=true"
+      - "traefik.http.routers.api.middlewares=api-cors,api-security"
 
+  # ===========================================
+  # ERP FRONTEND (Vue 3)
+  # ===========================================
   frontend:
     build:
       context: .
       dockerfile: docker/frontend/Dockerfile
       target: production
-    container_name: ecommerceerp-frontend-prod
+      args:
+        VITE_API_URL: https://api.${DOMAIN}
+    container_name: ecommerceerp-frontend
     restart: always
     networks:
-      - ecommerceerp-network
+      - web
+    labels:
+      - "traefik.enable=true"
+      # ERP Router
+      - "traefik.http.routers.erp.rule=Host(`erp.${DOMAIN}`)"
+      - "traefik.http.routers.erp.entrypoints=websecure"
+      - "traefik.http.routers.erp.tls.certresolver=letsencrypt"
+      - "traefik.http.services.erp.loadbalancer.server.port=80"
+      # Compression
+      - "traefik.http.middlewares.erp-compress.compress=true"
+      # Security Headers
+      - "traefik.http.middlewares.erp-security.headers.frameDeny=true"
+      - "traefik.http.middlewares.erp-security.headers.browserXssFilter=true"
+      - "traefik.http.middlewares.erp-security.headers.contentTypeNosniff=true"
+      - "traefik.http.routers.erp.middlewares=erp-compress,erp-security"
 
-  nginx:
-    image: nginx:alpine
-    container_name: ecommerceerp-nginx-prod
+  # ===========================================
+  # E-COMMERCE FRONTEND (Nuxt 3) - Optional
+  # ===========================================
+  # Decommenta se vuoi includere lo shop
+  # ecommerce:
+  #   build:
+  #     context: ./src/ecommerce
+  #     dockerfile: Dockerfile
+  #     args:
+  #       NUXT_PUBLIC_API_BASE: https://api.${DOMAIN}/api/v1
+  #   container_name: ecommerceerp-ecommerce
+  #   restart: always
+  #   networks:
+  #     - web
+  #   labels:
+  #     - "traefik.enable=true"
+  #     - "traefik.http.routers.shop.rule=Host(`${DOMAIN}`) || Host(`www.${DOMAIN}`)"
+  #     - "traefik.http.routers.shop.entrypoints=websecure"
+  #     - "traefik.http.routers.shop.tls.certresolver=letsencrypt"
+  #     - "traefik.http.services.shop.loadbalancer.server.port=3000"
+  #     # Redirect www to non-www
+  #     - "traefik.http.middlewares.shop-redirect.redirectregex.regex=^https://www\\.(.*)"
+  #     - "traefik.http.middlewares.shop-redirect.redirectregex.replacement=https://$${1}"
+  #     - "traefik.http.middlewares.shop-redirect.redirectregex.permanent=true"
+  #     - "traefik.http.middlewares.shop-compress.compress=true"
+  #     - "traefik.http.routers.shop.middlewares=shop-redirect,shop-compress"
+
+  # ===========================================
+  # REVERSE PROXY (Traefik)
+  # ===========================================
+  traefik:
+    image: traefik:v2.11
+    container_name: traefik
     restart: always
+    command:
+      # API & Dashboard
+      - "--api.dashboard=true"
+      - "--api.insecure=false"
+      # Docker provider
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=ecommerceerp-web"
+      # Entrypoints
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      # HTTP to HTTPS redirect
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      # Let's Encrypt
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+      # Logging
+      - "--log.level=${TRAEFIK_LOG_LEVEL:-INFO}"
+      - "--accesslog=true"
+      - "--accesslog.filepath=/var/log/traefik/access.log"
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf
-      - ./docker/nginx/conf.d:/etc/nginx/conf.d
-      - ./docker/nginx/ssl:/etc/nginx/ssl
-    depends_on:
-      - backend
-      - frontend
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - letsencrypt_data:/letsencrypt
+      - traefik_logs:/var/log/traefik
     networks:
-      - ecommerceerp-network
+      - web
+    labels:
+      # Dashboard (opzionale, protetto da basic auth)
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik.rule=Host(`traefik.${DOMAIN}`)"
+      - "traefik.http.routers.traefik.entrypoints=websecure"
+      - "traefik.http.routers.traefik.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.traefik.service=api@internal"
+      # Basic auth per dashboard
+      - "traefik.http.middlewares.traefik-auth.basicauth.users=${TRAEFIK_USERS:-}"
+      - "traefik.http.routers.traefik.middlewares=traefik-auth"
 
-networks:
-  ecommerceerp-network:
-    driver: bridge
-
+# ===========================================
+# VOLUMES
+# ===========================================
 volumes:
   postgres_data:
+    name: ecommerceerp-postgres-data
   redis_data:
+    name: ecommerceerp-redis-data
+  uploads_data:
+    name: ecommerceerp-uploads
+  letsencrypt_data:
+    name: ecommerceerp-letsencrypt
+  traefik_logs:
+    name: ecommerceerp-traefik-logs
+
+# ===========================================
+# NETWORKS
+# ===========================================
+networks:
+  internal:
+    name: ecommerceerp-internal
+    internal: true  # No external access
+  web:
+    name: ecommerceerp-web
