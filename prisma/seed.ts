@@ -54,7 +54,7 @@ async function main() {
       address: 'Via della Manifattura 42',
       city: 'Milano',
       province: 'MI',
-      zipCode: '20100',
+      postalCode: '20100',
       country: 'IT',
       phone: '+39 02 12345678',
       email: 'info@fabbricami.pro',
