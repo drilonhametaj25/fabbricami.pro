@@ -135,7 +135,6 @@ async function main() {
       userId: admin.id,
       employeeCode: 'EMP-001',
       position: 'Amministratore Delegato',
-      department: 'Direzione',
       hourlyRate: 50.00,
       hireDate: new Date('2020-01-01'),
       isActive: true,
@@ -147,7 +146,6 @@ async function main() {
       userId: manager.id,
       employeeCode: 'EMP-002',
       position: 'Responsabile Produzione',
-      department: 'Produzione',
       hourlyRate: 35.00,
       hireDate: new Date('2020-03-15'),
       isActive: true,
@@ -159,7 +157,6 @@ async function main() {
       userId: magazziniere.id,
       employeeCode: 'EMP-003',
       position: 'Responsabile Magazzino',
-      department: 'Logistica',
       hourlyRate: 22.00,
       hireDate: new Date('2021-06-01'),
       isActive: true,
@@ -171,7 +168,6 @@ async function main() {
       userId: contabile.id,
       employeeCode: 'EMP-004',
       position: 'Responsabile Amministrativo',
-      department: 'Amministrazione',
       hourlyRate: 30.00,
       hireDate: new Date('2020-09-01'),
       isActive: true,
@@ -183,7 +179,6 @@ async function main() {
       userId: commerciale.id,
       employeeCode: 'EMP-005',
       position: 'Sales Manager',
-      department: 'Commerciale',
       hourlyRate: 28.00,
       hireDate: new Date('2022-01-15'),
       isActive: true,
@@ -322,7 +317,7 @@ async function main() {
     const supplier = await prisma.supplier.create({
       data: {
         code: sup.code,
-        name: sup.name,
+        businessName: sup.name,
         email: `ordini@${sup.name.toLowerCase().replace(/\s+/g, '')}.com`,
         phone: '+39 02 ' + Math.floor(Math.random() * 9000000 + 1000000),
         address: {
@@ -332,10 +327,10 @@ async function main() {
           zip: '20100',
           country: 'IT',
         },
-        vatNumber: 'IT' + Math.floor(Math.random() * 90000000000 + 10000000000),
+        taxId: 'IT' + Math.floor(Math.random() * 90000000000 + 10000000000),
         paymentTerms: 30,
         isActive: true,
-        rating: sup.rating,
+        qualityRating: sup.rating,
       },
     });
     suppliers.push(supplier);
@@ -367,17 +362,13 @@ async function main() {
         name: prod.name,
         description: `Modello in scala ${prod.scale} - ${prod.name}. Realizzato con materiali di alta qualità.`,
         type: 'SIMPLE',
-        status: 'ACTIVE',
         barcode: '800' + Math.floor(Math.random() * 9000000000 + 1000000000),
         cost: prod.cost,
         price: prod.price,
-        compareAtPrice: prod.price * 1.2,
         minStockLevel: 5,
         reorderQuantity: 15,
         weight: 1.5,
         isActive: true,
-        isFeatured: Math.random() > 0.7,
-        categoryId: prod.category,
       },
     });
     products.push(product);
@@ -446,7 +437,7 @@ async function main() {
           country: 'IT',
         },
         paymentTerms: 30,
-        discountPercentage: 10,
+        discount: 10,
         isActive: true,
       },
     });
@@ -529,24 +520,24 @@ async function main() {
       data: {
         productId: product.id,
         alertType: 'LOW_STOCK',
-        message: `Stock basso per ${product.name}`,
-        threshold: 5,
+        thresholdValue: 5,
         currentValue: Math.floor(Math.random() * 5) + 1,
         status: 'ACTIVE',
-        priority: 'HIGH',
       },
     });
   }
 
   // ===== SUGGESTIONS =====
   console.log('💡 Creazione suggerimenti AI...');
-  const suggestions = [
-    { type: 'REORDER', title: 'Riordino Resina Epossidica', description: 'Scorta al 25%. Ordinare 50kg.', priority: 'HIGH', potentialSavings: 450, category: 'INVENTORY' },
-    { type: 'PRICING', title: 'Aumento prezzo Ferrari 250 GTO', description: 'Conversione 85%. Aumentare del 10%.', priority: 'MEDIUM', potentialSavings: 1200, category: 'SALES' },
-    { type: 'PRODUCTION', title: 'Produzione Porsche 911', description: 'Stock per 12 giorni. Produrre 25 unità.', priority: 'HIGH', potentialSavings: 0, category: 'PRODUCTION' },
+  const suggestionData = [
+    { type: 'REORDER', title: 'Riordino Resina Epossidica', description: 'Scorta al 25%. Ordinare 50kg.', priority: 'HIGH', potentialSaving: 450 },
+    { type: 'MARGIN_ALERT', title: 'Margine basso Ferrari 250 GTO', description: 'Margine sotto 30%. Valutare aumento prezzo del 10%.', priority: 'MEDIUM', potentialSaving: 1200 },
+    { type: 'STOCKOUT_ALERT', title: 'Esaurimento Porsche 911', description: 'Stock per 12 giorni. Produrre 25 unità.', priority: 'HIGH', potentialSaving: 0 },
+    { type: 'TREND_UP', title: 'Trend positivo Auto Epoca', description: 'Vendite +45% ultimo mese. Incrementare stock.', priority: 'MEDIUM', potentialSaving: 800 },
+    { type: 'DEAD_STOCK', title: 'Stock fermo: Concorde', description: 'Nessuna vendita in 60 giorni. Valutare promozione.', priority: 'LOW', potentialSaving: 300 },
   ];
 
-  for (const sug of suggestions) {
+  for (const sug of suggestionData) {
     await prisma.suggestion.create({
       data: {
         type: sug.type as any,
@@ -554,9 +545,7 @@ async function main() {
         description: sug.description,
         priority: sug.priority as any,
         status: 'PENDING',
-        potentialSavings: sug.potentialSavings,
-        category: sug.category,
-        metadata: {},
+        potentialSaving: sug.potentialSaving,
       },
     });
   }
@@ -568,21 +557,21 @@ async function main() {
     date.setDate(date.getDate() - i);
     date.setHours(0, 0, 0, 0);
 
-    const ordersCount = Math.floor(Math.random() * 8) + 2;
+    const ordersCountVal = Math.floor(Math.random() * 8) + 2;
     const avgOrderValue = 150 + Math.random() * 100;
 
     await prisma.dailySummary.create({
       data: {
         date,
-        totalOrders: ordersCount,
-        totalRevenue: ordersCount * avgOrderValue,
-        totalCost: ordersCount * avgOrderValue * 0.45,
+        ordersCount: ordersCountVal,
+        ordersTotal: ordersCountVal * avgOrderValue,
+        ordersAvgValue: avgOrderValue,
         newCustomers: Math.floor(Math.random() * 3),
-        returningCustomers: Math.floor(ordersCount * 0.6),
-        averageOrderValue: avgOrderValue,
-        topSellingProductId: products[Math.floor(Math.random() * products.length)].id,
-        lowStockAlerts: Math.floor(Math.random() * 3),
-        pendingShipments: Math.floor(Math.random() * 5) + 1,
+        returningCustomers: Math.floor(ordersCountVal * 0.6),
+        stockAlertsCount: Math.floor(Math.random() * 3),
+        inventoryMovements: Math.floor(Math.random() * 10) + 2,
+        productionOrdersStarted: Math.floor(Math.random() * 3),
+        productionOrdersCompleted: Math.floor(Math.random() * 2),
       },
     });
   }
@@ -591,10 +580,9 @@ async function main() {
   console.log('🔔 Creazione notifiche...');
   await prisma.notification.create({
     data: {
-      type: 'ORDER',
+      type: 'ORDER_RECEIVED',
       title: 'Nuovo ordine #ORD-2026-000050',
       message: 'Nuovo ordine da Mario Rossi per €289.90',
-      priority: 'MEDIUM',
       isRead: false,
       userId: admin.id,
     },
@@ -602,12 +590,21 @@ async function main() {
 
   await prisma.notification.create({
     data: {
-      type: 'STOCK',
+      type: 'LOW_STOCK',
       title: 'Stock critico: Ferrari F40',
       message: 'Solo 3 unità disponibili',
-      priority: 'HIGH',
       isRead: false,
       userId: admin.id,
+    },
+  });
+
+  await prisma.notification.create({
+    data: {
+      type: 'REORDER_POINT',
+      title: 'Punto riordino raggiunto',
+      message: 'Resina Epossidica sotto soglia riordino',
+      isRead: false,
+      userId: magazziniere.id,
     },
   });
 
@@ -617,14 +614,17 @@ async function main() {
   console.log('');
   console.log('📊 Riepilogo:');
   console.log('  👤 Utenti: 5');
+  console.log('  👷 Dipendenti: 5');
   console.log('  🏭 Magazzini: 2');
   console.log('  🧱 Materiali: 10');
   console.log('  📦 Prodotti: 12');
   console.log('  🚚 Fornitori: 5');
   console.log('  👥 Clienti: 11');
   console.log('  🛒 Ordini: 50');
-  console.log('  💡 Suggerimenti: 3');
+  console.log('  ⚠️ Stock Alerts: 3');
+  console.log('  💡 Suggerimenti: 5');
   console.log('  📊 Daily Summaries: 31');
+  console.log('  🔔 Notifiche: 3');
   console.log('');
   console.log('🔐 Login: admin@fabbricami.pro / admin123');
   console.log('');
