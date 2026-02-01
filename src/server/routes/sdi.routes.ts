@@ -7,6 +7,7 @@ import { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import { authenticate } from '../middleware/auth.middleware';
 import { sdiService } from '../services/sdi';
 import { companySettingsService } from '../services/company-settings.service';
+import { exportService } from '../services/export.service';
 import { SdiStatus } from '@prisma/client';
 import { z } from 'zod';
 
@@ -351,6 +352,127 @@ const sdiRoutes: FastifyPluginAsync = async (server) => {
         return reply.status(400).send({
           success: false,
           error: err.message || 'Errore recupero XML',
+        });
+      }
+    }
+  );
+
+  /**
+   * GET /api/v1/sdi/invoices/:id/pdf
+   * Scarica PDF fattura elettronica
+   */
+  server.get(
+    '/invoices/:id/pdf',
+    { preHandler: authenticate },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const { id } = request.params as { id: string };
+        const result = await exportService.getInvoicePdfFile(id);
+
+        return reply
+          .header('Content-Type', 'application/pdf')
+          .header('Content-Disposition', `attachment; filename="${result.fileName}"`)
+          .send(result.buffer);
+      } catch (error: unknown) {
+        const err = error as Error;
+        return reply.status(400).send({
+          success: false,
+          error: err.message || 'Errore generazione PDF',
+        });
+      }
+    }
+  );
+
+  /**
+   * POST /api/v1/sdi/invoices/:id/generate-pdf
+   * Genera/rigenera PDF fattura elettronica
+   */
+  server.post(
+    '/invoices/:id/generate-pdf',
+    { preHandler: authenticate },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const { id } = request.params as { id: string };
+        const result = await exportService.generateFatturaElettronicaPdf(id);
+
+        return reply.send({
+          success: true,
+          data: {
+            filePath: result.filePath,
+            message: 'PDF generato con successo',
+          },
+        });
+      } catch (error: unknown) {
+        const err = error as Error;
+        return reply.status(400).send({
+          success: false,
+          error: err.message || 'Errore generazione PDF',
+        });
+      }
+    }
+  );
+
+  /**
+   * POST /api/v1/sdi/invoices/:id/validate
+   * Valida XML FatturaPA per una fattura
+   */
+  server.post(
+    '/invoices/:id/validate',
+    { preHandler: authenticate },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const { id } = request.params as { id: string };
+        const result = await sdiService.validateInvoiceXml(id);
+
+        return reply.send({
+          success: true,
+          data: {
+            valid: result.valid,
+            errors: result.errors,
+          },
+        });
+      } catch (error: unknown) {
+        const err = error as Error;
+        return reply.status(400).send({
+          success: false,
+          error: err.message || 'Errore validazione XML',
+        });
+      }
+    }
+  );
+
+  /**
+   * POST /api/v1/sdi/validate-xml
+   * Valida un XML FatturaPA generico (non legato a fattura)
+   */
+  server.post(
+    '/validate-xml',
+    { preHandler: authenticate },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const { xml } = request.body as { xml: string };
+
+        if (!xml) {
+          return reply.status(400).send({
+            success: false,
+            error: 'XML mancante nel body',
+          });
+        }
+
+        const result = sdiService.validateXmlString(xml);
+
+        return reply.send({
+          success: true,
+          data: {
+            valid: result.valid,
+            errors: result.errors,
+          },
+        });
+      } catch (error: unknown) {
+        const err = error as Error;
+        return reply.status(400).send({
+          success: false,
+          error: err.message || 'Errore validazione XML',
         });
       }
     }
