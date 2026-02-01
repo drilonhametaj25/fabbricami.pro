@@ -2,7 +2,7 @@
 
 **Ultimo aggiornamento:** 1 Febbraio 2026
 **Branch:** main
-**Ultimo commit:** `e6cc1bb` - docs: add project status summary for continuity
+**Ultimo commit:** `83fdca6` - feat(phase8): add E2E tests for SDI, Dashboard, and WordPress
 
 ---
 
@@ -17,9 +17,9 @@
 | 5 | Completamento Moduli | Completato | 100% |
 | 6 | Reportistica | Completato | 100% |
 | 7 | Frontend e UX | Completato | 100% |
-| 8 | Testing e Deploy | In corso | 50% |
+| 8 | Testing e Deploy | In corso | 75% |
 
-**Avanzamento Totale Stimato: ~95%**
+**Avanzamento Totale Stimato: ~97%**
 
 ---
 
@@ -125,9 +125,9 @@
 
 ## FASE IN CORSO
 
-### Fase 8: Testing e Deploy (50%)
+### Fase 8: Testing e Deploy (75%)
 
-**Test completati:**
+**Unit Test completati:**
 - `tests/server/services/sdi/fatturapa-xml.service.test.ts` - 30 test
 - `tests/server/services/sdi/fatturapa-validator.service.test.ts` - 37 test
 - `tests/server/services/sdi/sdi-service.test.ts` - 30 test
@@ -135,10 +135,14 @@
 - `tests/server/services/dashboard.service.test.ts` - 21 test
 - `tests/server/services/wordpress.service.test.ts` - 17 test
 
-**Totale: 156 nuovi test passanti**
+**E2E Test completati:**
+- `tests/e2e/sdi.e2e.test.ts` - 19 test (XML generation, validation, document types)
+- `tests/e2e/dashboard.e2e.test.ts` - 15 test (login, KPIs, suggestions, preferences)
+- `tests/e2e/wordpress.e2e.test.ts` - 18 test (product sync, orders, inventory, health check)
+
+**Totale: 208 nuovi test passanti (156 unit + 52 E2E)**
 
 **Da completare:**
-- E2E tests per flussi critici
 - Performance testing
 - Ambiente staging
 - Deploy produzione
@@ -184,9 +188,9 @@ jobs/
 └── suggestion.job.ts           Completo
 ```
 
-### Tests (tests/server/)
+### Tests (tests/)
 ```
-services/
+server/services/
 ├── sdi/
 │   ├── fatturapa-xml.service.test.ts
 │   ├── fatturapa-validator.service.test.ts
@@ -194,6 +198,11 @@ services/
 ├── suggestion-engine.service.test.ts
 ├── dashboard.service.test.ts
 └── wordpress.service.test.ts
+
+e2e/
+├── sdi.e2e.test.ts            (NEW - 19 tests)
+├── dashboard.e2e.test.ts      (NEW - 15 tests)
+└── wordpress.e2e.test.ts      (NEW - 18 tests)
 ```
 
 ---
@@ -227,9 +236,9 @@ npm run docker:up        # Avvia servizi
 
 ## Note per Continuare
 
-1. **Stato Git:** Tutti i cambiamenti sono pronti per commit
+1. **Stato Git:** Tutto committato
 2. **Branch:** main
-3. **Test:** 156 nuovi test passanti per SDI, Dashboard, WordPress
+3. **Test:** 208 test passanti (156 unit + 52 E2E) per SDI, Dashboard, WordPress
 
 ### Per riprendere:
 ```bash
@@ -240,10 +249,9 @@ npm run dev
 ```
 
 ### Prossimi passi consigliati:
-1. **E2E Tests:** Creare test end-to-end per flussi critici
-2. **Performance:** Ottimizzare query database
-3. **Staging:** Configurare ambiente staging
-4. **Produzione:** Deploy finale
+1. **Performance:** Ottimizzare query database (N+1 problems)
+2. **Staging:** Configurare ambiente staging
+3. **Produzione:** Deploy finale
 
 ---
 
