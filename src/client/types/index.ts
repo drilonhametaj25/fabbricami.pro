@@ -829,3 +829,172 @@ export interface DashboardKpisResponse {
   startDate: string;
   endDate: string;
 }
+
+// ============================================
+// TENANT & SUBSCRIPTION TYPES (SaaS Multi-Tenant)
+// ============================================
+
+export type TenantStatus = 'ACTIVE' | 'SUSPENDED' | 'CANCELLED';
+
+export interface Tenant {
+  id: string;
+  slug: string;
+  name: string;
+  domain: string | null;
+  settings: Record<string, unknown> | null;
+  status: TenantStatus;
+  createdAt: string;
+}
+
+export interface TenantMember {
+  id: string;
+  userId: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  role: UserRole;
+  invitedAt: string;
+  acceptedAt: string | null;
+}
+
+export interface TenantInvite {
+  id: string;
+  tenantId: string;
+  tenantName: string;
+  email: string;
+  role: UserRole;
+  expiresAt: string;
+  createdAt: string;
+  isExpired: boolean;
+}
+
+export interface TenantWithSubscription extends Tenant {
+  subscription: SubscriptionSummary | null;
+  memberCount: number;
+}
+
+export type SaasSubscriptionStatus = 'TRIALING' | 'ACTIVE' | 'PAST_DUE' | 'CANCELLED' | 'PAUSED';
+
+export interface SubscriptionPlan {
+  id: string;
+  code: string;
+  name: string;
+  priceMonthly: number;
+  priceYearly: number;
+  features: string[];
+  limits: PlanLimits;
+  isActive: boolean;
+}
+
+export interface PlanLimits {
+  maxUsers: number;
+  maxWarehouses: number;
+  maxProducts: number;
+  maxOrders: number;
+  maxSuppliers: number;
+  features: string[];
+}
+
+export interface SubscriptionSummary {
+  planCode: string;
+  planName: string;
+  status: SaasSubscriptionStatus;
+  trialEndsAt: string | null;
+  currentPeriodEnd: string;
+}
+
+export interface Subscription {
+  id: string;
+  tenantId: string;
+  planCode: string;
+  planName: string;
+  status: SaasSubscriptionStatus;
+  currentPeriodStart: string;
+  currentPeriodEnd: string;
+  cancelAtPeriodEnd: boolean;
+  trialEndsAt: string | null;
+  stripeSubscriptionId: string | null;
+  stripeCustomerId: string | null;
+}
+
+export interface UsageStat {
+  current: number;
+  limit: number;
+  percentage: number;
+}
+
+export interface UsageStats {
+  users: UsageStat;
+  warehouses: UsageStat;
+  products: UsageStat;
+  orders: UsageStat;
+  suppliers: UsageStat;
+}
+
+export interface BillingHistoryItem {
+  id: string;
+  date: string;
+  amount: number;
+  status: 'paid' | 'failed' | 'pending';
+  invoiceUrl: string | null;
+  description: string;
+}
+
+export type OnboardingStep = 'verify-email' | 'company-settings' | 'create-warehouse' | 'complete';
+
+export interface OnboardingStatus {
+  emailVerified: boolean;
+  companySettingsComplete: boolean;
+  firstWarehouseCreated: boolean;
+  currentStep: OnboardingStep;
+  completedSteps: string[];
+}
+
+export interface CompanySettingsForm {
+  companyName: string;
+  legalName?: string;
+  vatNumber: string;
+  fiscalCode?: string;
+  street: string;
+  city: string;
+  province: string;
+  postalCode: string;
+  country: string;
+  phone?: string;
+  email?: string;
+  pec?: string;
+  sdiCode?: string;
+  bankName?: string;
+  iban?: string;
+  swift?: string;
+  logo?: string;
+}
+
+export interface CreateWarehouseForm {
+  name: string;
+  code: string;
+  type: 'MAIN' | 'SECONDARY' | 'TRANSIT';
+  street?: string;
+  city?: string;
+  province?: string;
+  postalCode?: string;
+  country?: string;
+}
+
+export interface RegisterForm {
+  email: string;
+  password: string;
+  confirmPassword: string;
+  firstName: string;
+  lastName: string;
+  companyName: string;
+  acceptTerms: boolean;
+}
+
+export interface AcceptInviteForm {
+  token: string;
+  password: string;
+  confirmPassword: string;
+  firstName: string;
+  lastName: string;
+}

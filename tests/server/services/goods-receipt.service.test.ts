@@ -342,9 +342,17 @@ describe('GoodsReceiptService', () => {
       prismaMock.goodsReceipt.findUnique.mockResolvedValue(mockReceipt as any);
       prismaMock.$transaction.mockImplementation(async (callback: any) => {
         const tx = {
-          inventoryItem: { upsert: jest.fn().mockResolvedValue({}) },
+          inventoryItem: {
+            findFirst: jest.fn().mockResolvedValue(null),
+            create: jest.fn().mockResolvedValue({}),
+            update: jest.fn().mockResolvedValue({}),
+          },
           inventoryMovement: { create: jest.fn().mockResolvedValue({}) },
-          materialInventory: { upsert: jest.fn().mockResolvedValue({}) },
+          materialInventory: {
+            findFirst: jest.fn().mockResolvedValue(null),
+            create: jest.fn().mockResolvedValue({}),
+            update: jest.fn().mockResolvedValue({}),
+          },
           materialMovement: { create: jest.fn().mockResolvedValue({}) },
           goodsReceipt: {
             update: jest.fn().mockResolvedValue({

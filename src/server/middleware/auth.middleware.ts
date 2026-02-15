@@ -9,6 +9,10 @@ export interface JWTPayload {
   userId: string;
   email: string;
   role: UserRole;
+  // Multi-tenancy fields
+  tenantId?: string;
+  tenantSlug?: string;
+  planCode?: string; // STARTER, PRO, BUSINESS
 }
 
 export interface AuthenticatedRequest extends FastifyRequest {
@@ -37,10 +41,29 @@ export async function authenticate(
     try {
       const decoded = jwt.verify(token, config.jwt.secret) as JWTPayload;
 
-      // Verifica utente ancora attivo
+      // Verifica utente ancora attivo e recupera info tenant
       const user = await prisma.user.findUnique({
         where: { id: decoded.userId },
-        select: { id: true, email: true, role: true, isActive: true },
+        select: {
+          id: true,
+          email: true,
+          role: true,
+          isActive: true,
+          tenantId: true,
+          tenant: {
+            select: {
+              slug: true,
+              status: true,
+              subscription: {
+                select: {
+                  plan: {
+                    select: { code: true },
+                  },
+                },
+              },
+            },
+          },
+        },
       });
 
       if (!user || !user.isActive) {
@@ -50,11 +73,14 @@ export async function authenticate(
         });
       }
 
-      // Attach user to request
+      // Attach user to request (con info tenant se disponibile)
       (request as AuthenticatedRequest).user = {
         userId: user.id,
         email: user.email,
         role: user.role,
+        tenantId: user.tenantId || undefined,
+        tenantSlug: user.tenant?.slug,
+        planCode: user.tenant?.subscription?.plan?.code,
       };
     } catch (error) {
       if (error instanceof jwt.TokenExpiredError) {

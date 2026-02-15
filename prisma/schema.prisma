@@ -24,8 +24,149 @@ enum UserRole {
   VIEWER
 }
 
+// ============================================
+// MULTI-TENANCY & SAAS
+// ============================================
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+  CANCELLED
+}
+
+enum SaasSubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  PAUSED
+}
+
+model Tenant {
+  id        String       @id @default(uuid())
+  slug      String       @unique // subdomain: acme.erpsaas.com
+  name      String
+  domain    String?      @unique // custom domain
+  settings  Json? // tenant configurations
+  status    TenantStatus @default(ACTIVE)
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+
+  // Relations
+  members      TenantMember[]
+  invites      TenantInvite[]
+  subscription SaasSubscription?
+  User         User[]
+  Supplier     Supplier[]
+  Order        Order[]
+
+  @@map("tenants")
+}
+
+model TenantMember {
+  id         String    @id @default(uuid())
+  tenantId   String    @map("tenant_id")
+  userId     String    @map("user_id")
+  role       UserRole  @default(VIEWER)
+  invitedAt  DateTime  @default(now()) @map("invited_at")
+  acceptedAt DateTime? @map("accepted_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId])
+  @@map("tenant_members")
+}
+
+model TenantInvite {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  email     String
+  role      UserRole @default(VIEWER)
+  token     String   @unique
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("tenant_invites")
+}
+
+model SubscriptionPlan {
+  id           String   @id @default(uuid())
+  code         String   @unique // STARTER, PRO, BUSINESS
+  name         String
+  description  String?  @db.Text
+  priceMonthly Decimal  @map("price_monthly") @db.Decimal(10, 2)
+  priceYearly  Decimal  @map("price_yearly") @db.Decimal(10, 2)
+  features     Json // { modules: [], capabilities: [] }
+  limits       Json // { maxUsers, maxWarehouses, maxProducts, maxOrders }
+  isActive     Boolean  @default(true) @map("is_active")
+  sortOrder    Int      @default(0) @map("sort_order")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  subscriptions SaasSubscription[]
+
+  @@map("subscription_plans")
+}
+
+model SaasSubscription {
+  id                   String                 @id @default(uuid())
+  tenantId             String                 @unique @map("tenant_id")
+  planId               String                 @map("plan_id")
+  stripeSubscriptionId String?                @unique @map("stripe_subscription_id")
+  stripeCustomerId     String?                @map("stripe_customer_id")
+  status               SaasSubscriptionStatus @default(TRIALING)
+  billingInterval      String                 @default("monthly") @map("billing_interval") // monthly, yearly
+  currentPeriodStart   DateTime               @map("current_period_start")
+  currentPeriodEnd     DateTime               @map("current_period_end")
+  cancelAtPeriodEnd    Boolean                @default(false) @map("cancel_at_period_end")
+  trialEndsAt          DateTime?              @map("trial_ends_at")
+  cancelledAt          DateTime?              @map("cancelled_at")
+  createdAt            DateTime               @default(now()) @map("created_at")
+  updatedAt            DateTime               @updatedAt @map("updated_at")
+
+  // Relations
+  tenant  Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  plan    SubscriptionPlan @relation(fields: [planId], references: [id])
+  billing BillingHistory[]
+
+  @@map("saas_subscriptions")
+}
+
+model BillingHistory {
+  id              String   @id @default(uuid())
+  subscriptionId  String   @map("subscription_id")
+  stripeInvoiceId String?  @map("stripe_invoice_id")
+  amount          Decimal  @db.Decimal(10, 2)
+  currency        String   @default("EUR") @db.VarChar(3)
+  status          String // paid, failed, pending, refunded
+  description     String?
+  invoiceUrl      String?  @map("invoice_url")
+  invoicePdfUrl   String?  @map("invoice_pdf_url")
+  periodStart     DateTime @map("period_start")
+  periodEnd       DateTime @map("period_end")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  // Relations
+  subscription SaasSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@map("billing_history")
+}
+
+// ============================================
+// USERS & AUTHENTICATION
+// ============================================
+
 model User {
   id           String    @id @default(uuid())
+  tenantId     String?   @map("tenant_id")
   email        String    @unique
   password     String
   firstName    String    @map("first_name")
@@ -34,8 +175,22 @@ model User {
   isActive     Boolean   @default(true) @map("is_active")
   lastLogin    DateTime? @map("last_login")
   refreshToken String?   @map("refresh_token")
+
+  // Email verification
+  emailVerified           Boolean   @default(false) @map("email_verified")
+  emailVerifyToken        String?   @map("email_verify_token")
+  emailVerifyTokenExpires DateTime? @map("email_verify_token_expires")
+
+  // Password reset
+  resetToken              String?   @map("reset_token")
+  resetTokenExpires       DateTime? @map("reset_token_expires")
+
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  // Multi-tenancy relations
+  tenant            Tenant?        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantMemberships TenantMember[]
 
   // Relations
   employee                Employee?
@@ -50,6 +205,7 @@ model User {
   // Dashboard preferences
   dashboardPreference     UserDashboardPreference?
 
+  @@index([tenantId])
   @@map("users")
 }
 
@@ -58,7 +214,8 @@ model User {
 // ============================================
 
 model CompanySettings {
-  id String @id @default(uuid())
+  id       String  @id @default(uuid())
+  tenantId String? @map("tenant_id")
 
   // Dati Azienda
   companyName   String   @map("company_name")
@@ -133,6 +290,7 @@ model CompanySettings {
 
 model Warehouse {
   id          String   @id @default(uuid())
+  tenantId    String?  @map("tenant_id")
   code        String   @unique
   name        String
   description String?  @db.Text
@@ -143,13 +301,13 @@ model Warehouse {
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   // Relations
-  inventoryItems       InventoryItem[]
+  inventoryItems        InventoryItem[]
   // Manufacturing relations
-  materialConsumptions MaterialConsumption[]
+  materialConsumptions  MaterialConsumption[]
   // Material relations
-  materialInventory    MaterialInventory[]
+  materialInventory     MaterialInventory[]
   // Goods receipts
-  goodsReceipts        GoodsReceipt[]
+  goodsReceipts         GoodsReceipt[]
   // Physical inventory
   physicalCountSessions PhysicalCountSession[]
 
@@ -162,6 +320,7 @@ model Warehouse {
 
 model Material {
   id              String   @id @default(uuid())
+  tenantId        String?  @map("tenant_id")
   sku             String   @unique
   name            String
   description     String?  @db.Text
@@ -180,24 +339,24 @@ model Material {
   updatedAt       DateTime @updatedAt @map("updated_at")
 
   // Relations
-  supplier           Supplier?             @relation("MaterialSupplier", fields: [supplierId], references: [id])
-  phaseMaterials     PhaseMaterial[]
-  inventoryItems     MaterialInventory[]
-  movements          MaterialMovement[]
-  consumptions       MaterialConsumption[]
+  supplier             Supplier?             @relation("MaterialSupplier", fields: [supplierId], references: [id])
+  phaseMaterials       PhaseMaterial[]
+  inventoryItems       MaterialInventory[]
+  movements            MaterialMovement[]
+  consumptions         MaterialConsumption[]
   // Composizione prodotti (per etichetta/tracciabilità)
-  productMaterials   ProductMaterial[]
+  productMaterials     ProductMaterial[]
   // Stock alerts
-  stockAlerts        StockAlert[]
+  stockAlerts          StockAlert[]
   // Supplier items and purchasing
   supplierItems        SupplierItem[]
   purchaseOrderItems   PurchaseOrderItem[]
   goodsReceiptItems    GoodsReceiptItem[]
   supplierInvoiceItems SupplierInvoiceItem[]
   // Suggestions
-  suggestions        Suggestion[]          @relation("SuggestionMaterial")
+  suggestions          Suggestion[]          @relation("SuggestionMaterial")
   // Physical inventory
-  physicalCountItems PhysicalCountItem[]   @relation("PhysicalCountMaterial")
+  physicalCountItems   PhysicalCountItem[]   @relation("PhysicalCountMaterial")
 
   @@index([sku])
   @@index([supplierId])
@@ -263,6 +422,7 @@ enum ProductType {
 
 model Product {
   id              String      @id @default(uuid())
+  tenantId        String?     @map("tenant_id")
   sku             String      @unique
   name            String
   description     String?     @db.Text
@@ -384,45 +544,45 @@ model Product {
   updatedAt  DateTime @updatedAt @map("updated_at")
 
   // Relations
-  supplier            Supplier?                   @relation(fields: [supplierId], references: [id])
-  shippingClass       ShippingClass?              @relation(fields: [shippingClassId], references: [id])
-  variants            ProductVariant[]
-  bomItems            BomItem[]                   @relation("ParentProduct")
-  bomComponents       BomItem[]                   @relation("ComponentProduct")
-  operations          ProductOperation[]
-  inventory           InventoryItem[]
-  orderItems          OrderItem[]
-  purchaseOrderItems  PurchaseOrderItem[]
-  movements           InventoryMovement[]
+  supplier             Supplier?                   @relation(fields: [supplierId], references: [id])
+  shippingClass        ShippingClass?              @relation(fields: [shippingClassId], references: [id])
+  variants             ProductVariant[]
+  bomItems             BomItem[]                   @relation("ParentProduct")
+  bomComponents        BomItem[]                   @relation("ComponentProduct")
+  operations           ProductOperation[]
+  inventory            InventoryItem[]
+  orderItems           OrderItem[]
+  purchaseOrderItems   PurchaseOrderItem[]
+  movements            InventoryMovement[]
   // WooCommerce relations
-  categories          ProductCategoryAssignment[]
-  productImages       ProductImage[]
+  categories           ProductCategoryAssignment[]
+  productImages        ProductImage[]
   // Manufacturing relations
-  manufacturingPhases ManufacturingPhase[]
-  productionOrders    ProductionOrder[]
+  manufacturingPhases  ManufacturingPhase[]
+  productionOrders     ProductionOrder[]
   // Composizione materiali (per etichetta/tracciabilità)
-  productMaterials    ProductMaterial[]
+  productMaterials     ProductMaterial[]
   // Price list relations
-  priceListItems      PriceListItem[]
+  priceListItems       PriceListItem[]
   // Stock alerts
-  stockAlerts         StockAlert[]
+  stockAlerts          StockAlert[]
   // Ideation/upfront costs for break-even analysis
-  ideationCosts       ProductIdeationCost[]
+  ideationCosts        ProductIdeationCost[]
   // Supplier items and purchasing
   supplierItems        SupplierItem[]
   goodsReceiptItems    GoodsReceiptItem[]
   supplierInvoiceItems SupplierInvoiceItem[]
   // E-commerce relations
-  cartItems           CartItem[]
-  wishlistItems       WishlistItem[]
-  reviews             ProductReview[]
+  cartItems            CartItem[]
+  wishlistItems        WishlistItem[]
+  reviews              ProductReview[]
   // DDT and Suggestions relations
-  ddtItems            DDTItem[]
-  suggestions         Suggestion[]
+  ddtItems             DDTItem[]
+  suggestions          Suggestion[]
   // Physical inventory
-  physicalCountItems  PhysicalCountItem[]
+  physicalCountItems   PhysicalCountItem[]
   // RMA relations
-  rmaItems            RMAItem[]
+  rmaItems             RMAItem[]
 
   @@index([sku])
   @@index([barcode])
@@ -615,6 +775,7 @@ model ProductOperation {
 
 model ProductCategory {
   id            String  @id @default(uuid())
+  tenantId      String? @map("tenant_id")
   name          String
   slug          String  @unique
   description   String? @db.Text
@@ -699,6 +860,7 @@ model ProductImage {
 
 model ShippingClass {
   id            String   @id @default(uuid())
+  tenantId      String?  @map("tenant_id")
   name          String
   slug          String   @unique
   description   String?  @db.Text
@@ -709,6 +871,7 @@ model ShippingClass {
   // Relations
   products Product[]
 
+  @@index([tenantId])
   @@map("shipping_classes")
 }
 
@@ -718,6 +881,7 @@ model ShippingClass {
 
 model WooCommerceAttribute {
   id            String   @id @default(uuid())
+  tenantId      String?  @map("tenant_id")
   woocommerceId Int      @unique @map("woocommerce_id")
   name          String // "Colore", "Taglia", etc
   slug          String   @unique // "pa_colore", "pa_taglia"
@@ -730,6 +894,7 @@ model WooCommerceAttribute {
   // Relations
   terms WooCommerceAttributeTerm[]
 
+  @@index([tenantId])
   @@map("woocommerce_attributes")
 }
 
@@ -760,6 +925,7 @@ model WooCommerceAttributeTerm {
 
 model WooCommerceTag {
   id            String   @id @default(uuid())
+  tenantId      String?  @map("tenant_id")
   woocommerceId Int      @unique @map("woocommerce_id")
   name          String
   slug          String   @unique
@@ -768,6 +934,7 @@ model WooCommerceTag {
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
+  @@index([tenantId])
   @@map("woocommerce_tags")
 }
 
@@ -784,6 +951,7 @@ enum InventoryLocation {
 
 model InventoryItem {
   id               String            @id @default(uuid())
+  tenantId         String?           @map("tenant_id")
   warehouseId      String            @map("warehouse_id")
   productId        String            @map("product_id")
   variantId        String?           @map("variant_id")
@@ -805,6 +973,7 @@ model InventoryItem {
   @@index([warehouseId])
   @@index([productId])
   @@index([location])
+  @@index([tenantId])
   @@map("inventory_items")
 }
 
@@ -819,6 +988,7 @@ enum MovementType {
 
 model InventoryMovement {
   id           String             @id @default(uuid())
+  tenantId     String?            @map("tenant_id")
   productId    String             @map("product_id")
   variantId    String?            @map("variant_id") // Per tracciare movimenti variante
   fromLocation InventoryLocation? @map("from_location")
@@ -839,6 +1009,7 @@ model InventoryMovement {
   @@index([variantId])
   @@index([type])
   @@index([createdAt])
+  @@index([tenantId])
   @@map("inventory_movements")
 }
 
@@ -853,6 +1024,7 @@ enum CustomerType {
 
 model Customer {
   id           String       @id @default(uuid())
+  tenantId     String?      @map("tenant_id")
   type         CustomerType
   code         String       @unique
   businessName String?      @map("business_name")
@@ -958,6 +1130,7 @@ model Customer {
 
 model PriceList {
   id             String    @id @default(uuid())
+  tenantId       String?   @map("tenant_id")
   code           String    @unique
   name           String
   description    String?   @db.Text
@@ -1082,6 +1255,7 @@ enum OrderStatus {
 
 model Order {
   id          String      @id @default(uuid())
+  tenantId    String?     @map("tenant_id")
   orderNumber String      @unique @map("order_number")
   customerId  String      @map("customer_id")
   source      OrderSource
@@ -1186,7 +1360,10 @@ model Order {
   ddts             DDT[]
   // RMA relations
   rmas             RMA[]
+  // Tenant
+  tenant           Tenant?           @relation(fields: [tenantId], references: [id])
 
+  @@index([tenantId])
   @@index([customerId])
   @@index([status])
   @@index([source])
@@ -1294,6 +1471,7 @@ enum QualityStatus {
 
 model Supplier {
   id           String  @id @default(uuid())
+  tenantId     String? @map("tenant_id")
   code         String  @unique
   businessName String  @map("business_name")
   email        String?
@@ -1346,46 +1524,49 @@ model Supplier {
   suggestions    Suggestion[]
   // Scorecards
   scorecards     SupplierScorecard[]
+  // Tenant
+  tenant         Tenant?              @relation(fields: [tenantId], references: [id])
 
+  @@index([tenantId])
   @@index([paymentPlanId])
   @@map("suppliers")
 }
 
 // Storico Scorecard Fornitore (snapshot periodico)
 model SupplierScorecard {
-  id         String   @id @default(uuid())
-  supplierId String   @map("supplier_id")
-  period     String   // "2025-01", "2025-Q1", "2025" per mese/trimestre/anno
-  periodType String   @map("period_type") // MONTHLY, QUARTERLY, YEARLY
+  id         String @id @default(uuid())
+  supplierId String @map("supplier_id")
+  period     String // "2025-01", "2025-Q1", "2025" per mese/trimestre/anno
+  periodType String @map("period_type") // MONTHLY, QUARTERLY, YEARLY
 
   // Metriche di consegna
-  totalOrders         Int     @default(0) @map("total_orders")
-  onTimeDeliveries    Int     @default(0) @map("on_time_deliveries")
-  lateDeliveries      Int     @default(0) @map("late_deliveries")
-  onTimeDeliveryRate  Decimal @default(0) @map("on_time_delivery_rate") @db.Decimal(5, 2)
-  avgLeadTimeDays     Int     @default(0) @map("avg_lead_time_days")
-  avgLateDays         Int     @default(0) @map("avg_late_days")
+  totalOrders        Int     @default(0) @map("total_orders")
+  onTimeDeliveries   Int     @default(0) @map("on_time_deliveries")
+  lateDeliveries     Int     @default(0) @map("late_deliveries")
+  onTimeDeliveryRate Decimal @default(0) @map("on_time_delivery_rate") @db.Decimal(5, 2)
+  avgLeadTimeDays    Int     @default(0) @map("avg_lead_time_days")
+  avgLateDays        Int     @default(0) @map("avg_late_days")
 
   // Metriche di qualità
-  totalReceipts        Int     @default(0) @map("total_receipts")
-  passedInspections    Int     @default(0) @map("passed_inspections")
-  failedInspections    Int     @default(0) @map("failed_inspections")
-  qualityRate          Decimal @default(100) @map("quality_rate") @db.Decimal(5, 2)
-  totalItemsReceived   Int     @default(0) @map("total_items_received")
-  rejectedItems        Int     @default(0) @map("rejected_items")
-  rejectionRate        Decimal @default(0) @map("rejection_rate") @db.Decimal(5, 2)
+  totalReceipts      Int     @default(0) @map("total_receipts")
+  passedInspections  Int     @default(0) @map("passed_inspections")
+  failedInspections  Int     @default(0) @map("failed_inspections")
+  qualityRate        Decimal @default(100) @map("quality_rate") @db.Decimal(5, 2)
+  totalItemsReceived Int     @default(0) @map("total_items_received")
+  rejectedItems      Int     @default(0) @map("rejected_items")
+  rejectionRate      Decimal @default(0) @map("rejection_rate") @db.Decimal(5, 2)
 
   // Metriche di costo
-  totalSpent      Decimal @default(0) @map("total_spent") @db.Decimal(12, 2)
-  avgOrderValue   Decimal @default(0) @map("avg_order_value") @db.Decimal(10, 2)
-  priceVariance   Decimal @default(0) @map("price_variance") @db.Decimal(5, 2) // % variazione prezzo medio
+  totalSpent    Decimal @default(0) @map("total_spent") @db.Decimal(12, 2)
+  avgOrderValue Decimal @default(0) @map("avg_order_value") @db.Decimal(10, 2)
+  priceVariance Decimal @default(0) @map("price_variance") @db.Decimal(5, 2) // % variazione prezzo medio
 
   // Score complessivo (0-100)
-  overallScore           Int     @default(0) @map("overall_score")
-  deliveryScore          Int     @default(0) @map("delivery_score")
-  qualityScore           Int     @default(0) @map("quality_score")
-  costScore              Int     @default(0) @map("cost_score")
-  reliabilityScore       Int     @default(0) @map("reliability_score")
+  overallScore     Int @default(0) @map("overall_score")
+  deliveryScore    Int @default(0) @map("delivery_score")
+  qualityScore     Int @default(0) @map("quality_score")
+  costScore        Int @default(0) @map("cost_score")
+  reliabilityScore Int @default(0) @map("reliability_score")
 
   // Rating (A, B, C, D, F)
   rating String @default("C")
@@ -1407,6 +1588,7 @@ model SupplierScorecard {
 
 model PurchaseOrder {
   id           String              @id @default(uuid())
+  tenantId     String?             @map("tenant_id")
   orderNumber  String              @unique @map("order_number")
   supplierId   String              @map("supplier_id")
   status       PurchaseOrderStatus @default(DRAFT)
@@ -1449,6 +1631,7 @@ model PurchaseOrder {
   @@index([status])
   @@index([deliveryStatus])
   @@index([orderType])
+  @@index([tenantId])
   @@map("purchase_orders")
 }
 
@@ -1565,6 +1748,7 @@ enum PaymentMethodPA {
 
 model Invoice {
   id            String        @id @default(uuid())
+  tenantId      String?       @map("tenant_id")
   invoiceNumber String        @unique @map("invoice_number")
   type          InvoiceType
   customerId    String?       @map("customer_id")
@@ -1631,11 +1815,13 @@ model Invoice {
   @@index([dueDate])
   @@index([sdiStatus])
   @@index([documentType])
+  @@index([tenantId])
   @@map("invoices")
 }
 
 model SupplierInvoice {
   id            String        @id @default(uuid())
+  tenantId      String?       @map("tenant_id")
   invoiceNumber String        @unique @map("invoice_number")
   supplierId    String        @map("supplier_id")
   status        InvoiceStatus @default(DRAFT)
@@ -1651,26 +1837,27 @@ model SupplierInvoice {
   updatedAt     DateTime      @updatedAt @map("updated_at")
 
   // Three-way matching fields
-  matchStatus       ThreeWayMatchStatus @default(PENDING) @map("match_status")
-  matchedAt         DateTime?           @map("matched_at")
-  matchedBy         String?             @map("matched_by")
-  autoMatched       Boolean             @default(false) @map("auto_matched")
+  matchStatus ThreeWayMatchStatus @default(PENDING) @map("match_status")
+  matchedAt   DateTime?           @map("matched_at")
+  matchedBy   String?             @map("matched_by")
+  autoMatched Boolean             @default(false) @map("auto_matched")
 
   // Tolerance settings (can override company defaults)
-  priceTolerance    Decimal?            @map("price_tolerance") @db.Decimal(5, 2) // % tolerance
-  quantityTolerance Decimal?            @map("quantity_tolerance") @db.Decimal(5, 2) // % tolerance
+  priceTolerance    Decimal? @map("price_tolerance") @db.Decimal(5, 2) // % tolerance
+  quantityTolerance Decimal? @map("quantity_tolerance") @db.Decimal(5, 2) // % tolerance
 
   // Relations
-  supplier       Supplier          @relation(fields: [supplierId], references: [id])
-  payments       Payment[]
-  paymentDues    PaymentDue[]
-  items          SupplierInvoiceItem[]
+  supplier        Supplier              @relation(fields: [supplierId], references: [id])
+  payments        Payment[]
+  paymentDues     PaymentDue[]
+  items           SupplierInvoiceItem[]
   threeWayMatches ThreeWayMatch[]
 
   @@index([supplierId])
   @@index([status])
   @@index([dueDate])
   @@index([matchStatus])
+  @@index([tenantId])
   @@map("supplier_invoices")
 }
 
@@ -1705,43 +1892,43 @@ model SupplierInvoiceItem {
 
 // Three-Way Match Status
 enum ThreeWayMatchStatus {
-  PENDING      // Non ancora verificato
-  MATCHED      // Tutto corrisponde
-  DISCREPANCY  // Discrepanza trovata (prezzo/quantità)
-  APPROVED     // Discrepanza approvata manualmente
-  REJECTED     // Fattura rifiutata
-  PARTIAL      // Matching parziale
+  PENDING // Non ancora verificato
+  MATCHED // Tutto corrisponde
+  DISCREPANCY // Discrepanza trovata (prezzo/quantità)
+  APPROVED // Discrepanza approvata manualmente
+  REJECTED // Fattura rifiutata
+  PARTIAL // Matching parziale
 }
 
 // Three-Way Match Record
 model ThreeWayMatch {
-  id                  String  @id @default(uuid())
-  supplierInvoiceId   String  @map("supplier_invoice_id")
-  purchaseOrderId     String  @map("purchase_order_id")
-  goodsReceiptId      String? @map("goods_receipt_id")
+  id                String  @id @default(uuid())
+  supplierInvoiceId String  @map("supplier_invoice_id")
+  purchaseOrderId   String  @map("purchase_order_id")
+  goodsReceiptId    String? @map("goods_receipt_id")
 
   // Matching results
-  status          ThreeWayMatchStatus @default(PENDING)
-  matchDate       DateTime            @default(now()) @map("match_date")
-  matchedBy       String?             @map("matched_by")
+  status    ThreeWayMatchStatus @default(PENDING)
+  matchDate DateTime            @default(now()) @map("match_date")
+  matchedBy String?             @map("matched_by")
 
   // PO Comparison
-  poTotal         Decimal @map("po_total") @db.Decimal(10, 2)
-  poQuantity      Int     @map("po_quantity")
+  poTotal    Decimal @map("po_total") @db.Decimal(10, 2)
+  poQuantity Int     @map("po_quantity")
 
   // GR Comparison
-  grTotal         Decimal? @map("gr_total") @db.Decimal(10, 2)
-  grQuantity      Int?     @map("gr_quantity")
+  grTotal    Decimal? @map("gr_total") @db.Decimal(10, 2)
+  grQuantity Int?     @map("gr_quantity")
 
   // Invoice values
   invoiceTotal    Decimal @map("invoice_total") @db.Decimal(10, 2)
   invoiceQuantity Int     @map("invoice_quantity")
 
   // Discrepancies
-  priceVariance   Decimal @default(0) @map("price_variance") @db.Decimal(10, 2) // Differenza in EUR
+  priceVariance    Decimal @default(0) @map("price_variance") @db.Decimal(10, 2) // Differenza in EUR
   priceVariancePct Decimal @default(0) @map("price_variance_pct") @db.Decimal(5, 2) // Differenza in %
-  qtyVariance     Int     @default(0) @map("qty_variance") // Differenza quantità
-  qtyVariancePct  Decimal @default(0) @map("qty_variance_pct") @db.Decimal(5, 2) // Differenza in %
+  qtyVariance      Int     @default(0) @map("qty_variance") // Differenza quantità
+  qtyVariancePct   Decimal @default(0) @map("qty_variance_pct") @db.Decimal(5, 2) // Differenza in %
 
   // Tolerance check
   withinTolerance Boolean @default(false) @map("within_tolerance")
@@ -1770,13 +1957,13 @@ model ThreeWayMatch {
 
 // Match Resolution Status
 enum MatchResolutionStatus {
-  PENDING           // In attesa di risoluzione
-  APPROVED          // Discrepanza approvata
-  CREDIT_NOTE       // Richiesta nota di credito
-  DEBIT_NOTE        // Emessa nota di debito
-  PRICE_ADJUSTMENT  // Accordo su nuovo prezzo
+  PENDING // In attesa di risoluzione
+  APPROVED // Discrepanza approvata
+  CREDIT_NOTE // Richiesta nota di credito
+  DEBIT_NOTE // Emessa nota di debito
+  PRICE_ADJUSTMENT // Accordo su nuovo prezzo
   QUANTITY_ADJUSTMENT // Accordo su quantità
-  REJECTED          // Fattura rifiutata
+  REJECTED // Fattura rifiutata
 }
 
 enum PaymentMethod {
@@ -1817,6 +2004,7 @@ enum PaymentDueStatus {
 // Piano di pagamento (rate predefinite)
 model PaymentPlan {
   id          String   @id @default(uuid())
+  tenantId    String?  @map("tenant_id")
   code        String   @unique // "30_70_60GG", "50_50_30GG"
   name        String // "30% anticipo, 70% a 60gg"
   description String?  @db.Text
@@ -1830,6 +2018,7 @@ model PaymentPlan {
   customers    Customer[]               @relation("CustomerPaymentPlan")
   suppliers    Supplier[]               @relation("SupplierPaymentPlan")
 
+  @@index([tenantId])
   @@map("payment_plans")
 }
 
@@ -1852,9 +2041,10 @@ model PaymentPlanInstallment {
 
 // Scadenza singola (può essere rata di fattura o scadenza standalone)
 model PaymentDue {
-  id     String           @id @default(uuid())
-  type   PaymentDueType // RECEIVABLE or PAYABLE
-  status PaymentDueStatus @default(PENDING)
+  id       String           @id @default(uuid())
+  tenantId String?          @map("tenant_id")
+  type     PaymentDueType // RECEIVABLE or PAYABLE
+  status   PaymentDueStatus @default(PENDING)
 
   // Riferimenti
   invoiceId         String? @map("invoice_id")
@@ -1901,6 +2091,7 @@ model PaymentDue {
   @@index([invoiceId])
   @@index([type, status]) // Composite index for financial dashboard queries
   @@index([type, status, dueDate]) // Composite index for aging reports
+  @@index([tenantId])
   @@map("payment_dues")
 }
 
@@ -1953,6 +2144,7 @@ enum OverheadCategory {
 
 model OverheadCost {
   id               String           @id @default(uuid())
+  tenantId         String?          @map("tenant_id")
   category         OverheadCategory
   description      String
   amount           Decimal          @db.Decimal(10, 2)
@@ -1965,6 +2157,7 @@ model OverheadCost {
   updatedAt        DateTime         @updatedAt @map("updated_at")
 
   @@index([category])
+  @@index([tenantId])
   @@map("overhead_costs")
 }
 
@@ -2117,6 +2310,7 @@ model TaskOperation {
 // Workflow configurabili per tipo ordine
 model Workflow {
   id          String       @id @default(uuid())
+  tenantId    String?      @map("tenant_id")
   name        String
   description String?      @db.Text
   orderSource OrderSource? @map("order_source")
@@ -2128,6 +2322,7 @@ model Workflow {
   // Relations
   tasks Task[]
 
+  @@index([tenantId])
   @@map("workflows")
 }
 
@@ -2248,6 +2443,7 @@ model AuditLog {
 // Tipi di operazione configurabili (Mansioni)
 model OperationType {
   id                    String   @id @default(uuid())
+  tenantId              String?  @map("tenant_id")
   code                  String   @unique // "SCATOLAMENTO", "PROD_INTERNA"
   name                  String // "Scatolamento"
   description           String?  @db.Text
@@ -2263,6 +2459,7 @@ model OperationType {
   manufacturingPhases ManufacturingPhase[]
   qualifiedEmployees  OperationTypeEmployee[]
 
+  @@index([tenantId])
   @@map("operation_types")
 }
 
@@ -2288,6 +2485,7 @@ model OperationTypeEmployee {
 // Fase della pipeline produttiva di un prodotto
 model ManufacturingPhase {
   id                  String   @id @default(uuid())
+  tenantId            String?  @map("tenant_id")
   productId           String   @map("product_id")
   operationTypeId     String   @map("operation_type_id")
   sequence            Int // Ordine nella pipeline (1, 2, 3...)
@@ -2312,6 +2510,7 @@ model ManufacturingPhase {
   @@unique([productId, sequence])
   @@index([productId])
   @@index([operationTypeId])
+  @@index([tenantId])
   @@map("manufacturing_phases")
 }
 
@@ -2368,6 +2567,7 @@ enum ProductionOrderStatus {
 
 model ProductionOrder {
   id               String                @id @default(uuid())
+  tenantId         String?               @map("tenant_id")
   orderNumber      String                @unique @map("order_number")
   productId        String                @map("product_id")
   quantity         Int
@@ -2393,6 +2593,7 @@ model ProductionOrder {
   @@index([productId])
   @@index([salesOrderId])
   @@index([status])
+  @@index([tenantId])
   @@map("production_orders")
 }
 
@@ -2480,6 +2681,7 @@ model SystemSetting {
 // Credenziali Basic Auth per plugin WordPress
 model WordPressPluginAuth {
   id        String    @id @default(uuid())
+  tenantId  String?   @map("tenant_id")
   username  String    @unique
   password  String // Password hashata con bcrypt
   label     String? // Descrizione (es. "Plugin Sito Principale")
@@ -2488,12 +2690,14 @@ model WordPressPluginAuth {
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
 
+  @@index([tenantId])
   @@map("wordpress_plugin_auth")
 }
 
 // Log sincronizzazione WordPress
 model WordPressSyncLog {
   id        String   @id @default(uuid())
+  tenantId  String?  @map("tenant_id")
   direction String // TO_WP, FROM_WP
   entity    String // PRODUCT, ORDER, CUSTOMER, INVENTORY
   entityId  String   @map("entity_id")
@@ -2509,6 +2713,7 @@ model WordPressSyncLog {
   @@index([entityId])
   @@index([status])
   @@index([createdAt])
+  @@index([tenantId])
   @@map("wordpress_sync_logs")
 }
 
@@ -2575,11 +2780,12 @@ model SupplierVolumeDiscount {
 
 // Documento di Entrata Merce
 model GoodsReceipt {
-  id              String @id @default(uuid())
-  receiptNumber   String @unique @map("receipt_number") // EM-2026-000001
-  purchaseOrderId String @map("purchase_order_id")
-  supplierId      String @map("supplier_id")
-  warehouseId     String @map("warehouse_id")
+  id              String  @id @default(uuid())
+  tenantId        String? @map("tenant_id")
+  receiptNumber   String  @unique @map("receipt_number") // EM-2026-000001
+  purchaseOrderId String  @map("purchase_order_id")
+  supplierId      String  @map("supplier_id")
+  warehouseId     String  @map("warehouse_id")
 
   // Receipt info
   receiptDate       DateTime  @default(now()) @map("receipt_date")
@@ -2622,6 +2828,7 @@ model GoodsReceipt {
   @@index([supplierId])
   @@index([status])
   @@index([receiptDate])
+  @@index([tenantId])
   @@map("goods_receipts")
 }
 
@@ -2729,54 +2936,55 @@ model OrderRefundItem {
 // ============================================
 
 enum RmaStatus {
-  REQUESTED    // Richiesta ricevuta
-  PENDING      // In attesa di approvazione
-  APPROVED     // Approvato, in attesa di spedizione cliente
-  SHIPPED      // Cliente ha spedito il reso
-  RECEIVED     // Reso ricevuto in magazzino
-  INSPECTING   // In fase di ispezione
-  COMPLETED    // RMA completato (rimborso/sostituzione)
-  REJECTED     // RMA rifiutato
-  CANCELLED    // Annullato dal cliente
+  REQUESTED // Richiesta ricevuta
+  PENDING // In attesa di approvazione
+  APPROVED // Approvato, in attesa di spedizione cliente
+  SHIPPED // Cliente ha spedito il reso
+  RECEIVED // Reso ricevuto in magazzino
+  INSPECTING // In fase di ispezione
+  COMPLETED // RMA completato (rimborso/sostituzione)
+  REJECTED // RMA rifiutato
+  CANCELLED // Annullato dal cliente
 }
 
 enum RmaReason {
-  DEFECTIVE          // Prodotto difettoso
-  WRONG_ITEM         // Articolo errato spedito
-  DAMAGED_SHIPPING   // Danneggiato durante la spedizione
-  NOT_AS_DESCRIBED   // Non conforme alla descrizione
-  CHANGED_MIND       // Ripensamento cliente
-  WRONG_SIZE         // Taglia/misura sbagliata
-  DUPLICATE_ORDER    // Ordine duplicato
-  OTHER              // Altro
+  DEFECTIVE // Prodotto difettoso
+  WRONG_ITEM // Articolo errato spedito
+  DAMAGED_SHIPPING // Danneggiato durante la spedizione
+  NOT_AS_DESCRIBED // Non conforme alla descrizione
+  CHANGED_MIND // Ripensamento cliente
+  WRONG_SIZE // Taglia/misura sbagliata
+  DUPLICATE_ORDER // Ordine duplicato
+  OTHER // Altro
 }
 
 enum RmaResolution {
-  REFUND           // Rimborso completo
-  PARTIAL_REFUND   // Rimborso parziale
-  EXCHANGE         // Sostituzione prodotto
-  REPAIR           // Riparazione
-  STORE_CREDIT     // Credito negozio
-  REJECTED         // Reso rifiutato dopo ispezione
+  REFUND // Rimborso completo
+  PARTIAL_REFUND // Rimborso parziale
+  EXCHANGE // Sostituzione prodotto
+  REPAIR // Riparazione
+  STORE_CREDIT // Credito negozio
+  REJECTED // Reso rifiutato dopo ispezione
 }
 
 model RMA {
-  id        String    @id @default(uuid())
-  rmaNumber String    @unique @map("rma_number") // ES: RMA-2025-00001
-  orderId   String    @map("order_id")
-  customerId String   @map("customer_id")
-  status    RmaStatus @default(REQUESTED)
+  id         String    @id @default(uuid())
+  tenantId   String?   @map("tenant_id")
+  rmaNumber  String    @unique @map("rma_number") // ES: RMA-2025-00001
+  orderId    String    @map("order_id")
+  customerId String    @map("customer_id")
+  status     RmaStatus @default(REQUESTED)
 
   // Motivo reso
   reason       RmaReason
   reasonDetail String?   @map("reason_detail") @db.Text // Descrizione dettagliata
 
   // Risoluzione
-  resolution       RmaResolution? // Tipo di risoluzione finale
-  resolutionNotes  String?        @map("resolution_notes") @db.Text
-  refundAmount     Decimal?       @map("refund_amount") @db.Decimal(10, 2)
-  exchangeOrderId  String?        @map("exchange_order_id") // ID ordine sostitutivo
-  storeCreditCode  String?        @map("store_credit_code") // Codice credito negozio
+  resolution      RmaResolution? // Tipo di risoluzione finale
+  resolutionNotes String?        @map("resolution_notes") @db.Text
+  refundAmount    Decimal?       @map("refund_amount") @db.Decimal(10, 2)
+  exchangeOrderId String?        @map("exchange_order_id") // ID ordine sostitutivo
+  storeCreditCode String?        @map("store_credit_code") // Codice credito negozio
 
   // Spedizione reso
   returnShippingMethod String?   @map("return_shipping_method") // Come il cliente spedisce
@@ -2786,13 +2994,13 @@ model RMA {
   shippedByCustomerAt  DateTime? @map("shipped_by_customer_at")
 
   // Ricezione e ispezione
-  receivedAt           DateTime? @map("received_at")
-  receivedBy           String?   @map("received_by") // ID utente che ha ricevuto
-  inspectionNotes      String?   @map("inspection_notes") @db.Text
-  inspectionPhotos     Json?     @map("inspection_photos") // [{url, description}]
-  inspectedAt          DateTime? @map("inspected_at")
-  inspectedBy          String?   @map("inspected_by") // ID utente che ha ispezionato
-  itemCondition        String?   @map("item_condition") // LIKE_NEW, GOOD, DAMAGED, etc
+  receivedAt       DateTime? @map("received_at")
+  receivedBy       String?   @map("received_by") // ID utente che ha ricevuto
+  inspectionNotes  String?   @map("inspection_notes") @db.Text
+  inspectionPhotos Json?     @map("inspection_photos") // [{url, description}]
+  inspectedAt      DateTime? @map("inspected_at")
+  inspectedBy      String?   @map("inspected_by") // ID utente che ha ispezionato
+  itemCondition    String?   @map("item_condition") // LIKE_NEW, GOOD, DAMAGED, etc
 
   // Rimborso collegato
   refundId String? @map("refund_id")
@@ -2810,21 +3018,22 @@ model RMA {
   completedBy String?   @map("completed_by")
 
   // Comunicazioni
-  customerEmail   String? @map("customer_email") // Email per notifiche
-  emailsSent      Json?   @map("emails_sent") // [{type, sentAt}]
+  customerEmail String? @map("customer_email") // Email per notifiche
+  emailsSent    Json?   @map("emails_sent") // [{type, sentAt}]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  order    Order      @relation(fields: [orderId], references: [id])
-  customer Customer   @relation(fields: [customerId], references: [id])
+  order    Order     @relation(fields: [orderId], references: [id])
+  customer Customer  @relation(fields: [customerId], references: [id])
   items    RMAItem[]
 
   @@index([orderId])
   @@index([customerId])
   @@index([status])
   @@index([requestedAt])
+  @@index([tenantId])
   @@map("rmas")
 }
 
@@ -2845,23 +3054,23 @@ model RMAItem {
   quantityRestocked Int? @map("quantity_restocked")
 
   // Stato item
-  itemStatus  String @default("PENDING") @map("item_status") // PENDING, APPROVED, RECEIVED, RESTOCKED, REJECTED
+  itemStatus String @default("PENDING") @map("item_status") // PENDING, APPROVED, RECEIVED, RESTOCKED, REJECTED
 
   // Ispezione singolo item
-  condition       String? // LIKE_NEW, GOOD, FAIR, DAMAGED, UNUSABLE
-  conditionNotes  String? @map("condition_notes") @db.Text
-  canRestock      Boolean @default(false) @map("can_restock")
+  condition      String? // LIKE_NEW, GOOD, FAIR, DAMAGED, UNUSABLE
+  conditionNotes String? @map("condition_notes") @db.Text
+  canRestock     Boolean @default(false) @map("can_restock")
 
   // Valori
-  unitPrice   Decimal @map("unit_price") @db.Decimal(10, 2)
-  totalValue  Decimal @map("total_value") @db.Decimal(10, 2) // unitPrice * quantityReceived
+  unitPrice  Decimal @map("unit_price") @db.Decimal(10, 2)
+  totalValue Decimal @map("total_value") @db.Decimal(10, 2) // unitPrice * quantityReceived
 
   createdAt DateTime @default(now()) @map("created_at")
 
   // Relations
-  rma       RMA             @relation(fields: [rmaId], references: [id], onDelete: Cascade)
-  product   Product         @relation(fields: [productId], references: [id])
-  variant   ProductVariant? @relation(fields: [variantId], references: [id])
+  rma     RMA             @relation(fields: [rmaId], references: [id], onDelete: Cascade)
+  product Product         @relation(fields: [productId], references: [id])
+  variant ProductVariant? @relation(fields: [variantId], references: [id])
 
   @@index([rmaId])
   @@index([orderItemId])
@@ -2874,6 +3083,7 @@ model RMAItem {
 
 model ShoppingCart {
   id         String  @id @default(uuid())
+  tenantId   String? @map("tenant_id")
   customerId String? @map("customer_id") // null = guest
   sessionId  String? @map("session_id") // per guest checkout
   couponId   String? @map("coupon_id")
@@ -2902,6 +3112,7 @@ model ShoppingCart {
   @@unique([sessionId])
   @@index([customerId])
   @@index([expiresAt])
+  @@index([tenantId])
   @@map("shopping_carts")
 }
 
@@ -2939,6 +3150,7 @@ model CartItem {
 
 model WishlistItem {
   id         String  @id @default(uuid())
+  tenantId   String? @map("tenant_id")
   customerId String  @map("customer_id")
   productId  String  @map("product_id")
   variantId  String? @map("variant_id")
@@ -2956,6 +3168,7 @@ model WishlistItem {
   @@unique([customerId, productId, variantId])
   @@index([customerId])
   @@index([productId])
+  @@index([tenantId])
   @@map("wishlist_items")
 }
 
@@ -2978,6 +3191,7 @@ enum CouponScope {
 
 model Coupon {
   id            String      @id @default(uuid())
+  tenantId      String?     @map("tenant_id")
   code          String      @unique
   name          String? // Nome descrittivo interno
   type          CouponType
@@ -3015,6 +3229,7 @@ model Coupon {
 
   @@index([code])
   @@index([isActive, validFrom, validTo])
+  @@index([tenantId])
   @@map("coupons")
 }
 
@@ -3061,6 +3276,7 @@ enum PaymentStatus {
 
 model PaymentTransaction {
   id       String          @id @default(uuid())
+  tenantId String?         @map("tenant_id")
   orderId  String          @map("order_id")
   provider PaymentProvider
 
@@ -3102,6 +3318,7 @@ model PaymentTransaction {
   @@index([provider])
   @@index([status])
   @@index([transactionId])
+  @@index([tenantId])
   @@map("payment_transactions")
 }
 
@@ -3111,6 +3328,7 @@ model PaymentTransaction {
 
 model ShopShippingZone {
   id        String   @id @default(uuid())
+  tenantId  String?  @map("tenant_id")
   name      String // "Italia Continentale", "Europa UE", etc
   countries Json // ["IT"] o ["FR", "DE", "ES"]
   regions   Json? // Regioni specifiche ["sicilia", "sardegna"]
@@ -3124,6 +3342,7 @@ model ShopShippingZone {
   methods ShopShippingMethod[]
 
   @@index([isActive])
+  @@index([tenantId])
   @@map("shop_shipping_zones")
 }
 
@@ -3193,6 +3412,7 @@ enum ReviewStatus {
 
 model ProductReview {
   id          String  @id @default(uuid())
+  tenantId    String? @map("tenant_id")
   productId   String  @map("product_id")
   customerId  String  @map("customer_id")
   orderId     String? @map("order_id") // Per verificare acquisto
@@ -3239,6 +3459,7 @@ model ProductReview {
   @@index([customerId])
   @@index([status])
   @@index([rating])
+  @@index([tenantId])
   @@map("product_reviews")
 }
 
@@ -3254,8 +3475,9 @@ enum LoyaltyTier {
 }
 
 model LoyaltyAccount {
-  id         String @id @default(uuid())
-  customerId String @unique @map("customer_id")
+  id         String  @id @default(uuid())
+  tenantId   String? @map("tenant_id")
+  customerId String  @unique @map("customer_id")
 
   // Points balance
   points Int @default(0)
@@ -3279,6 +3501,7 @@ model LoyaltyAccount {
 
   @@index([tier])
   @@index([points])
+  @@index([tenantId])
   @@map("loyalty_accounts")
 }
 
@@ -3326,6 +3549,7 @@ model LoyaltyTransaction {
 
 model AgeVerification {
   id         String  @id @default(uuid())
+  tenantId   String? @map("tenant_id")
   sessionId  String? @map("session_id")
   customerId String? @map("customer_id")
 
@@ -3344,6 +3568,7 @@ model AgeVerification {
   @@index([sessionId])
   @@index([customerId])
   @@index([deviceHash])
+  @@index([tenantId])
   @@map("age_verifications")
 }
 
@@ -3353,6 +3578,7 @@ model AgeVerification {
 
 model UserEvent {
   id         String  @id @default(uuid())
+  tenantId   String? @map("tenant_id")
   sessionId  String  @map("session_id")
   customerId String? @map("customer_id")
 
@@ -3380,6 +3606,7 @@ model UserEvent {
   @@index([customerId])
   @@index([eventType])
   @@index([createdAt])
+  @@index([tenantId])
   @@map("user_events")
 }
 
@@ -3395,6 +3622,7 @@ enum SubscriptionStatus {
 
 model NewsletterSubscription {
   id         String  @id @default(uuid())
+  tenantId   String? @map("tenant_id")
   email      String  @unique
   customerId String? @map("customer_id")
 
@@ -3426,6 +3654,7 @@ model NewsletterSubscription {
 
   @@index([status])
   @@index([customerId])
+  @@index([tenantId])
   @@map("newsletter_subscriptions")
 }
 
@@ -3434,8 +3663,9 @@ model NewsletterSubscription {
 // ============================================
 
 model CustomerAddress {
-  id         String @id @default(uuid())
-  customerId String @map("customer_id")
+  id         String  @id @default(uuid())
+  tenantId   String? @map("tenant_id")
+  customerId String  @map("customer_id")
 
   // Address type
   type      String // "shipping", "billing"
@@ -3465,6 +3695,7 @@ model CustomerAddress {
 
   @@index([customerId])
   @@index([customerId, type, isDefault])
+  @@index([tenantId])
   @@map("customer_addresses")
 }
 
@@ -3537,6 +3768,7 @@ enum ImportJobType {
 
 model ImportJob {
   id          String          @id @default(uuid())
+  tenantId    String?         @map("tenant_id")
   type        ImportJobType
   status      ImportJobStatus @default(RUNNING)
   currentPage Int             @default(1) @map("current_page")
@@ -3557,6 +3789,7 @@ model ImportJob {
   @@index([status])
   @@index([createdBy])
   @@index([startedAt])
+  @@index([tenantId])
   @@map("import_jobs")
 }
 
@@ -3592,6 +3825,7 @@ model SdiNotification {
 
 model DDT {
   id         String  @id @default(uuid())
+  tenantId   String? @map("tenant_id")
   ddtNumber  String  @unique @map("ddt_number") // Numero progressivo
   orderId    String? @map("order_id")
   customerId String  @map("customer_id")
@@ -3634,6 +3868,7 @@ model DDT {
   @@index([orderId])
   @@index([issueDate])
   @@index([isInvoiced])
+  @@index([tenantId])
   @@map("ddt")
 }
 
@@ -3673,6 +3908,7 @@ model DDTItem {
 
 model Suggestion {
   id       String             @id @default(uuid())
+  tenantId String?            @map("tenant_id")
   type     SuggestionType
   priority SuggestionPriority @default(MEDIUM)
   status   SuggestionStatus   @default(PENDING)
@@ -3724,6 +3960,7 @@ model Suggestion {
   @@index([materialId])
   @@index([createdAt])
   @@index([expiresAt])
+  @@index([tenantId])
   @@map("suggestions")
 }
 
@@ -3732,8 +3969,9 @@ model Suggestion {
 // ============================================
 
 model DailySummary {
-  id   String   @id @default(uuid())
-  date DateTime @unique @db.Date // Data del summary
+  id       String   @id @default(uuid())
+  tenantId String?  @map("tenant_id")
+  date     DateTime @unique @db.Date // Data del summary
 
   // Ordini
   ordersCount        Int     @default(0) @map("orders_count")
@@ -3781,6 +4019,7 @@ model DailySummary {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@index([date])
+  @@index([tenantId])
   @@map("daily_summaries")
 }
 
@@ -3789,8 +4028,9 @@ model DailySummary {
 // ============================================
 
 model UserDashboardPreference {
-  id     String @id @default(uuid())
-  userId String @unique @map("user_id")
+  id       String  @id @default(uuid())
+  tenantId String? @map("tenant_id")
+  userId   String  @unique @map("user_id")
 
   // Layout preferito
   layout Json? // {widgets: [{id, position, size, visible}]}
@@ -3819,6 +4059,7 @@ model UserDashboardPreference {
   // Relations
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([tenantId])
   @@map("user_dashboard_preferences")
 }
 
@@ -3828,6 +4069,7 @@ model UserDashboardPreference {
 
 model PhysicalCountSession {
   id          String              @id @default(uuid())
+  tenantId    String?             @map("tenant_id")
   code        String              @unique // Es: "INV-2024-001"
   warehouseId String              @map("warehouse_id")
   status      PhysicalCountStatus @default(DRAFT)
@@ -3843,9 +4085,9 @@ model PhysicalCountSession {
   completedAt DateTime? @map("completed_at")
 
   // Opzioni conteggio
-  requireDoubleCount  Boolean @default(false) @map("require_double_count") // Richiede verifica
-  freezeInventory     Boolean @default(false) @map("freeze_inventory") // Blocca movimenti durante conteggio
-  allowBlindCount     Boolean @default(true) @map("allow_blind_count") // Non mostra quantità prevista
+  requireDoubleCount Boolean @default(false) @map("require_double_count") // Richiede verifica
+  freezeInventory    Boolean @default(false) @map("freeze_inventory") // Blocca movimenti durante conteggio
+  allowBlindCount    Boolean @default(true) @map("allow_blind_count") // Non mostra quantità prevista
 
   // Filtri opzionali (JSON per flessibilità)
   filters Json? // {categories: [], locations: [], sku_prefix: ""}
@@ -3868,12 +4110,13 @@ model PhysicalCountSession {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  warehouse Warehouse            @relation(fields: [warehouseId], references: [id])
+  warehouse Warehouse           @relation(fields: [warehouseId], references: [id])
   items     PhysicalCountItem[]
 
   @@index([warehouseId])
   @@index([status])
   @@index([plannedDate])
+  @@index([tenantId])
   @@map("physical_count_sessions")
 }
 
@@ -3895,12 +4138,12 @@ model PhysicalCountItem {
   location String? // Es: "A-01-02" (scaffale-ripiano-posizione)
 
   // Quantità
-  expectedQuantity Int                      @map("expected_quantity") // Da sistema al momento del conteggio
-  countedQuantity  Int?                     @map("counted_quantity") // Prima conta
-  verifiedQuantity Int?                     @map("verified_quantity") // Seconda conta (se richiesta)
-  finalQuantity    Int?                     @map("final_quantity") // Quantità finale approvata
-  variance         Int?                     @default(0) // finalQuantity - expectedQuantity
-  varianceValue    Decimal?                 @map("variance_value") @db.Decimal(10, 2) // Valore economico varianza
+  expectedQuantity Int      @map("expected_quantity") // Da sistema al momento del conteggio
+  countedQuantity  Int?     @map("counted_quantity") // Prima conta
+  verifiedQuantity Int?     @map("verified_quantity") // Seconda conta (se richiesta)
+  finalQuantity    Int?     @map("final_quantity") // Quantità finale approvata
+  variance         Int?     @default(0) // finalQuantity - expectedQuantity
+  varianceValue    Decimal? @map("variance_value") @db.Decimal(10, 2) // Valore economico varianza
 
   // Stato
   status PhysicalCountItemStatus @default(NOT_COUNTED)
@@ -3946,12 +4189,13 @@ enum ReportFrequency {
 
 model ScheduledReport {
   id          String          @id @default(uuid())
-  name        String          // Nome descrittivo del report
+  tenantId    String?         @map("tenant_id")
+  name        String // Nome descrittivo del report
   reportType  String          @map("report_type") // Tipo report (es: "sales-summary", "dead-stock")
   frequency   ReportFrequency @default(WEEKLY)
   format      String          @default("pdf") // pdf, csv, excel
-  recipients  String[]        // Array di email destinatari
-  parameters  Json?           // Parametri opzionali per il report (date range, filtri, etc.)
+  recipients  String[] // Array di email destinatari
+  parameters  Json? // Parametri opzionali per il report (date range, filtri, etc.)
   enabled     Boolean         @default(true)
   lastRun     DateTime?       @map("last_run")
   nextRun     DateTime?       @map("next_run")
@@ -3962,5 +4206,6 @@ model ScheduledReport {
   @@index([enabled])
   @@index([nextRun])
   @@index([reportType])
+  @@index([tenantId])
   @@map("scheduled_reports")
 }

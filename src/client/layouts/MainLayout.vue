@@ -3,8 +3,13 @@
     <aside :class="['sidebar', { 'collapsed': sidebarCollapsed }]">
       <div class="sidebar-header">
         <div class="logo" v-show="!sidebarCollapsed">
-          <span class="logo-icon">E</span>
-          <h2>EcommerceERP</h2>
+          <span class="logo-icon">{{ tenantName.charAt(0).toUpperCase() }}</span>
+          <div class="logo-text">
+            <h2>{{ tenantName }}</h2>
+            <Tag v-if="isTrialing" severity="info" class="trial-badge">
+              Trial: {{ trialDaysRemaining }}gg
+            </Tag>
+          </div>
         </div>
         <button
           class="sidebar-toggle"
@@ -167,6 +172,20 @@
           <span class="nav-label">WordPress</span>
         </router-link>
 
+        <div class="nav-section" v-show="!sidebarCollapsed">
+          <span class="nav-section-title">Account</span>
+        </div>
+
+        <router-link to="/settings/team" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Team' : null">
+          <i class="pi pi-user-plus"></i>
+          <span class="nav-label">Team</span>
+        </router-link>
+
+        <router-link to="/settings/billing" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Fatturazione' : null">
+          <i class="pi pi-credit-card"></i>
+          <span class="nav-label">Fatturazione</span>
+        </router-link>
+
         <router-link to="/settings" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Impostazioni' : null">
           <i class="pi pi-cog"></i>
           <span class="nav-label">Impostazioni</span>
@@ -201,6 +220,13 @@
       </header>
 
       <main class="content">
+        <PlanLimitBanner
+          v-if="isNearLimit && limitMessage"
+          :message="limitMessage"
+          severity="warning"
+          dismiss-key="plan-limit"
+          @upgrade="goToBilling"
+        />
         <router-view />
       </main>
     </div>
@@ -208,18 +234,44 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import Button from 'primevue/button';
 import Badge from 'primevue/badge';
+import Tag from 'primevue/tag';
 import { useAuthStore } from '../stores/auth.store';
 import { useNotificationStore } from '../stores/notification.store';
+import { useSubscriptionStore } from '../stores/subscription.store';
 import { useRouter } from 'vue-router';
+import PlanLimitBanner from '../components/billing/PlanLimitBanner.vue';
 
 const authStore = useAuthStore();
 const notificationStore = useNotificationStore();
+const subscriptionStore = useSubscriptionStore();
 const router = useRouter();
 
 const sidebarCollapsed = ref(false);
+
+// Tenant & Subscription computed
+const tenantName = computed(() => authStore.tenantName || 'EcommerceERP');
+const isTrialing = computed(() => authStore.isTrialing);
+const trialDaysRemaining = computed(() => subscriptionStore.trialDaysRemaining);
+const isNearLimit = computed(() => subscriptionStore.isNearLimit);
+const limitMessage = computed(() => {
+  if (!subscriptionStore.usage) return '';
+  const nearLimitResources: string[] = [];
+  const usage = subscriptionStore.usage;
+
+  if (usage.users.percentage >= 80) nearLimitResources.push('utenti');
+  if (usage.products.percentage >= 80) nearLimitResources.push('prodotti');
+  if (usage.warehouses.percentage >= 80) nearLimitResources.push('magazzini');
+
+  if (nearLimitResources.length === 0) return '';
+  return `Stai raggiungendo il limite di ${nearLimitResources.join(', ')} del tuo piano.`;
+});
+
+const goToBilling = () => {
+  router.push('/settings/billing');
+};
 
 const toggleSidebar = () => {
   sidebarCollapsed.value = !sidebarCollapsed.value;
@@ -232,6 +284,8 @@ onMounted(() => {
     sidebarCollapsed.value = saved === 'true';
   }
   notificationStore.loadUnreadCount();
+  // Fetch subscription usage for plan limit checks
+  subscriptionStore.fetchUsage();
 });
 
 const handleLogout = async () => {
@@ -303,11 +357,27 @@ const handleLogout = async () => {
   flex-shrink: 0;
 }
 
+.logo-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  overflow: hidden;
+}
+
 .logo h2 {
   font-size: var(--font-size-lg);
   font-weight: 700;
   color: white;
   white-space: nowrap;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.trial-badge {
+  font-size: var(--font-size-xs);
+  padding: 2px 6px;
+  align-self: flex-start;
 }
 
 .sidebar-toggle {

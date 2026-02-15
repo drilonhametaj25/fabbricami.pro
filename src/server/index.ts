@@ -45,6 +45,8 @@ import dashboardRoutes from './routes/dashboard.routes';
 import { physicalInventoryRoutes } from './routes/physical-inventory.routes';
 import threeWayMatchRoutes from './routes/three-way-match.routes';
 import reportsRoutes from './routes/reports.routes';
+import subscriptionRoutes from './routes/subscription.routes';
+import billingRoutes from './routes/billing.routes';
 import { initQueueSystem, shutdownSystems } from './config/features';
 
 // Shop/E-commerce routes (public)
@@ -88,7 +90,7 @@ async function setupServer() {
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Session-Id'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Session-Id', 'X-Tenant-Id'],
   });
 
   await server.register(jwt, {
@@ -164,6 +166,16 @@ async function setupServer() {
   await server.register(physicalInventoryRoutes, { prefix: `${apiPrefix}/physical-inventory` });
   await server.register(threeWayMatchRoutes, { prefix: `${apiPrefix}/three-way-match` });
   await server.register(reportsRoutes, { prefix: `${apiPrefix}/reports` });
+
+  // SaaS Subscription and Billing routes
+  await server.register(subscriptionRoutes, { prefix: `${apiPrefix}/subscription` });
+  await server.register(billingRoutes, { prefix: `${apiPrefix}/billing` });
+
+  // SaaS Tenant and Onboarding routes
+  const tenantRoutes = (await import('./routes/tenant.routes')).default;
+  const onboardingRoutes = (await import('./routes/onboarding.routes')).default;
+  await server.register(tenantRoutes, { prefix: `${apiPrefix}/tenant` });
+  await server.register(onboardingRoutes, { prefix: `${apiPrefix}/onboarding` });
 
   // Shop/E-commerce routes (public API for frontend)
   await server.register(shopCartRoutes, { prefix: `${apiPrefix}/shop/cart` });

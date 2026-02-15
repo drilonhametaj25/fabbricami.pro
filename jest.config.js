@@ -14,12 +14,27 @@ module.exports = {
   ],
   coverageThreshold: {
     global: {
-      branches: 80,
-      functions: 80,
-      lines: 80,
-      statements: 80,
+      branches: 100,
+      functions: 100,
+      lines: 100,
+      statements: 100,
     },
   },
+  // Exclude frontend code from Jest (tested by Vitest)
+  testPathIgnorePatterns: [
+    '/node_modules/',
+    '/tests/client/',
+    '/src/client/',
+    '/src/ecommerce/',
+  ],
+  coveragePathIgnorePatterns: [
+    '/node_modules/',
+    '/tests/',
+    '/src/client/',
+    '/src/ecommerce/',
+    '/prisma/',
+    '/dist/',
+  ],
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
     '^@server/(.*)$': '<rootDir>/src/server/$1',

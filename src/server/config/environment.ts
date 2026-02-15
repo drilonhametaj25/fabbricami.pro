@@ -36,8 +36,23 @@ const envSchema = z.object({
   
   RATE_LIMIT_MAX: z.string().default('100'),
   RATE_LIMIT_TIMEWINDOW: z.string().default('60000'),
-  
+
   OVERHEAD_ALLOCATION_METHOD: z.enum(['labor_hours', 'production_volume']).default('labor_hours'),
+
+  // Stripe SaaS
+  STRIPE_SECRET_KEY: z.string().optional(),
+  STRIPE_PUBLISHABLE_KEY: z.string().optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  STRIPE_PRICE_STARTER_MONTHLY: z.string().optional(),
+  STRIPE_PRICE_STARTER_YEARLY: z.string().optional(),
+  STRIPE_PRICE_PRO_MONTHLY: z.string().optional(),
+  STRIPE_PRICE_PRO_YEARLY: z.string().optional(),
+  STRIPE_PRICE_BUSINESS_MONTHLY: z.string().optional(),
+  STRIPE_PRICE_BUSINESS_YEARLY: z.string().optional(),
+
+  // SaaS Settings
+  APP_URL: z.string().default('http://localhost:5173'),
+  DEFAULT_TRIAL_DAYS: z.string().default('14'),
 });
 
 // Parse and validate
@@ -99,7 +114,32 @@ export const config = {
   overhead: {
     allocationMethod: env.OVERHEAD_ALLOCATION_METHOD,
   },
-  
+
+  stripe: {
+    secretKey: env.STRIPE_SECRET_KEY || '',
+    publishableKey: env.STRIPE_PUBLISHABLE_KEY || '',
+    webhookSecret: env.STRIPE_WEBHOOK_SECRET || '',
+    prices: {
+      starter: {
+        monthly: env.STRIPE_PRICE_STARTER_MONTHLY || '',
+        yearly: env.STRIPE_PRICE_STARTER_YEARLY || '',
+      },
+      pro: {
+        monthly: env.STRIPE_PRICE_PRO_MONTHLY || '',
+        yearly: env.STRIPE_PRICE_PRO_YEARLY || '',
+      },
+      business: {
+        monthly: env.STRIPE_PRICE_BUSINESS_MONTHLY || '',
+        yearly: env.STRIPE_PRICE_BUSINESS_YEARLY || '',
+      },
+    },
+  },
+
+  saas: {
+    appUrl: env.APP_URL,
+    defaultTrialDays: parseInt(env.DEFAULT_TRIAL_DAYS),
+  },
+
   isDevelopment: env.NODE_ENV === 'development',
   isProduction: env.NODE_ENV === 'production',
   isTest: env.NODE_ENV === 'test',

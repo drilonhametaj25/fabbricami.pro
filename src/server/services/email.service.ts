@@ -721,6 +721,193 @@ class EmailService {
   }
 
   // =============================================
+  // SAAS / ERP EMAIL TEMPLATES
+  // =============================================
+
+  /**
+   * Send email verification for SaaS/ERP users
+   */
+  async sendSaasVerificationEmail(email: string, token: string, firstName: string): Promise<boolean> {
+    const verifyUrl = `${process.env.APP_URL || 'http://localhost:5173'}/verify-email?token=${token}`;
+
+    const content = `
+      <h2>Verifica il tuo indirizzo email</h2>
+      <p>Ciao ${firstName},</p>
+      <p>Grazie per esserti registrato! Per completare la registrazione, verifica il tuo indirizzo email cliccando il pulsante qui sotto:</p>
+
+      <p style="text-align: center; margin: 30px 0;">
+        <a href="${verifyUrl}" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">
+          Verifica Email
+        </a>
+      </p>
+
+      <p><small>Questo link scadrà tra 24 ore.</small></p>
+
+      <p style="margin-top: 30px; font-size: 12px; color: #666;">
+        Se il pulsante non funziona, copia e incolla questo link nel tuo browser:<br/>
+        <a href="${verifyUrl}">${verifyUrl}</a>
+      </p>
+
+      <p>Se non hai creato un account, puoi ignorare questa email.</p>
+    `;
+
+    return this.send({
+      to: email,
+      subject: 'Verifica il tuo indirizzo email',
+      html: this.baseTemplate('Verifica Email', content),
+      text: `Ciao ${firstName},\n\nGrazie per esserti registrato!\n\nVerifica il tuo indirizzo email visitando: ${verifyUrl}\n\nQuesto link scadrà tra 24 ore.\n\nSe non hai creato un account, puoi ignorare questa email.`,
+    });
+  }
+
+  /**
+   * Send password reset email for SaaS/ERP users
+   */
+  async sendSaasPasswordResetEmail(email: string, token: string, firstName: string): Promise<boolean> {
+    const resetUrl = `${process.env.APP_URL || 'http://localhost:5173'}/reset-password?token=${token}`;
+
+    const content = `
+      <h2>Reimposta la tua password</h2>
+      <p>Ciao ${firstName},</p>
+      <p>Abbiamo ricevuto una richiesta per reimpostare la password del tuo account. Clicca il pulsante qui sotto per scegliere una nuova password:</p>
+
+      <p style="text-align: center; margin: 30px 0;">
+        <a href="${resetUrl}" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">
+          Reimposta Password
+        </a>
+      </p>
+
+      <p><small>Questo link scadrà tra 1 ora.</small></p>
+
+      <p style="margin-top: 30px; font-size: 12px; color: #666;">
+        Se il pulsante non funziona, copia e incolla questo link nel tuo browser:<br/>
+        <a href="${resetUrl}">${resetUrl}</a>
+      </p>
+
+      <p>Se non hai richiesto il reset della password, puoi ignorare questa email. La tua password non verrà modificata.</p>
+    `;
+
+    return this.send({
+      to: email,
+      subject: 'Reimposta la tua password',
+      html: this.baseTemplate('Reset Password', content),
+      text: `Ciao ${firstName},\n\nAbbiamo ricevuto una richiesta per reimpostare la password del tuo account.\n\nReimposta la password visitando: ${resetUrl}\n\nQuesto link scadrà tra 1 ora.\n\nSe non hai richiesto il reset della password, puoi ignorare questa email.`,
+    });
+  }
+
+  /**
+   * Send welcome email after tenant registration
+   */
+  async sendSaasWelcomeEmail(email: string, firstName: string, tenantName: string): Promise<boolean> {
+    const dashboardUrl = `${process.env.APP_URL || 'http://localhost:5173'}/dashboard`;
+
+    const content = `
+      <h2>Benvenuto su ${this.companyName}!</h2>
+      <p>Ciao ${firstName},</p>
+      <p>Il tuo account per <strong>${tenantName}</strong> è stato verificato e attivato con successo.</p>
+
+      <div style="background-color: #f0f9ff; border-left: 4px solid #4F46E5; padding: 15px; margin: 20px 0;">
+        <strong>Il tuo periodo di prova gratuito è iniziato!</strong><br/>
+        Hai 14 giorni per esplorare tutte le funzionalità del piano Pro.
+      </div>
+
+      <h3>Prossimi passi consigliati:</h3>
+      <ul>
+        <li>Completa le impostazioni aziendali</li>
+        <li>Configura il tuo primo magazzino</li>
+        <li>Invita i membri del tuo team</li>
+        <li>Importa i tuoi prodotti</li>
+      </ul>
+
+      <p style="text-align: center; margin: 30px 0;">
+        <a href="${dashboardUrl}" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">
+          Vai alla Dashboard
+        </a>
+      </p>
+
+      <p>Hai bisogno di aiuto? Contattaci rispondendo a questa email.</p>
+    `;
+
+    return this.send({
+      to: email,
+      subject: `Benvenuto su ${this.companyName}!`,
+      html: this.baseTemplate('Benvenuto', content),
+      text: `Ciao ${firstName},\n\nBenvenuto su ${this.companyName}!\n\nIl tuo account per ${tenantName} è stato verificato e attivato con successo.\n\nIl tuo periodo di prova gratuito di 14 giorni è iniziato!\n\nProssimi passi:\n- Completa le impostazioni aziendali\n- Configura il tuo primo magazzino\n- Invita i membri del tuo team\n- Importa i tuoi prodotti\n\nVai alla dashboard: ${dashboardUrl}\n\nHai bisogno di aiuto? Contattaci rispondendo a questa email.`,
+    });
+  }
+
+  /**
+   * Send notification when a team member accepts invite
+   */
+  async sendTeamMemberJoinedEmail(
+    adminEmail: string,
+    adminName: string,
+    newMemberName: string,
+    newMemberEmail: string,
+    tenantName: string
+  ): Promise<boolean> {
+    const teamUrl = `${process.env.APP_URL || 'http://localhost:5173'}/settings/team`;
+
+    const content = `
+      <h2>Nuovo membro nel team</h2>
+      <p>Ciao ${adminName},</p>
+      <p><strong>${newMemberName}</strong> (${newMemberEmail}) ha accettato l'invito e si è unito a <strong>${tenantName}</strong>.</p>
+
+      <p style="text-align: center; margin: 30px 0;">
+        <a href="${teamUrl}" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">
+          Gestisci Team
+        </a>
+      </p>
+
+      <p>Puoi gestire i membri del team e i loro ruoli dalla sezione Impostazioni.</p>
+    `;
+
+    return this.send({
+      to: adminEmail,
+      subject: `${newMemberName} si è unito a ${tenantName}`,
+      html: this.baseTemplate('Nuovo Membro', content),
+      text: `Ciao ${adminName},\n\n${newMemberName} (${newMemberEmail}) ha accettato l'invito e si è unito a ${tenantName}.\n\nGestisci team: ${teamUrl}`,
+    });
+  }
+
+  /**
+   * Send trial ending soon notification
+   */
+  async sendTrialEndingSoonEmail(
+    email: string,
+    firstName: string,
+    tenantName: string,
+    daysRemaining: number
+  ): Promise<boolean> {
+    const billingUrl = `${process.env.APP_URL || 'http://localhost:5173'}/settings/billing`;
+
+    const content = `
+      <h2>Il tuo periodo di prova sta per terminare</h2>
+      <p>Ciao ${firstName},</p>
+      <p>Il periodo di prova gratuito per <strong>${tenantName}</strong> terminerà tra <strong>${daysRemaining} giorni</strong>.</p>
+
+      <div style="background-color: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; margin: 20px 0;">
+        <strong>Non perdere l'accesso!</strong><br/>
+        Passa a un piano a pagamento per continuare ad utilizzare tutte le funzionalità.
+      </div>
+
+      <p style="text-align: center; margin: 30px 0;">
+        <a href="${billingUrl}" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">
+          Gestisci Abbonamento
+        </a>
+      </p>
+
+      <p>Hai domande? Contattaci rispondendo a questa email.</p>
+    `;
+
+    return this.send({
+      to: email,
+      subject: `Il tuo periodo di prova termina tra ${daysRemaining} giorni`,
+      html: this.baseTemplate('Fine Periodo Prova', content),
+      text: `Ciao ${firstName},\n\nIl periodo di prova gratuito per ${tenantName} terminerà tra ${daysRemaining} giorni.\n\nPassa a un piano a pagamento per continuare: ${billingUrl}\n\nHai domande? Contattaci rispondendo a questa email.`,
+    });
+  }
+
+  // =============================================
   // UTILITY
   // =============================================
 

@@ -4,10 +4,10 @@ import { hashPassword } from '../src/server/utils/crypto.util';
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('🌱 Seeding database...');
+  console.log('Seeding database...');
 
   // Clear existing data
-  console.log('🗑️  Clearing existing data...');
+  console.log('Clearing existing data...');
   await prisma.orderItem.deleteMany();
   await prisma.order.deleteMany();
   await prisma.inventoryMovement.deleteMany();
@@ -20,13 +20,144 @@ async function main() {
   await prisma.customer.deleteMany();
   await prisma.employee.deleteMany();
   await prisma.user.deleteMany();
+  // Clear SaaS data
+  await prisma.billingHistory.deleteMany();
+  await prisma.saasSubscription.deleteMany();
+  await prisma.tenantMember.deleteMany();
+  await prisma.tenantInvite.deleteMany();
+  await prisma.tenant.deleteMany();
+  await prisma.subscriptionPlan.deleteMany();
 
-  // Create users
-  console.log('👤 Creating users...');
+  // ===========================================
+  // SUBSCRIPTION PLANS
+  // ===========================================
+  console.log('Creating subscription plans...');
+
+  const starterPlan = await prisma.subscriptionPlan.create({
+    data: {
+      code: 'STARTER',
+      name: 'Starter',
+      description: 'Ideale per piccole attivita con gestione base di inventario e ordini',
+      priceMonthly: 29.00,
+      priceYearly: 290.00, // 2 mesi gratis
+      features: {
+        modules: ['inventory', 'orders', 'customers', 'basic_reports'],
+        capabilities: ['wordpress_sync_basic', 'email_support'],
+      },
+      limits: {
+        maxUsers: 3,
+        maxWarehouses: 1,
+        maxProducts: 1000,
+        maxOrders: 500,
+        maxSuppliers: 20,
+      },
+      isActive: true,
+      sortOrder: 1,
+    },
+  });
+
+  const proPlan = await prisma.subscriptionPlan.create({
+    data: {
+      code: 'PRO',
+      name: 'Professional',
+      description: 'Per aziende in crescita con produzione e gestione avanzata',
+      priceMonthly: 79.00,
+      priceYearly: 790.00, // 2 mesi gratis
+      features: {
+        modules: [
+          'inventory', 'orders', 'customers', 'suppliers', 'purchasing',
+          'manufacturing', 'hr', 'advanced_reports', 'wordpress_sync',
+        ],
+        capabilities: ['wordpress_sync_full', 'priority_support', 'api_readonly'],
+      },
+      limits: {
+        maxUsers: 10,
+        maxWarehouses: 3,
+        maxProducts: 10000,
+        maxOrders: 2000,
+        maxSuppliers: 100,
+      },
+      isActive: true,
+      sortOrder: 2,
+    },
+  });
+
+  const businessPlan = await prisma.subscriptionPlan.create({
+    data: {
+      code: 'BUSINESS',
+      name: 'Business',
+      description: 'Soluzione completa per aziende strutturate con tutte le funzionalita',
+      priceMonthly: 199.00,
+      priceYearly: 1990.00, // 2 mesi gratis
+      features: {
+        modules: [
+          'inventory', 'orders', 'customers', 'suppliers', 'purchasing',
+          'manufacturing', 'hr', 'accounting', 'sdi', 'advanced_reports',
+          'wordpress_sync', 'api_access', 'custom_integrations',
+        ],
+        capabilities: [
+          'wordpress_sync_full', 'sdi_integration', 'dedicated_support',
+          'api_full', 'custom_reports', 'white_label',
+        ],
+      },
+      limits: {
+        maxUsers: -1, // Illimitati
+        maxWarehouses: -1,
+        maxProducts: -1,
+        maxOrders: -1,
+        maxSuppliers: -1,
+      },
+      isActive: true,
+      sortOrder: 3,
+    },
+  });
+
+  console.log('Subscription plans created: STARTER, PRO, BUSINESS');
+
+  // ===========================================
+  // DEFAULT TENANT (per migrazione dati esistenti)
+  // ===========================================
+  console.log('Creating default tenant...');
+
+  const defaultTenant = await prisma.tenant.create({
+    data: {
+      slug: 'default',
+      name: 'Default Tenant',
+      domain: null,
+      settings: {
+        timezone: 'Europe/Rome',
+        locale: 'it-IT',
+        currency: 'EUR',
+      },
+      status: 'ACTIVE',
+    },
+  });
+
+  // Create trial subscription for default tenant
+  const trialEndDate = new Date();
+  trialEndDate.setDate(trialEndDate.getDate() + 14); // 14 giorni trial
+
+  await prisma.saasSubscription.create({
+    data: {
+      tenantId: defaultTenant.id,
+      planId: proPlan.id, // Trial con piano PRO
+      status: 'TRIALING',
+      billingInterval: 'monthly',
+      currentPeriodStart: new Date(),
+      currentPeriodEnd: trialEndDate,
+      trialEndsAt: trialEndDate,
+    },
+  });
+
+  console.log('Default tenant created with PRO trial subscription');
+
+  // Create users (con tenantId)
+  console.log('Creating users...');
   const adminPassword = await hashPassword('admin123');
-  
+
   const admin = await prisma.user.create({
     data: {
+      tenantId: defaultTenant.id,
       email: 'admin@ecommerceerp.com',
       password: adminPassword,
       firstName: 'Admin',
@@ -36,8 +167,19 @@ async function main() {
     },
   });
 
+  // Create tenant membership for admin
+  await prisma.tenantMember.create({
+    data: {
+      tenantId: defaultTenant.id,
+      userId: admin.id,
+      role: 'ADMIN',
+      acceptedAt: new Date(),
+    },
+  });
+
   const manager = await prisma.user.create({
     data: {
+      tenantId: defaultTenant.id,
       email: 'manager@ecommerceerp.com',
       password: adminPassword,
       firstName: 'Marco',
@@ -47,12 +189,23 @@ async function main() {
     },
   });
 
-  console.log('✅ Users created');
+  // Create tenant membership for manager
+  await prisma.tenantMember.create({
+    data: {
+      tenantId: defaultTenant.id,
+      userId: manager.id,
+      role: 'MANAGER',
+      acceptedAt: new Date(),
+    },
+  });
 
-  // Create employees
-  console.log('👷 Creating employees...');
+  console.log('Users created with tenant memberships');
+
+  // Create employees (con tenantId)
+  console.log('Creating employees...');
   const employee1 = await prisma.employee.create({
     data: {
+      tenantId: defaultTenant.id,
       userId: admin.id,
       employeeCode: 'EMP-001',
       position: 'Amministratore',
@@ -64,6 +217,7 @@ async function main() {
 
   const employee2 = await prisma.employee.create({
     data: {
+      tenantId: defaultTenant.id,
       userId: manager.id,
       employeeCode: 'EMP-002',
       position: 'Responsabile Produzione',
@@ -73,12 +227,13 @@ async function main() {
     },
   });
 
-  console.log('✅ Employees created');
+  console.log('Employees created');
 
-  // Create warehouses
-  console.log('🏢 Creating warehouses...');
+  // Create warehouses (con tenantId)
+  console.log('Creating warehouses...');
   const mainWarehouse = await prisma.warehouse.create({
     data: {
+      tenantId: defaultTenant.id,
       code: 'WH-MAIN',
       name: 'Magazzino Principale',
       description: 'Magazzino principale EcommerceERP - Sede di Milano',
@@ -95,6 +250,7 @@ async function main() {
 
   const eventWarehouse = await prisma.warehouse.create({
     data: {
+      tenantId: defaultTenant.id,
       code: 'WH-EVENTI',
       name: 'Magazzino Eventi e Fiere',
       description: 'Magazzino per gestione stock eventi e manifestazioni',
@@ -109,16 +265,17 @@ async function main() {
     },
   });
 
-  console.log('✅ Warehouses created');
+  console.log('Warehouses created');
 
-  // Create customers
-  console.log('👥 Creating customers...');
+  // Create customers (con tenantId)
+  console.log('Creating customers...');
   const customers = [];
-  
+
   // B2C Customers
   for (let i = 1; i <= 10; i++) {
     const customer = await prisma.customer.create({
       data: {
+        tenantId: defaultTenant.id,
         code: `CUST-B2C-${String(i).padStart(3, '0')}`,
         type: 'B2C',
         firstName: `Cliente${i}`,
@@ -141,6 +298,7 @@ async function main() {
   for (let i = 1; i <= 5; i++) {
     const customer = await prisma.customer.create({
       data: {
+        tenantId: defaultTenant.id,
         code: `CUST-B2B-${String(i).padStart(3, '0')}`,
         type: 'B2B',
         businessName: `Azienda Modellismo ${i} SRL`,
@@ -159,10 +317,10 @@ async function main() {
     customers.push(customer);
   }
 
-  console.log('✅ Customers created:', customers.length);
+  console.log('Customers created:', customers.length);
 
-  // Create products
-  console.log('📦 Creating products...');
+  // Create products (con tenantId)
+  console.log('Creating products...');
   const products = [];
 
   const productData = [
@@ -187,6 +345,7 @@ async function main() {
     const data = productData[i];
     const product = await prisma.product.create({
       data: {
+        tenantId: defaultTenant.id,
         sku: `PROD-${String(i + 1).padStart(4, '0')}`,
         name: data.name,
         description: `Modello dettagliato ${data.name} in scala`,
@@ -203,19 +362,20 @@ async function main() {
     products.push(product);
   }
 
-  console.log('✅ Products created:', products.length);
+  console.log('Products created:', products.length);
 
-  // Create inventory for products
-  console.log('📊 Creating inventory...');
+  // Create inventory for products (con tenantId)
+  console.log('Creating inventory...');
   const locations: InventoryLocation[] = ['WEB', 'B2B', 'EVENTI'];
-  
+
   for (const product of products) {
     for (const location of locations) {
       const baseQuantity = location === 'WEB' ? 50 : 20;
       const quantity = Math.floor(Math.random() * baseQuantity) + 5;
-      
+
       await prisma.inventoryItem.create({
         data: {
+          tenantId: defaultTenant.id,
           warehouseId: mainWarehouse.id,
           productId: product.id,
           location,
@@ -226,24 +386,25 @@ async function main() {
     }
   }
 
-  console.log('✅ Inventory created');
+  console.log('Inventory created');
 
-  // Create orders
-  console.log('🛒 Creating orders...');
+  // Create orders (con tenantId)
+  console.log('Creating orders...');
   const orderStatuses = ['PENDING', 'CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED'];
   const sources = ['WORDPRESS', 'B2B', 'MANUAL'];
-  
+
   for (let i = 1; i <= 30; i++) {
     const customer = customers[Math.floor(Math.random() * customers.length)];
     const source = sources[Math.floor(Math.random() * sources.length)];
     const status = orderStatuses[Math.floor(Math.random() * orderStatuses.length)];
-    
+
     // Random date in last 60 days
     const orderDate = new Date();
     orderDate.setDate(orderDate.getDate() - Math.floor(Math.random() * 60));
-    
+
     const order = await prisma.order.create({
       data: {
+        tenantId: defaultTenant.id,
         orderNumber: `ORD-2025-${String(i).padStart(6, '0')}`,
         customerId: customer.id,
         source: source as any,
@@ -302,21 +463,22 @@ async function main() {
     });
   }
 
-  console.log('✅ Orders created: 30');
+  console.log('Orders created: 30');
 
-  // Create inventory movements
-  console.log('📦 Creating inventory movements...');
+  // Create inventory movements (con tenantId)
+  console.log('Creating inventory movements...');
   for (let i = 0; i < 50; i++) {
     const product = products[Math.floor(Math.random() * products.length)];
     const types = ['IN', 'OUT', 'ADJUSTMENT'];
     const type = types[Math.floor(Math.random() * types.length)];
     const location = locations[Math.floor(Math.random() * locations.length)];
-    
+
     const movementDate = new Date();
     movementDate.setDate(movementDate.getDate() - Math.floor(Math.random() * 90));
-    
+
     await prisma.inventoryMovement.create({
       data: {
+        tenantId: defaultTenant.id,
         productId: product.id,
         type: type as any,
         quantity: Math.floor(Math.random() * 20) + 1,
@@ -330,12 +492,16 @@ async function main() {
     });
   }
 
-  console.log('✅ Inventory movements created: 50');
+  console.log('Inventory movements created: 50');
 
-  console.log('🎉 Database seeded successfully!');
   console.log('');
-  console.log('📊 Summary:');
+  console.log('Database seeded successfully!');
+  console.log('');
+  console.log('Summary:');
+  console.log('  - Subscription Plans: 3 (STARTER, PRO, BUSINESS)');
+  console.log('  - Tenant: 1 (default with PRO trial)');
   console.log('  - Users: 2 (admin@ecommerceerp.com / admin123)');
+  console.log('  - Tenant Members: 2');
   console.log('  - Employees: 2');
   console.log('  - Warehouses: 2');
   console.log('  - Customers: 15 (10 B2C + 5 B2B)');

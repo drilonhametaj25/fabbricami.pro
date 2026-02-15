@@ -1,6 +1,7 @@
 import { PrismaClient, PaymentStatus } from '@prisma/client';
 import Stripe from 'stripe';
 import { shopCheckoutService } from './shop-checkout.service';
+import { subscriptionService } from './subscription.service';
 
 const prisma = new PrismaClient();
 
@@ -190,16 +191,39 @@ class StripeService {
    * Handle Stripe webhook events
    */
   async handleWebhook(event: Stripe.Event): Promise<void> {
+    // Subscription events - delegate to subscription service
+    const subscriptionEvents = [
+      'customer.subscription.created',
+      'customer.subscription.updated',
+      'customer.subscription.deleted',
+      'customer.subscription.trial_will_end',
+      'invoice.paid',
+      'invoice.payment_failed',
+    ];
+
+    if (subscriptionEvents.includes(event.type)) {
+      await subscriptionService.handleStripeWebhook(event);
+      return;
+    }
+
+    // Payment events - handle for order payments
     switch (event.type) {
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session;
-        await this.handleCheckoutCompleted(session);
+        // Check if this is a subscription checkout or order checkout
+        if (session.mode === 'subscription') {
+          await subscriptionService.handleStripeWebhook(event);
+        } else {
+          await this.handleCheckoutCompleted(session);
+        }
         break;
       }
 
       case 'checkout.session.expired': {
         const session = event.data.object as Stripe.Checkout.Session;
-        await this.handleCheckoutExpired(session);
+        if (session.mode !== 'subscription') {
+          await this.handleCheckoutExpired(session);
+        }
         break;
       }
 
