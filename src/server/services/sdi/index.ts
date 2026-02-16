@@ -32,6 +32,10 @@ import * as path from 'path';
 export * from './sdi-provider.interface';
 export { fatturaPaXmlService } from './fatturapa-xml.service';
 export { arubaSdiService } from './aruba-sdi.service';
+export { fatturaPaValidatorService } from './fatturapa-validator.service';
+
+import { fatturaPaValidatorService } from './fatturapa-validator.service';
+import { XsdValidationResult } from './sdi-provider.interface';
 
 /**
  * Directory per salvataggio file XML
@@ -211,6 +215,18 @@ class SdiService {
 
       // Leggi contenuto XML
       const xml = await fs.readFile(invoice.xmlFilePath!, 'utf-8');
+
+      // Valida XML prima dell'invio
+      const validationResult = fatturaPaValidatorService.validateXml(xml);
+      if (!validationResult.valid) {
+        const errorMessages = validationResult.errors?.map(e => e.message).join('; ') || 'Errori di validazione';
+        logger.warn(`Validazione XML fallita per fattura ${invoice.invoiceNumber}: ${errorMessages}`);
+        return {
+          success: false,
+          error: `Validazione XML fallita: ${errorMessages}`,
+          errorCode: 'VALIDATION_ERROR',
+        };
+      }
 
       // Invia tramite provider
       const result = await arubaSdiService.sendInvoice(xml, invoice.sdiFileName!);
@@ -640,6 +656,67 @@ class SdiService {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Valida XML FatturaPA per una fattura
+   * @param invoiceId ID della fattura
+   * @returns Risultato validazione XSD
+   */
+  async validateInvoiceXml(invoiceId: string): Promise<XsdValidationResult> {
+    try {
+      const invoice = await prisma.invoice.findUnique({
+        where: { id: invoiceId },
+      });
+
+      if (!invoice) {
+        return { valid: false, errors: [{ message: 'Fattura non trovata' }] };
+      }
+
+      // Se l'XML non esiste, generalo prima
+      if (!invoice.xmlFilePath) {
+        const genResult = await this.generateInvoiceXml(invoiceId);
+        if (!genResult.success) {
+          return {
+            valid: false,
+            errors: genResult.errors?.map(e => ({ message: e })) || [{ message: 'Errore generazione XML' }],
+          };
+        }
+
+        // Ricarica fattura per ottenere il path
+        const updatedInvoice = await prisma.invoice.findUnique({
+          where: { id: invoiceId },
+        });
+        if (!updatedInvoice?.xmlFilePath) {
+          return { valid: false, errors: [{ message: 'XML non generato' }] };
+        }
+      }
+
+      // Leggi XML
+      const xml = await fs.readFile(invoice.xmlFilePath!, 'utf-8');
+
+      // Valida
+      const result = fatturaPaValidatorService.validateXml(xml);
+
+      logger.info(`Validazione XML fattura ${invoice.invoiceNumber}: ${result.valid ? 'OK' : 'FALLITA'}`);
+
+      return result;
+    } catch (error) {
+      logger.error('Errore validazione XML fattura:', error);
+      return {
+        valid: false,
+        errors: [{ message: (error as Error).message }],
+      };
+    }
+  }
+
+  /**
+   * Valida un XML FatturaPA generico (non legato a una fattura)
+   * @param xml Stringa XML da validare
+   * @returns Risultato validazione
+   */
+  validateXmlString(xml: string): XsdValidationResult {
+    return fatturaPaValidatorService.validateXml(xml);
   }
 
   /**

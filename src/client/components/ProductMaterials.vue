@@ -360,7 +360,7 @@ const loadMaterials = async () => {
 const loadAvailableMaterials = async () => {
   loadingMaterials.value = true;
   try {
-    const response = await api.get('/materials?limit=1000');
+    const response = await api.get('/materials?limit=500');
     if (response.success) {
       availableMaterials.value = response.data;
     }

@@ -534,7 +534,7 @@ const getLocationSeverity = (location: string) => {
 
 const loadStats = async () => {
   try {
-    const response = await api.get('/products?limit=1000');
+    const response = await api.get('/products?limit=500');
     const allProducts = response.data.items;
 
     // Calcola valore a costo e a prezzo vendita

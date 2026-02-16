@@ -1,4 +1,4 @@
-import { PrismaClient, InventoryLocation } from '@prisma/client';
+import { PrismaClient, InventoryLocation, OrderStatus, OrderSource } from '@prisma/client';
 import { hashPassword } from '../src/server/utils/crypto.util';
 
 const prisma = new PrismaClient();
@@ -160,8 +160,8 @@ async function main() {
       tenantId: defaultTenant.id,
       email: 'admin@ecommerceerp.com',
       password: adminPassword,
-      firstName: 'Admin',
-      lastName: 'EcommerceERP',
+      firstName: 'Marco',
+      lastName: 'Bianchi',
       role: 'ADMIN',
       isActive: true,
     },
@@ -182,7 +182,7 @@ async function main() {
       tenantId: defaultTenant.id,
       email: 'manager@ecommerceerp.com',
       password: adminPassword,
-      firstName: 'Marco',
+      firstName: 'Laura',
       lastName: 'Rossi',
       role: 'MANAGER',
       isActive: true,
@@ -208,19 +208,30 @@ async function main() {
       tenantId: defaultTenant.id,
       userId: admin.id,
       employeeCode: 'EMP-001',
-      position: 'Amministratore',
-      hourlyRate: 25.00,
+      position: 'Amministratore Delegato',
+      hourlyRate: 50.00,
       hireDate: new Date('2020-01-01'),
       isActive: true,
     },
   });
 
-  const employee2 = await prisma.employee.create({
+  await prisma.employee.create({
     data: {
       tenantId: defaultTenant.id,
       userId: manager.id,
       employeeCode: 'EMP-002',
       position: 'Responsabile Produzione',
+      hourlyRate: 35.00,
+      hireDate: new Date('2020-03-15'),
+      isActive: true,
+    },
+  });
+
+  await prisma.employee.create({
+    data: {
+      userId: magazziniere.id,
+      employeeCode: 'EMP-003',
+      position: 'Responsabile Magazzino',
       hourlyRate: 22.00,
       hireDate: new Date('2021-06-01'),
       isActive: true,
@@ -235,30 +246,32 @@ async function main() {
     data: {
       tenantId: defaultTenant.id,
       code: 'WH-MAIN',
-      name: 'Magazzino Principale',
-      description: 'Magazzino principale EcommerceERP - Sede di Milano',
+      name: 'Magazzino Centrale Milano',
+      description: 'Magazzino principale per produzione e stoccaggio',
       address: {
-        street: 'Via della Logistica 15',
+        street: 'Via della Manifattura 42',
         city: 'Milano',
+        province: 'MI',
         zip: '20100',
-        country: 'Italia',
+        country: 'IT',
       },
       isActive: true,
       isPrimary: true,
     },
   });
 
-  const eventWarehouse = await prisma.warehouse.create({
+  const shopWarehouse = await prisma.warehouse.create({
     data: {
       tenantId: defaultTenant.id,
       code: 'WH-EVENTI',
       name: 'Magazzino Eventi e Fiere',
       description: 'Magazzino per gestione stock eventi e manifestazioni',
       address: {
-        street: 'Via Fiera 42',
+        street: 'Via della Manifattura 42',
         city: 'Milano',
-        zip: '20145',
-        country: 'Italia',
+        province: 'MI',
+        zip: '20100',
+        country: 'IT',
       },
       isActive: true,
       isPrimary: false,
@@ -278,13 +291,14 @@ async function main() {
         tenantId: defaultTenant.id,
         code: `CUST-B2C-${String(i).padStart(3, '0')}`,
         type: 'B2C',
-        firstName: `Cliente${i}`,
-        lastName: `Privato${i}`,
-        email: `cliente${i}@example.com`,
-        phone: `+39 333 ${String(i).padStart(7, '0')}`,
+        firstName: name.first,
+        lastName: name.last,
+        email: `${name.first.toLowerCase()}.${name.last.toLowerCase()}@email.com`,
+        phone: `+39 333 ${String(Math.floor(Math.random() * 9000000 + 1000000))}`,
         address: {
-          street: `Via Roma ${i}`,
+          street: `Via Roma ${Math.floor(Math.random() * 100) + 1}`,
           city: 'Milano',
+          province: 'MI',
           zip: '20100',
           country: 'IT',
         },
@@ -294,23 +308,27 @@ async function main() {
     customers.push(customer);
   }
 
-  // B2B Customers
-  for (let i = 1; i <= 5; i++) {
+  const b2bCompanies = ['Modellismo Italia SRL', 'Hobby Center SPA', 'Scale Models Shop'];
+
+  for (let i = 0; i < b2bCompanies.length; i++) {
     const customer = await prisma.customer.create({
       data: {
         tenantId: defaultTenant.id,
         code: `CUST-B2B-${String(i).padStart(3, '0')}`,
         type: 'B2B',
-        businessName: `Azienda Modellismo ${i} SRL`,
-        taxId: `IT0123456789${i}`,
-        email: `azienda${i}@example.com`,
-        phone: `+39 02 ${String(i).padStart(7, '0')}`,
+        businessName: b2bCompanies[i],
+        taxId: 'IT' + String(Math.floor(Math.random() * 90000000000 + 10000000000)),
+        email: `ordini@${b2bCompanies[i].toLowerCase().replace(/[^a-z0-9]/g, '')}.com`,
+        phone: `+39 02 ${String(Math.floor(Math.random() * 9000000 + 1000000))}`,
         address: {
-          street: `Via Industria ${i}`,
-          city: 'Torino',
-          zip: '10100',
+          street: `Via Commercio ${Math.floor(Math.random() * 100) + 1}`,
+          city: 'Milano',
+          province: 'MI',
+          zip: '20100',
           country: 'IT',
         },
+        paymentTerms: 30,
+        discount: 10,
         isActive: true,
       },
     });
@@ -407,8 +425,8 @@ async function main() {
         tenantId: defaultTenant.id,
         orderNumber: `ORD-2025-${String(i).padStart(6, '0')}`,
         customerId: customer.id,
-        source: source as any,
-        status: status as any,
+        source,
+        status,
         orderDate,
         subtotal: 0,
         discount: 0,
@@ -417,22 +435,21 @@ async function main() {
         total: 0,
         paymentMethod: 'credit_card',
         paymentStatus: status === 'DELIVERED' ? 'paid' : 'pending',
-        shippingAddress: customer.address || { street: 'Via Roma 1', city: 'Milano', zip: '20100', country: 'IT' },
-        billingAddress: customer.address || { street: 'Via Roma 1', city: 'Milano', zip: '20100', country: 'IT' },
+        shippingAddress: customer.address as any,
+        billingAddress: customer.address as any,
       },
     });
 
-    // Add 1-4 random items to order
     const itemCount = Math.floor(Math.random() * 3) + 1;
-    let orderSubtotal = 0;
-    
+    let subtotal = 0;
+
     for (let j = 0; j < itemCount; j++) {
       const product = products[Math.floor(Math.random() * products.length)];
-      const quantity = Math.floor(Math.random() * 3) + 1;
+      const quantity = Math.floor(Math.random() * 2) + 1;
       const unitPrice = Number(product.price);
-      const tax = unitPrice * quantity * 0.22;
-      const total = unitPrice * quantity + tax;
-      
+      const lineTotal = unitPrice * quantity;
+      const tax = lineTotal * 0.22;
+
       await prisma.orderItem.create({
         data: {
           orderId: order.id,
@@ -442,23 +459,19 @@ async function main() {
           quantity,
           unitPrice,
           tax,
-          total,
+          total: lineTotal + tax,
         },
       });
-      
-      orderSubtotal += unitPrice * quantity;
+
+      subtotal += lineTotal;
     }
-    
-    // Update order totals
-    const orderTax = orderSubtotal * 0.22;
-    const orderTotal = orderSubtotal + orderTax + 9.90;
-    
+
     await prisma.order.update({
       where: { id: order.id },
       data: {
-        subtotal: orderSubtotal,
-        tax: orderTax,
-        total: orderTotal,
+        subtotal,
+        tax: subtotal * 0.22,
+        total: subtotal * 1.22 + 9.90,
       },
     });
   }
@@ -480,14 +493,10 @@ async function main() {
       data: {
         tenantId: defaultTenant.id,
         productId: product.id,
-        type: type as any,
-        quantity: Math.floor(Math.random() * 20) + 1,
-        ...(type === 'IN' && { toLocation: location as any }),
-        ...(type === 'OUT' && { fromLocation: location as any }),
-        reference: `MOV-${String(i + 1).padStart(6, '0')}`,
-        notes: `Movement ${type} for ${product.name}`,
-        performedBy: admin.id,
-        createdAt: movementDate,
+        alertType: 'LOW_STOCK',
+        thresholdValue: 5,
+        currentValue: Math.floor(Math.random() * 5) + 1,
+        status: 'ACTIVE',
       },
     });
   }
@@ -513,7 +522,7 @@ async function main() {
 
 main()
   .catch((error) => {
-    console.error('❌ Error seeding database:', error);
+    console.error('❌ Errore:', error);
     process.exit(1);
   })
   .finally(async () => {

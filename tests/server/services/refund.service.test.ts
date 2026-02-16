@@ -28,10 +28,13 @@ jest.mock('@server/services/inventory.service', () => ({
 }));
 
 // Mock wordpress service
+const mockWordpressService = {
+  createWooCommerceRefund: jest.fn(),
+};
+
 jest.mock('@server/services/wordpress.service', () => ({
-  default: {
-    createWooCommerceRefund: jest.fn().mockResolvedValue({ id: 12345 }),
-  },
+  __esModule: true,
+  default: mockWordpressService,
 }));
 
 // Import after mocks
@@ -496,11 +499,12 @@ describe('RefundService', () => {
       prismaMock.orderRefund.findUnique.mockResolvedValue(mockRefund as any);
       prismaMock.orderRefund.update.mockResolvedValue({} as any);
       prismaMock.order.update.mockResolvedValue({} as any);
+      mockWordpressService.createWooCommerceRefund.mockResolvedValue({ id: 12345 });
 
       const result = await refundService.syncRefundToWooCommerce('refund-1');
 
       expect(result.success).toBe(true);
-      expect(result.wcRefundId).toBeDefined();
+      expect(result.wcRefundId).toBe(12345);
     });
 
     it('should return existing wcRefundId if already synced', async () => {

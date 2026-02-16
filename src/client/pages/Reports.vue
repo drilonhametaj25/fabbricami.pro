@@ -870,7 +870,7 @@ const loadFinancialReports = async () => {
     const [from, to] = dateRange.value;
 
     // Load P&L
-    const plResponse = await api.get('/reports/profit-loss', {
+    const plResponse = await api.get('/reports/financial/profit-loss', {
       params: { from: from.toISOString(), to: to.toISOString() },
     });
     if (plResponse.success) {

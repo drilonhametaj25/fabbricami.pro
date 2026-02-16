@@ -1,6 +1,9 @@
 import PDFDocument from 'pdfkit';
 import ExcelJS from 'exceljs';
 import { prisma } from '../config/database';
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import { logger } from '../config/logger';
 
 /**
  * Export Service
@@ -16,6 +19,8 @@ interface InvoiceData {
     address?: string;
     taxId?: string;
     fiscalCode?: string;
+    sdiCode?: string;
+    pecEmail?: string;
   };
   items: Array<{
     description: string;
@@ -29,6 +34,52 @@ interface InvoiceData {
   total: number;
   notes?: string;
   paymentTerms?: string;
+  // FatturaPA specific fields
+  documentType?: string;
+  bolloVirtual?: boolean;
+  bolloAmount?: number;
+  socialSecurityType?: string;
+  socialSecurityRate?: number;
+  socialSecurityAmount?: number;
+  withholdingTaxType?: string;
+  withholdingTaxRate?: number;
+  withholdingTaxAmount?: number;
+  withholdingTaxReason?: string;
+  paymentMethodPa?: string;
+  paymentMethodTitle?: string;
+  sdiStatus?: string;
+  bankInfo?: {
+    bankName?: string;
+    iban?: string;
+    bic?: string;
+  };
+}
+
+/**
+ * Dati aziendali per intestazione fattura
+ */
+interface CompanyData {
+  name: string;
+  legalName?: string;
+  address: string;
+  city: string;
+  province: string;
+  postalCode: string;
+  country: string;
+  taxId: string;
+  fiscalCode?: string;
+  phone?: string;
+  email: string;
+  pec?: string;
+  logoUrl?: string;
+  reaNumber?: string;
+  capitalAmount?: number;
+  regimeFiscale?: string;
+  bankName?: string;
+  iban?: string;
+  bic?: string;
+  invoiceFooterNotes?: string;
+  paymentInstructions?: string;
 }
 
 interface ReportData {
@@ -40,6 +91,11 @@ interface ReportData {
   totals?: any[];
   summary?: Record<string, any>;
 }
+
+/**
+ * Directory per salvataggio PDF fatture
+ */
+const PDF_STORAGE_PATH = process.env.SDI_PDF_PATH || './storage/sdi/pdf';
 
 class ExportService {
   private companyName: string;
@@ -54,6 +110,18 @@ class ExportService {
     this.companyTaxId = process.env.COMPANY_TAX_ID || 'IT12345678901';
     this.companyPhone = process.env.COMPANY_PHONE || '+39 06 1234567';
     this.companyEmail = process.env.COMPANY_EMAIL || 'info@ecommerceerp.com';
+  }
+
+  /**
+   * Inizializza le directory di storage
+   */
+  async initialize(): Promise<void> {
+    try {
+      await fs.mkdir(PDF_STORAGE_PATH, { recursive: true });
+      logger.info('Export Service: PDF storage inizializzato');
+    } catch (error) {
+      logger.error('Errore inizializzazione Export Service:', error);
+    }
   }
 
   // =============================================
@@ -216,6 +284,469 @@ class ExportService {
 
       doc.end();
     });
+  }
+
+  /**
+   * Genera PDF fattura elettronica completo con tutti i campi FatturaPA
+   * Salva il file su filesystem e aggiorna il record della fattura
+   * @param invoiceId ID della fattura
+   * @returns { buffer: Buffer, filePath: string } Buffer PDF e path del file salvato
+   */
+  async generateFatturaElettronicaPdf(invoiceId: string): Promise<{ buffer: Buffer; filePath: string }> {
+    // Inizializza directory se necessario
+    await this.initialize();
+
+    // Carica fattura con tutte le relazioni
+    const invoice = await prisma.invoice.findUnique({
+      where: { id: invoiceId },
+      include: {
+        customer: true,
+        order: {
+          include: {
+            items: {
+              include: {
+                product: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!invoice) {
+      throw new Error('Fattura non trovata');
+    }
+
+    // Carica impostazioni aziendali
+    const companySettings = await prisma.companySettings.findFirst();
+    if (!companySettings) {
+      throw new Error('Impostazioni aziendali non configurate');
+    }
+
+    // Prepara dati aziendali
+    const company: CompanyData = {
+      name: companySettings.companyName,
+      legalName: companySettings.legalName || undefined,
+      address: companySettings.address,
+      city: companySettings.city,
+      province: companySettings.province,
+      postalCode: companySettings.postalCode,
+      country: companySettings.country,
+      taxId: companySettings.vatNumber,
+      fiscalCode: companySettings.fiscalCode || undefined,
+      phone: companySettings.phone || undefined,
+      email: companySettings.email,
+      pec: companySettings.pec || undefined,
+      logoUrl: companySettings.logoUrl || undefined,
+      reaNumber: companySettings.reaNumber || undefined,
+      capitalAmount: companySettings.capitalAmount ? Number(companySettings.capitalAmount) : undefined,
+      regimeFiscale: companySettings.taxRegime || undefined,
+      bankName: companySettings.bankName || undefined,
+      iban: companySettings.iban || undefined,
+      bic: companySettings.bic || undefined,
+      invoiceFooterNotes: companySettings.invoiceFooterNotes || undefined,
+      paymentInstructions: companySettings.paymentInstructions || undefined,
+    };
+
+    // Prepara dati cliente
+    const billingAddress = invoice.customer?.billingAddress as Record<string, string> | null;
+    const customerData = {
+      name: invoice.customer?.businessName || `${invoice.customer?.firstName || ''} ${invoice.customer?.lastName || ''}`.trim(),
+      address: billingAddress ? `${billingAddress.address1 || billingAddress.street || ''}, ${billingAddress.postcode || billingAddress.zip || ''} ${billingAddress.city || ''}` : undefined,
+      taxId: invoice.customer?.taxId || undefined,
+      fiscalCode: invoice.customer?.fiscalCode || undefined,
+      sdiCode: invoice.customer?.sdiCode || undefined,
+      pecEmail: invoice.customer?.pecEmail || undefined,
+    };
+
+    // Prepara dati fattura con campi FatturaPA
+    const data: InvoiceData = {
+      invoiceNumber: invoice.invoiceNumber,
+      issueDate: invoice.issueDate,
+      dueDate: invoice.dueDate,
+      customer: customerData,
+      items: invoice.order?.items.map(item => ({
+        description: item.productName || item.product.name,
+        quantity: item.quantity,
+        unitPrice: Number(item.unitPrice),
+        taxRate: Number(item.taxRate) || 22,
+        total: Number(item.total),
+      })) || [],
+      subtotal: Number(invoice.subtotal),
+      tax: Number(invoice.tax),
+      total: Number(invoice.total),
+      notes: invoice.notes || undefined,
+      // FatturaPA fields
+      documentType: invoice.documentType || 'TD01',
+      bolloVirtual: invoice.bolloVirtual || false,
+      bolloAmount: invoice.bolloAmount ? Number(invoice.bolloAmount) : undefined,
+      socialSecurityType: invoice.socialSecurityType || undefined,
+      socialSecurityRate: invoice.socialSecurityRate ? Number(invoice.socialSecurityRate) : undefined,
+      socialSecurityAmount: invoice.socialSecurityAmount ? Number(invoice.socialSecurityAmount) : undefined,
+      withholdingTaxType: invoice.withholdingTaxType || undefined,
+      withholdingTaxRate: invoice.withholdingTaxRate ? Number(invoice.withholdingTaxRate) : undefined,
+      withholdingTaxAmount: invoice.withholdingTaxAmount ? Number(invoice.withholdingTaxAmount) : undefined,
+      withholdingTaxReason: invoice.withholdingTaxReason || undefined,
+      paymentMethodPa: invoice.paymentMethodPa || undefined,
+      sdiStatus: invoice.sdiStatus || undefined,
+      bankInfo: {
+        bankName: company.bankName,
+        iban: company.iban,
+        bic: company.bic,
+      },
+    };
+
+    // Genera PDF
+    const buffer = await this.createFatturaElettronicaPdf(data, company);
+
+    // Genera nome file
+    const fileName = `fattura_${invoice.invoiceNumber.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.pdf`;
+    const filePath = path.join(PDF_STORAGE_PATH, fileName);
+
+    // Salva su filesystem
+    await fs.writeFile(filePath, buffer);
+
+    // Aggiorna record fattura con path PDF
+    await prisma.invoice.update({
+      where: { id: invoiceId },
+      data: { pdfFilePath: filePath },
+    });
+
+    logger.info(`PDF fattura generato: ${filePath}`);
+
+    return { buffer, filePath };
+  }
+
+  /**
+   * Crea PDF FatturaPA completo con tutti i campi
+   */
+  private createFatturaElettronicaPdf(data: InvoiceData, company: CompanyData): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      const doc = new PDFDocument({ size: 'A4', margin: 40 });
+      const chunks: Buffer[] = [];
+
+      doc.on('data', (chunk) => chunks.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+
+      let yPos = 40;
+
+      // ========== HEADER AZIENDALE ==========
+      // Logo (se disponibile)
+      // TODO: Implementare caricamento logo da URL/file
+      // if (company.logoUrl) {
+      //   doc.image(company.logoUrl, 40, yPos, { width: 80 });
+      // }
+
+      // Nome azienda
+      doc.fontSize(16).font('Helvetica-Bold').text(company.name, 40, yPos);
+      yPos += 20;
+      if (company.legalName && company.legalName !== company.name) {
+        doc.fontSize(10).font('Helvetica').text(company.legalName, 40, yPos);
+        yPos += 12;
+      }
+      doc.fontSize(9).font('Helvetica');
+      doc.text(`${company.address} - ${company.postalCode} ${company.city} (${company.province})`, 40, yPos);
+      yPos += 12;
+      doc.text(`P.IVA: ${company.taxId}${company.fiscalCode ? ` - C.F.: ${company.fiscalCode}` : ''}`, 40, yPos);
+      yPos += 12;
+      if (company.reaNumber) {
+        doc.text(`REA: ${company.province}-${company.reaNumber}${company.capitalAmount ? ` - Cap. Soc. €${company.capitalAmount.toLocaleString('it-IT')}` : ''}`, 40, yPos);
+        yPos += 12;
+      }
+      doc.text(`Tel: ${company.phone || '-'} | Email: ${company.email}${company.pec ? ` | PEC: ${company.pec}` : ''}`, 40, yPos);
+      yPos += 5;
+
+      // ========== TITOLO DOCUMENTO ==========
+      // Tipo documento
+      const docTypeLabel = this.getDocumentTypeLabel(data.documentType || 'TD01');
+      doc.fontSize(14).font('Helvetica-Bold').text(docTypeLabel, 400, 40, { align: 'right' });
+      doc.fontSize(11).font('Helvetica').text(`N. ${data.invoiceNumber}`, 400, 58, { align: 'right' });
+      doc.fontSize(10);
+      doc.text(`Data: ${data.issueDate.toLocaleDateString('it-IT')}`, 400, 73, { align: 'right' });
+      doc.text(`Scadenza: ${data.dueDate.toLocaleDateString('it-IT')}`, 400, 88, { align: 'right' });
+
+      // Stato SDI (se presente)
+      if (data.sdiStatus) {
+        const statusLabel = this.getSdiStatusLabel(data.sdiStatus);
+        doc.fontSize(8).text(`Stato SDI: ${statusLabel}`, 400, 103, { align: 'right' });
+      }
+
+      // Linea separatore
+      yPos = 130;
+      doc.moveTo(40, yPos).lineTo(555, yPos).stroke();
+      yPos += 15;
+
+      // ========== DATI CLIENTE ==========
+      doc.fontSize(10).font('Helvetica-Bold').text('DESTINATARIO:', 40, yPos);
+      yPos += 14;
+      doc.font('Helvetica');
+      doc.text(data.customer.name, 40, yPos);
+      yPos += 12;
+      if (data.customer.address) {
+        doc.text(data.customer.address, 40, yPos);
+        yPos += 12;
+      }
+      if (data.customer.taxId) {
+        doc.text(`P.IVA: ${data.customer.taxId}`, 40, yPos);
+        yPos += 12;
+      }
+      if (data.customer.fiscalCode) {
+        doc.text(`C.F.: ${data.customer.fiscalCode}`, 40, yPos);
+        yPos += 12;
+      }
+      if (data.customer.sdiCode || data.customer.pecEmail) {
+        const sdiInfo = [];
+        if (data.customer.sdiCode && data.customer.sdiCode !== '0000000') {
+          sdiInfo.push(`Cod. SDI: ${data.customer.sdiCode}`);
+        }
+        if (data.customer.pecEmail) {
+          sdiInfo.push(`PEC: ${data.customer.pecEmail}`);
+        }
+        if (sdiInfo.length > 0) {
+          doc.text(sdiInfo.join(' | '), 40, yPos);
+          yPos += 12;
+        }
+      }
+
+      // ========== TABELLA ARTICOLI ==========
+      yPos = Math.max(yPos + 20, 240);
+      const tableTop = yPos;
+      const tableHeaders = ['Descrizione', 'Q.tà', 'P. Unit.', 'IVA', 'Totale'];
+      const colWidths = [230, 45, 75, 55, 80];
+
+      // Header tabella
+      doc.font('Helvetica-Bold').fontSize(9);
+      doc.rect(40, tableTop - 3, 515, 18).fill('#f3f4f6');
+      doc.fillColor('black');
+      let xPos = 45;
+      tableHeaders.forEach((header, i) => {
+        doc.text(header, xPos, tableTop, { width: colWidths[i], align: i === 0 ? 'left' : 'right' });
+        xPos += colWidths[i];
+      });
+
+      // Righe articoli
+      doc.font('Helvetica').fontSize(9);
+      yPos = tableTop + 20;
+      data.items.forEach((item) => {
+        if (yPos > 700) {
+          doc.addPage();
+          yPos = 50;
+        }
+        xPos = 45;
+        doc.text(item.description.substring(0, 45), xPos, yPos, { width: colWidths[0] });
+        xPos += colWidths[0];
+        doc.text(item.quantity.toString(), xPos, yPos, { width: colWidths[1], align: 'right' });
+        xPos += colWidths[1];
+        doc.text(`€${item.unitPrice.toFixed(2)}`, xPos, yPos, { width: colWidths[2], align: 'right' });
+        xPos += colWidths[2];
+        doc.text(`${item.taxRate}%`, xPos, yPos, { width: colWidths[3], align: 'right' });
+        xPos += colWidths[3];
+        doc.text(`€${item.total.toFixed(2)}`, xPos, yPos, { width: colWidths[4], align: 'right' });
+        yPos += 15;
+      });
+
+      // Linea fine tabella
+      doc.moveTo(40, yPos + 5).lineTo(555, yPos + 5).stroke();
+      yPos += 15;
+
+      // ========== SEZIONE TOTALI E CAMPI FATTURAPA ==========
+      const totalsX = 350;
+      doc.fontSize(10);
+
+      // Imponibile
+      doc.font('Helvetica').text('Imponibile:', totalsX, yPos);
+      doc.text(`€${data.subtotal.toFixed(2)}`, 490, yPos, { align: 'right', width: 65 });
+      yPos += 15;
+
+      // Bollo virtuale (se presente)
+      if (data.bolloVirtual && data.bolloAmount && data.bolloAmount > 0) {
+        doc.text('Bollo virtuale:', totalsX, yPos);
+        doc.text(`€${data.bolloAmount.toFixed(2)}`, 490, yPos, { align: 'right', width: 65 });
+        yPos += 15;
+      }
+
+      // Cassa previdenziale (se presente)
+      if (data.socialSecurityType && data.socialSecurityAmount && data.socialSecurityAmount > 0) {
+        const cassaLabel = this.getCassaLabel(data.socialSecurityType);
+        doc.text(`${cassaLabel} (${data.socialSecurityRate || 4}%):`, totalsX, yPos);
+        doc.text(`€${data.socialSecurityAmount.toFixed(2)}`, 490, yPos, { align: 'right', width: 65 });
+        yPos += 15;
+      }
+
+      // IVA
+      doc.text('IVA:', totalsX, yPos);
+      doc.text(`€${data.tax.toFixed(2)}`, 490, yPos, { align: 'right', width: 65 });
+      yPos += 15;
+
+      // Ritenuta d'acconto (se presente)
+      if (data.withholdingTaxType && data.withholdingTaxAmount && data.withholdingTaxAmount > 0) {
+        const ritenutaLabel = this.getRitenutaLabel(data.withholdingTaxType);
+        doc.text(`${ritenutaLabel} (${data.withholdingTaxRate || 20}%):`, totalsX, yPos);
+        doc.text(`-€${data.withholdingTaxAmount.toFixed(2)}`, 490, yPos, { align: 'right', width: 65 });
+        yPos += 15;
+      }
+
+      // Totale documento
+      doc.moveTo(totalsX, yPos).lineTo(555, yPos).stroke();
+      yPos += 8;
+      doc.font('Helvetica-Bold').fontSize(12);
+      doc.text('TOTALE DOCUMENTO:', totalsX, yPos);
+      doc.text(`€${data.total.toFixed(2)}`, 490, yPos, { align: 'right', width: 65 });
+      yPos += 25;
+
+      // ========== DATI PAGAMENTO ==========
+      if (data.paymentMethodPa || data.bankInfo?.iban) {
+        doc.font('Helvetica-Bold').fontSize(10).text('MODALITÀ DI PAGAMENTO', 40, yPos);
+        yPos += 14;
+        doc.font('Helvetica').fontSize(9);
+
+        if (data.paymentMethodPa) {
+          const paymentLabel = this.getPaymentMethodLabel(data.paymentMethodPa);
+          doc.text(`Metodo: ${paymentLabel}`, 40, yPos);
+          yPos += 12;
+        }
+
+        if (data.bankInfo?.bankName) {
+          doc.text(`Banca: ${data.bankInfo.bankName}`, 40, yPos);
+          yPos += 12;
+        }
+
+        if (data.bankInfo?.iban) {
+          doc.text(`IBAN: ${data.bankInfo.iban}`, 40, yPos);
+          yPos += 12;
+        }
+
+        if (data.bankInfo?.bic) {
+          doc.text(`BIC/SWIFT: ${data.bankInfo.bic}`, 40, yPos);
+          yPos += 12;
+        }
+      }
+
+      // ========== NOTE ==========
+      if (data.notes) {
+        yPos = Math.min(yPos + 15, 700);
+        doc.font('Helvetica-Bold').fontSize(10).text('NOTE:', 40, yPos);
+        yPos += 12;
+        doc.font('Helvetica').fontSize(9).text(data.notes, 40, yPos, { width: 515 });
+      }
+
+      // ========== FOOTER ==========
+      // Footer note aziendali
+      doc.fontSize(7).font('Helvetica');
+      if (company.invoiceFooterNotes) {
+        doc.text(company.invoiceFooterNotes, 40, 760, { width: 515, align: 'center' });
+      }
+
+      // Timestamp
+      doc.text(
+        `Documento generato il ${new Date().toLocaleString('it-IT')} - ${company.name}`,
+        40,
+        780,
+        { align: 'center', width: 515 }
+      );
+
+      doc.end();
+    });
+  }
+
+  /**
+   * Recupera PDF fattura salvato o lo genera se non esiste
+   */
+  async getInvoicePdfFile(invoiceId: string): Promise<{ buffer: Buffer; filePath: string; fileName: string }> {
+    const invoice = await prisma.invoice.findUnique({
+      where: { id: invoiceId },
+    });
+
+    if (!invoice) {
+      throw new Error('Fattura non trovata');
+    }
+
+    // Se il PDF esiste già, restituiscilo
+    if (invoice.pdfFilePath) {
+      try {
+        const buffer = await fs.readFile(invoice.pdfFilePath);
+        const fileName = path.basename(invoice.pdfFilePath);
+        return { buffer, filePath: invoice.pdfFilePath, fileName };
+      } catch {
+        // File non trovato, rigenera
+        logger.warn(`PDF non trovato per fattura ${invoice.invoiceNumber}, rigenerazione in corso`);
+      }
+    }
+
+    // Genera nuovo PDF
+    const result = await this.generateFatturaElettronicaPdf(invoiceId);
+    const fileName = path.basename(result.filePath);
+    return { buffer: result.buffer, filePath: result.filePath, fileName };
+  }
+
+  // ========== HELPER METHODS ==========
+
+  private getDocumentTypeLabel(type: string): string {
+    const labels: Record<string, string> = {
+      'TD01': 'FATTURA',
+      'TD02': 'ACCONTO/ANTICIPO',
+      'TD03': 'ACCONTO/ANTICIPO SU PARCELLA',
+      'TD04': 'NOTA DI CREDITO',
+      'TD05': 'NOTA DI DEBITO',
+      'TD06': 'PARCELLA',
+      'TD24': 'FATTURA DIFFERITA',
+      'TD25': 'FATTURA DIFFERITA ART.21 C.4',
+      'TD26': 'CESSIONE BENI AMMORTIZZABILI',
+      'TD27': 'AUTOCONSUMO/CESSIONE GRATUITA',
+    };
+    return labels[type] || 'FATTURA';
+  }
+
+  private getSdiStatusLabel(status: string): string {
+    const labels: Record<string, string> = {
+      'NOT_SENT': 'Non inviata',
+      'PENDING': 'In attesa',
+      'SENT': 'Inviata',
+      'DELIVERED': 'Consegnata',
+      'ACCEPTED': 'Accettata',
+      'REJECTED': 'Scartata',
+      'NOT_DELIVERABLE': 'Non recapitabile',
+    };
+    return labels[status] || status;
+  }
+
+  private getCassaLabel(tipo: string): string {
+    const labels: Record<string, string> = {
+      'TC01': 'Cassa Avvocati',
+      'TC02': 'Cassa Commercialisti',
+      'TC03': 'Cassa Geometri',
+      'TC04': 'INARCASSA',
+      'TC05': 'Cassa Notariato',
+      'TC07': 'ENASARCO',
+      'TC22': 'INPS',
+    };
+    return labels[tipo] || `Cassa prev. ${tipo}`;
+  }
+
+  private getRitenutaLabel(tipo: string): string {
+    const labels: Record<string, string> = {
+      'RT01': 'Ritenuta persone fisiche',
+      'RT02': 'Ritenuta persone giuridiche',
+      'RT03': 'Contributo INPS',
+      'RT04': 'Contributo ENASARCO',
+      'RT05': 'Contributo ENPAM',
+      'RT06': 'Altro contributo prev.',
+    };
+    return labels[tipo] || `Ritenuta ${tipo}`;
+  }
+
+  private getPaymentMethodLabel(method: string): string {
+    const labels: Record<string, string> = {
+      'MP01': 'Contanti',
+      'MP02': 'Assegno',
+      'MP05': 'Bonifico',
+      'MP08': 'Carta di pagamento',
+      'MP12': 'RIBA',
+      'MP19': 'SEPA Direct Debit',
+      'MP23': 'PagoPA',
+    };
+    return labels[method] || method;
   }
 
   /**
