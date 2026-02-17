@@ -20,10 +20,11 @@ module.exports = {
       statements: 100,
     },
   },
-  // Exclude frontend code from Jest (tested by Vitest)
+  // Exclude frontend code and E2E tests from Jest (tested by Vitest)
   testPathIgnorePatterns: [
     '/node_modules/',
     '/tests/client/',
+    '/tests/e2e/',
     '/src/client/',
     '/src/ecommerce/',
   ],

@@ -5,29 +5,26 @@
 
 import { vi } from 'vitest';
 
-// Mock database
-vi.mock('@server/config/database', () => ({
-  prisma: {
+// Use vi.hoisted to create the mock object that can be referenced by $transaction
+const { mockPrisma } = vi.hoisted(() => {
+  const mockPrisma: any = {
     $connect: vi.fn(),
     $disconnect: vi.fn(),
-    $transaction: vi.fn((callback: any) => callback({
-      // Provide mock transaction methods
-      order: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
-      orderItem: { findMany: vi.fn(), create: vi.fn() },
-      customer: { findUnique: vi.fn(), create: vi.fn() },
-      product: { findUnique: vi.fn(), findMany: vi.fn() },
-      inventory: { findUnique: vi.fn(), update: vi.fn() },
-    })),
     order: {
+      findUnique: vi.fn(),
+      findMany: vi.fn(),
+      findFirst: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      count: vi.fn(),
+      aggregate: vi.fn().mockResolvedValue({ _sum: { total: 0 }, _count: 0 }),
+    },
+    orderItem: {
       findUnique: vi.fn(),
       findMany: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
-      count: vi.fn(),
-    },
-    orderItem: {
-      findMany: vi.fn(),
-      create: vi.fn(),
+      delete: vi.fn(),
     },
     orderNote: {
       findMany: vi.fn(),
@@ -45,6 +42,7 @@ vi.mock('@server/config/database', () => ({
       create: vi.fn(),
       update: vi.fn(),
       count: vi.fn(),
+      aggregate: vi.fn().mockResolvedValue({ _sum: { total: 0 }, _count: 0 }),
     },
     product: {
       findUnique: vi.fn(),
@@ -56,16 +54,21 @@ vi.mock('@server/config/database', () => ({
     productVariant: {
       findMany: vi.fn(),
     },
+    productMaterial: {
+      findMany: vi.fn(),
+    },
     paymentDue: {
       findUnique: vi.fn(),
       findMany: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
       count: vi.fn(),
-      aggregate: vi.fn(),
+      aggregate: vi.fn().mockResolvedValue({ _sum: { amount: 0, paidAmount: 0 }, _count: 0 }),
+      groupBy: vi.fn().mockResolvedValue([]),
     },
     paymentDuePayment: {
       create: vi.fn(),
+      findMany: vi.fn(),
     },
     supplier: {
       findUnique: vi.fn(),
@@ -80,6 +83,7 @@ vi.mock('@server/config/database', () => ({
     },
     supplierVolumeDiscount: {
       create: vi.fn(),
+      findMany: vi.fn(),
     },
     purchaseOrder: {
       findUnique: vi.fn(),
@@ -87,11 +91,12 @@ vi.mock('@server/config/database', () => ({
       create: vi.fn(),
       update: vi.fn(),
       count: vi.fn(),
-      aggregate: vi.fn(),
+      aggregate: vi.fn().mockResolvedValue({ _sum: { total: 0 }, _count: 0 }),
     },
     purchaseOrderItem: {
       findMany: vi.fn(),
       update: vi.fn(),
+      create: vi.fn(),
     },
     goodsReceipt: {
       findUnique: vi.fn(),
@@ -103,50 +108,119 @@ vi.mock('@server/config/database', () => ({
     },
     goodsReceiptItem: {
       findMany: vi.fn(),
+      create: vi.fn(),
       update: vi.fn(),
     },
     productionOrder: {
       findUnique: vi.fn(),
+      findFirst: vi.fn(),
       findMany: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
       count: vi.fn(),
     },
-    inventoryItem: {
+    productionPhase: {
       findUnique: vi.fn(),
       findMany: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+    },
+    inventoryItem: {
+      findUnique: vi.fn(),
+      findFirst: vi.fn(),
+      findMany: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
       upsert: vi.fn(),
     },
     inventoryMovement: {
       create: vi.fn(),
       findMany: vi.fn(),
     },
+    material: {
+      findUnique: vi.fn(),
+      findMany: vi.fn(),
+      update: vi.fn(),
+    },
     materialInventory: {
+      findFirst: vi.fn(),
       findMany: vi.fn(),
       upsert: vi.fn(),
+      update: vi.fn(),
     },
     materialMovement: {
       create: vi.fn(),
     },
     warehouse: {
+      findUnique: vi.fn(),
       findFirst: vi.fn(),
       findMany: vi.fn(),
     },
     user: {
       findUnique: vi.fn(),
+      findFirst: vi.fn(),
+      findMany: vi.fn(),
+      count: vi.fn(),
+    },
+    invoice: {
+      findUnique: vi.fn(),
+      findMany: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      count: vi.fn(),
+    },
+    // SaaS models
+    tenant: {
+      findUnique: vi.fn(),
+      findMany: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      count: vi.fn(),
+    },
+    tenantMember: {
+      findUnique: vi.fn(),
+      findMany: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn(),
+      count: vi.fn(),
+    },
+    saasSubscription: {
+      findUnique: vi.fn(),
+      findMany: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+    },
+    subscriptionPlan: {
+      findUnique: vi.fn(),
       findMany: vi.fn(),
     },
-  },
+  };
+
+  // Add $transaction that passes the same mockPrisma to the callback
+  // This ensures that mocks set up in tests work inside transactions
+  mockPrisma.$transaction = vi.fn(async (callback: any) => {
+    return await callback(mockPrisma);
+  });
+
+  return { mockPrisma };
+});
+
+// Mock database with the hoisted mockPrisma
+vi.mock('@server/config/database', () => ({
+  prisma: mockPrisma,
 }));
 
-// Mock logger
+// Mock logger (with default export for ESM compatibility)
+const mockLogger = {
+  info: vi.fn(),
+  error: vi.fn(),
+  warn: vi.fn(),
+  debug: vi.fn(),
+};
 vi.mock('@server/config/logger', () => ({
-  logger: {
-    info: vi.fn(),
-    error: vi.fn(),
-    warn: vi.fn(),
-    debug: vi.fn(),
-  },
+  default: mockLogger,
+  logger: mockLogger,
 }));
 
 // Mock redis

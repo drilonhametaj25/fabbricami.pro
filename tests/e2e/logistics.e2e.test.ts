@@ -11,46 +11,53 @@ vi.mock('@server/config/database', async () => {
     prisma: {
       purchaseOrder: {
         findUnique: vi.fn(),
-        findMany: vi.fn(),
-        count: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
+        count: vi.fn().mockResolvedValue(0),
+        aggregate: vi.fn().mockResolvedValue({ _sum: { total: null } }),
       },
       purchaseOrderItem: {
-        findMany: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
       },
       order: {
         findUnique: vi.fn(),
-        findMany: vi.fn(),
-        count: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
+        count: vi.fn().mockResolvedValue(0),
       },
       orderItem: {
-        findMany: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
       },
       productionOrder: {
         findUnique: vi.fn(),
-        findMany: vi.fn(),
-        count: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
+        count: vi.fn().mockResolvedValue(0),
       },
       inventoryItem: {
         findUnique: vi.fn(),
-        findMany: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
       },
       materialInventory: {
-        findMany: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
       },
       product: {
         findUnique: vi.fn(),
-        findMany: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
       },
       material: {
         findUnique: vi.fn(),
-        findMany: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+      productMaterial: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+      materialMovement: {
+        groupBy: vi.fn().mockResolvedValue([]),
       },
       bom: {
-        findMany: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
       },
       warehouse: {
         findFirst: vi.fn(),
-        findMany: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
       },
     },
   };
@@ -63,6 +70,12 @@ vi.mock('@server/config/logger', () => ({
     warn: vi.fn(),
     debug: vi.fn(),
   },
+}));
+
+vi.mock('@server/utils/cache.util', () => ({
+  getCache: vi.fn().mockResolvedValue(null),
+  setCache: vi.fn().mockResolvedValue(undefined),
+  deleteCache: vi.fn().mockResolvedValue(undefined),
 }));
 
 // Import after mocks
@@ -79,71 +92,94 @@ const createDecimal = (value: number) => ({
 describe('Logistics API E2E', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Reset default mock implementations
+    vi.mocked(prisma.purchaseOrder.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.purchaseOrder.aggregate).mockResolvedValue({ _sum: { total: null } } as any);
+    vi.mocked(prisma.order.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.inventoryItem.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.productionOrder.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.productMaterial.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.materialMovement.groupBy).mockResolvedValue([]);
   });
 
   describe('Incoming Materials', () => {
     it('should return incoming materials pipeline', async () => {
-      const mockPOItems = [
+      const mockPurchaseOrders = [
         {
-          id: 'poi-1',
-          materialId: 'mat-1',
-          productId: null,
-          quantity: 100,
-          receivedQuantity: 30,
-          material: {
-            id: 'mat-1',
-            sku: 'MAT001',
-            name: 'Material A',
-          },
-          purchaseOrder: {
-            id: 'po-1',
-            orderNumber: 'PO-001',
-            expectedDate: new Date('2026-01-20'),
-            status: 'CONFIRMED',
-            supplier: { businessName: 'Supplier A' },
-          },
+          id: 'po-1',
+          orderNumber: 'PO-001',
+          supplierId: 'sup-1',
+          supplier: { id: 'sup-1', businessName: 'Supplier A', code: 'SUPA' },
+          estimatedDeliveryDate: new Date('2026-01-20'),
+          deliveryStatus: 'SHIPPED',
+          items: [
+            {
+              id: 'poi-1',
+              materialId: 'mat-1',
+              productId: null,
+              quantity: 100,
+              material: {
+                id: 'mat-1',
+                sku: 'MAT001',
+                name: 'Material A',
+              },
+              product: null,
+            },
+          ],
+          goodsReceipts: [
+            {
+              items: [
+                { purchaseOrderItemId: 'poi-1', receivedQuantity: 30 },
+              ],
+            },
+          ],
         },
         {
-          id: 'poi-2',
-          materialId: 'mat-2',
-          productId: null,
-          quantity: 200,
-          receivedQuantity: 0,
-          material: {
-            id: 'mat-2',
-            sku: 'MAT002',
-            name: 'Material B',
-          },
-          purchaseOrder: {
-            id: 'po-2',
-            orderNumber: 'PO-002',
-            expectedDate: new Date('2026-01-25'),
-            status: 'SENT',
-            supplier: { businessName: 'Supplier B' },
-          },
+          id: 'po-2',
+          orderNumber: 'PO-002',
+          supplierId: 'sup-2',
+          supplier: { id: 'sup-2', businessName: 'Supplier B', code: 'SUPB' },
+          estimatedDeliveryDate: new Date('2026-01-25'),
+          deliveryStatus: 'PENDING',
+          items: [
+            {
+              id: 'poi-2',
+              materialId: 'mat-2',
+              productId: null,
+              quantity: 200,
+              material: {
+                id: 'mat-2',
+                sku: 'MAT002',
+                name: 'Material B',
+              },
+              product: null,
+            },
+          ],
+          goodsReceipts: [],
         },
       ];
 
-      vi.mocked(prisma.purchaseOrderItem.findMany).mockResolvedValue(mockPOItems as any);
+      vi.mocked(prisma.purchaseOrder.findMany).mockResolvedValue(mockPurchaseOrders as any);
 
       const result = await logisticsPlanningService.getIncomingMaterials();
 
-      expect(Array.isArray(result)).toBe(true);
-      expect(result).toHaveLength(2);
-      expect(result[0]).toHaveProperty('materialId');
-      expect(result[0]).toHaveProperty('pendingQuantity');
-      expect(result[0].pendingQuantity).toBe(70); // 100 - 30
+      expect(result).toHaveProperty('incoming');
+      expect(result).toHaveProperty('summary');
+      expect(Array.isArray(result.incoming)).toBe(true);
+      expect(result.incoming).toHaveLength(2);
+      expect(result.incoming[0]).toHaveProperty('purchaseOrderId');
+      expect(result.incoming[0].items[0].pendingQty).toBe(70); // 100 - 30
     });
 
-    it('should filter by material ID', async () => {
-      vi.mocked(prisma.purchaseOrderItem.findMany).mockResolvedValue([]);
+    it('should filter by supplier when provided', async () => {
+      vi.mocked(prisma.purchaseOrder.findMany).mockResolvedValue([]);
 
-      await logisticsPlanningService.getIncomingMaterials('mat-1');
+      await logisticsPlanningService.getIncomingMaterials({ supplierId: 'sup-1' });
 
-      expect(vi.mocked(prisma.purchaseOrderItem.findMany)).toHaveBeenCalledWith(
+      expect(vi.mocked(prisma.purchaseOrder.findMany)).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            materialId: 'mat-1',
+            supplierId: 'sup-1',
           }),
         })
       );
@@ -157,11 +193,14 @@ describe('Logistics API E2E', () => {
           id: 'ord-1',
           orderNumber: 'ORD-001',
           status: 'CONFIRMED',
-          dueDate: new Date('2026-01-20'),
+          total: createDecimal(1500),
+          priority: 'HIGH',
+          createdAt: new Date(),
           items: [
             {
               productId: 'prod-1',
               quantity: 10,
+              productName: 'Product 1',
               product: { id: 'prod-1', sku: 'SKU001', name: 'Product 1' },
             },
           ],
@@ -172,21 +211,23 @@ describe('Logistics API E2E', () => {
       const mockInventory = [
         {
           productId: 'prod-1',
+          warehouseId: 'wh-1',
           quantity: 15,
-          warehouse: { code: 'MAIN' },
         },
       ];
 
       vi.mocked(prisma.order.findMany).mockResolvedValue(mockOrders as any);
       vi.mocked(prisma.inventoryItem.findMany).mockResolvedValue(mockInventory as any);
-      vi.mocked(prisma.purchaseOrderItem.findMany).mockResolvedValue([]);
+      vi.mocked(prisma.purchaseOrder.findMany).mockResolvedValue([]);
 
       const result = await logisticsPlanningService.getOrderFulfillmentForecast();
 
-      expect(Array.isArray(result)).toBe(true);
-      expect(result[0]).toHaveProperty('orderId');
-      expect(result[0]).toHaveProperty('fulfillmentStatus');
-      expect(['READY', 'PARTIAL', 'BLOCKED']).toContain(result[0].fulfillmentStatus);
+      expect(result).toHaveProperty('orders');
+      expect(result).toHaveProperty('summary');
+      expect(Array.isArray(result.orders)).toBe(true);
+      expect(result.orders[0]).toHaveProperty('orderId');
+      expect(result.orders[0]).toHaveProperty('fulfillmentStatus');
+      expect(['READY', 'PARTIAL', 'BLOCKED', 'WAITING_MATERIALS']).toContain(result.orders[0].fulfillmentStatus);
     });
 
     it('should show BLOCKED for orders with insufficient stock', async () => {
@@ -195,11 +236,14 @@ describe('Logistics API E2E', () => {
           id: 'ord-1',
           orderNumber: 'ORD-001',
           status: 'CONFIRMED',
-          dueDate: new Date('2026-01-20'),
+          total: createDecimal(1500),
+          priority: 'NORMAL',
+          createdAt: new Date(),
           items: [
             {
               productId: 'prod-1',
               quantity: 100, // Need 100
+              productName: 'Product 1',
               product: { id: 'prod-1', sku: 'SKU001', name: 'Product 1' },
             },
           ],
@@ -210,18 +254,18 @@ describe('Logistics API E2E', () => {
       const mockInventory = [
         {
           productId: 'prod-1',
+          warehouseId: 'wh-1',
           quantity: 10, // Only have 10
-          warehouse: { code: 'MAIN' },
         },
       ];
 
       vi.mocked(prisma.order.findMany).mockResolvedValue(mockOrders as any);
       vi.mocked(prisma.inventoryItem.findMany).mockResolvedValue(mockInventory as any);
-      vi.mocked(prisma.purchaseOrderItem.findMany).mockResolvedValue([]);
+      vi.mocked(prisma.purchaseOrder.findMany).mockResolvedValue([]);
 
       const result = await logisticsPlanningService.getOrderFulfillmentForecast();
 
-      expect(result[0].fulfillmentStatus).toBe('BLOCKED');
+      expect(result.orders[0].fulfillmentStatus).toBe('BLOCKED');
     });
   });
 
@@ -231,24 +275,30 @@ describe('Logistics API E2E', () => {
         {
           id: 'ord-1',
           orderNumber: 'ORD-001',
-          status: 'CONFIRMED',
-          items: [
-            { productId: 'prod-1', quantity: 5 },
-          ],
+          status: 'READY',
+          total: createDecimal(500),
+          priority: 'URGENT',
+          shippingAddress: '123 Main St',
+          shippingCity: 'Milan',
+          shippingPostalCode: '20100',
+          shippingCountry: 'IT',
+          shippingMethod: 'Express',
+          createdAt: new Date(),
           customer: { businessName: 'Customer A' },
+          items: [
+            { quantity: 5 },
+          ],
         },
       ];
 
-      const mockInventory = [
-        { productId: 'prod-1', quantity: 20 },
-      ];
-
       vi.mocked(prisma.order.findMany).mockResolvedValue(mockOrders as any);
-      vi.mocked(prisma.inventoryItem.findMany).mockResolvedValue(mockInventory as any);
 
       const result = await logisticsPlanningService.getReadyToShipOrders();
 
-      expect(Array.isArray(result)).toBe(true);
+      expect(result).toHaveProperty('orders');
+      expect(result).toHaveProperty('totalValue');
+      expect(result).toHaveProperty('totalOrders');
+      expect(Array.isArray(result.orders)).toBe(true);
     });
   });
 
@@ -260,37 +310,43 @@ describe('Logistics API E2E', () => {
           orderNumber: 'PROD-001',
           productId: 'prod-1',
           quantity: 10,
-          status: 'PENDING',
-          dueDate: new Date('2026-01-25'),
+          status: 'DRAFT',
+          priority: 'HIGH',
+          plannedStartDate: new Date('2026-01-20'),
+          plannedEndDate: new Date('2026-01-25'),
           product: {
             id: 'prod-1',
             sku: 'SKU001',
             name: 'Product 1',
-            bom: [
-              {
-                materialId: 'mat-1',
-                quantity: 2,
-                material: { id: 'mat-1', sku: 'MAT001', name: 'Material A' },
-              },
-            ],
           },
+          salesOrder: { id: 'ord-1', orderNumber: 'ORD-001' },
         },
       ];
 
-      const mockMaterialInventory = [
-        { materialId: 'mat-1', quantity: 50 },
+      const mockProductMaterials = [
+        {
+          productId: 'prod-1',
+          materialId: 'mat-1',
+          quantity: createDecimal(2),
+          material: { id: 'mat-1', sku: 'MAT001', name: 'Material A' },
+        },
+      ];
+
+      const mockMaterialStock = [
+        { materialId: 'mat-1', _sum: { quantity: 50 } },
       ];
 
       vi.mocked(prisma.productionOrder.findMany).mockResolvedValue(mockProductionOrders as any);
-      vi.mocked(prisma.materialInventory.findMany).mockResolvedValue(mockMaterialInventory as any);
-      vi.mocked(prisma.purchaseOrderItem.findMany).mockResolvedValue([]);
+      vi.mocked(prisma.productMaterial.findMany).mockResolvedValue(mockProductMaterials as any);
+      vi.mocked(prisma.materialMovement.groupBy).mockResolvedValue(mockMaterialStock as any);
 
       const result = await logisticsPlanningService.getProductionSchedule();
 
-      expect(Array.isArray(result)).toBe(true);
-      expect(result[0]).toHaveProperty('productionOrderId');
-      expect(result[0]).toHaveProperty('materialStatus');
-      expect(result[0].materialStatus).toHaveProperty('canStart');
+      expect(result).toHaveProperty('schedule');
+      expect(result).toHaveProperty('summary');
+      expect(Array.isArray(result.schedule)).toBe(true);
+      expect(result.schedule[0]).toHaveProperty('productionOrderId');
+      expect(result.schedule[0]).toHaveProperty('materialsReady');
     });
 
     it('should indicate missing materials', async () => {
@@ -301,34 +357,36 @@ describe('Logistics API E2E', () => {
           productId: 'prod-1',
           quantity: 10,
           status: 'PENDING',
-          dueDate: new Date('2026-01-25'),
+          plannedEndDate: new Date('2026-01-25'),
           product: {
             id: 'prod-1',
             sku: 'SKU001',
             name: 'Product 1',
-            bom: [
-              {
-                materialId: 'mat-1',
-                quantity: 10, // Need 10 per unit = 100 total
-                material: { id: 'mat-1', sku: 'MAT001', name: 'Material A' },
-              },
-            ],
           },
         },
       ];
 
-      const mockMaterialInventory = [
-        { materialId: 'mat-1', quantity: 20 }, // Only have 20
+      const mockProductMaterials = [
+        {
+          productId: 'prod-1',
+          materialId: 'mat-1',
+          quantity: createDecimal(10), // Need 10 per unit = 100 total
+          material: { id: 'mat-1', sku: 'MAT001', name: 'Material A' },
+        },
+      ];
+
+      const mockMaterialStock = [
+        { materialId: 'mat-1', _sum: { quantity: 20 } }, // Only have 20
       ];
 
       vi.mocked(prisma.productionOrder.findMany).mockResolvedValue(mockProductionOrders as any);
-      vi.mocked(prisma.materialInventory.findMany).mockResolvedValue(mockMaterialInventory as any);
-      vi.mocked(prisma.purchaseOrderItem.findMany).mockResolvedValue([]);
+      vi.mocked(prisma.productMaterial.findMany).mockResolvedValue(mockProductMaterials as any);
+      vi.mocked(prisma.materialMovement.groupBy).mockResolvedValue(mockMaterialStock as any);
 
       const result = await logisticsPlanningService.getProductionSchedule();
 
-      expect(result[0].materialStatus.canStart).toBe(false);
-      expect(result[0].materialStatus.missingMaterials).toHaveLength(1);
+      expect(result.schedule[0].materialsReady).toBe(false);
+      expect(result.schedule[0].missingMaterials).toHaveLength(1);
     });
   });
 
@@ -338,40 +396,42 @@ describe('Logistics API E2E', () => {
         id: 'mat-1',
         sku: 'MAT001',
         name: 'Material A',
+        unit: 'pz',
         minStock: 10,
         reorderPoint: 20,
+        inventoryItems: [
+          { quantity: 100 },
+        ],
       };
 
-      const mockInventory = [
-        { materialId: 'mat-1', quantity: 100, warehouse: { code: 'MAIN' } },
-      ];
-
-      const mockIncoming = [
-        {
-          materialId: 'mat-1',
-          quantity: 50,
-          receivedQuantity: 0,
-          purchaseOrder: {
-            expectedDate: new Date('2026-01-20'),
-            status: 'CONFIRMED',
-          },
-        },
-      ];
+      const mockIncomingPO = {
+        id: 'po-1',
+        orderNumber: 'PO-001',
+        estimatedDeliveryDate: new Date('2026-01-20'),
+        items: [
+          { materialId: 'mat-1', quantity: 50 },
+        ],
+        goodsReceipts: [],
+      };
 
       const mockProductionOrders = [
         {
           id: 'prod-1',
-          dueDate: new Date('2026-01-25'),
+          orderNumber: 'PROD-001',
+          plannedStartDate: new Date('2026-01-25'),
+          plannedEndDate: new Date('2026-01-30'),
           quantity: 10,
           product: {
-            bom: [{ materialId: 'mat-1', quantity: 5 }],
+            name: 'Test Product',
+            productMaterials: [
+              { materialId: 'mat-1', quantity: createDecimal(5) },
+            ],
           },
         },
       ];
 
       vi.mocked(prisma.material.findUnique).mockResolvedValue(mockMaterial as any);
-      vi.mocked(prisma.materialInventory.findMany).mockResolvedValue(mockInventory as any);
-      vi.mocked(prisma.purchaseOrderItem.findMany).mockResolvedValue(mockIncoming as any);
+      vi.mocked(prisma.purchaseOrder.findMany).mockResolvedValue([mockIncomingPO] as any);
       vi.mocked(prisma.productionOrder.findMany).mockResolvedValue(mockProductionOrders as any);
 
       const result = await logisticsPlanningService.getMaterialTimeline('mat-1', 30);
@@ -380,28 +440,31 @@ describe('Logistics API E2E', () => {
       expect(result).toHaveProperty('currentStock');
       expect(result).toHaveProperty('timeline');
       expect(Array.isArray(result.timeline)).toBe(true);
+      expect(result.currentStock).toBe(100);
     });
   });
 
   describe('Logistics Dashboard', () => {
     it('should return complete dashboard KPIs', async () => {
-      vi.mocked(prisma.purchaseOrder.count).mockResolvedValue(5);
-      vi.mocked(prisma.order.count).mockResolvedValue(10);
-      vi.mocked(prisma.productionOrder.count).mockResolvedValue(3);
-
-      vi.mocked(prisma.purchaseOrderItem.findMany).mockResolvedValue([]);
+      vi.mocked(prisma.purchaseOrder.findMany).mockResolvedValue([]);
+      vi.mocked(prisma.purchaseOrder.aggregate).mockResolvedValue({
+        _sum: { total: createDecimal(50000) },
+      } as any);
       vi.mocked(prisma.order.findMany).mockResolvedValue([]);
-      vi.mocked(prisma.productionOrder.findMany).mockResolvedValue([]);
       vi.mocked(prisma.inventoryItem.findMany).mockResolvedValue([]);
-      vi.mocked(prisma.materialInventory.findMany).mockResolvedValue([]);
+      vi.mocked(prisma.productionOrder.findMany).mockResolvedValue([]);
+      vi.mocked(prisma.productMaterial.findMany).mockResolvedValue([]);
+      vi.mocked(prisma.materialMovement.groupBy).mockResolvedValue([]);
 
       const result = await logisticsPlanningService.getLogisticsDashboard();
 
-      expect(result).toHaveProperty('kpis');
-      expect(result.kpis).toHaveProperty('pendingPurchaseOrders');
-      expect(result.kpis).toHaveProperty('ordersReadyToShip');
-      expect(result.kpis).toHaveProperty('productionInProgress');
+      expect(result).toHaveProperty('incoming');
+      expect(result).toHaveProperty('fulfillment');
+      expect(result).toHaveProperty('production');
       expect(result).toHaveProperty('alerts');
+      expect(result.incoming).toHaveProperty('totalOrders');
+      expect(result.fulfillment).toHaveProperty('readyToShip');
+      expect(result.production).toHaveProperty('activeOrders');
       expect(Array.isArray(result.alerts)).toBe(true);
     });
   });

@@ -5,6 +5,50 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// Create hoisted mocks to ensure they're available at mock time
+const createMockTransactionClient = vi.hoisted(() => () => ({
+  goodsReceipt: {
+    create: vi.fn().mockResolvedValue({ id: 'gr-1', receiptNumber: 'EM-2026-000001' }),
+    update: vi.fn().mockResolvedValue({ id: 'gr-1', status: 'COMPLETED' }),
+    findUnique: vi.fn().mockResolvedValue(null),
+    findFirst: vi.fn().mockResolvedValue(null),
+  },
+  goodsReceiptItem: {
+    update: vi.fn().mockResolvedValue({}),
+    findMany: vi.fn().mockResolvedValue([]),
+    create: vi.fn().mockResolvedValue({}),
+  },
+  purchaseOrderItem: {
+    update: vi.fn().mockResolvedValue({}),
+    findMany: vi.fn().mockResolvedValue([]),
+  },
+  purchaseOrder: {
+    update: vi.fn().mockResolvedValue({}),
+    findUnique: vi.fn().mockResolvedValue(null),
+  },
+  inventoryItem: {
+    findFirst: vi.fn().mockResolvedValue(null),
+    create: vi.fn().mockResolvedValue({}),
+    update: vi.fn().mockResolvedValue({}),
+    upsert: vi.fn().mockResolvedValue({}),
+  },
+  inventoryMovement: {
+    create: vi.fn().mockResolvedValue({}),
+  },
+  materialInventory: {
+    findFirst: vi.fn().mockResolvedValue(null),
+    create: vi.fn().mockResolvedValue({}),
+    update: vi.fn().mockResolvedValue({}),
+    upsert: vi.fn().mockResolvedValue({}),
+  },
+  materialMovement: {
+    create: vi.fn().mockResolvedValue({}),
+  },
+  supplier: {
+    update: vi.fn().mockResolvedValue({}),
+  },
+}));
+
 // Mock modules before imports
 vi.mock('@server/config/database', async () => {
   return {
@@ -31,12 +75,18 @@ vi.mock('@server/config/database', async () => {
         update: vi.fn(),
       },
       inventoryItem: {
+        findFirst: vi.fn(),
+        create: vi.fn(),
+        update: vi.fn(),
         upsert: vi.fn(),
       },
       inventoryMovement: {
         create: vi.fn(),
       },
       materialInventory: {
+        findFirst: vi.fn(),
+        create: vi.fn(),
+        update: vi.fn(),
         upsert: vi.fn(),
       },
       materialMovement: {
@@ -45,38 +95,7 @@ vi.mock('@server/config/database', async () => {
       supplier: {
         update: vi.fn(),
       },
-      $transaction: vi.fn((callback: any) => callback({
-        goodsReceipt: {
-          create: vi.fn().mockResolvedValue({ id: 'gr-1', receiptNumber: 'EM-2026-000001' }),
-          update: vi.fn().mockResolvedValue({ id: 'gr-1', status: 'COMPLETED' }),
-        },
-        goodsReceiptItem: {
-          update: vi.fn().mockResolvedValue({}),
-          findMany: vi.fn().mockResolvedValue([]),
-        },
-        purchaseOrderItem: {
-          update: vi.fn().mockResolvedValue({}),
-          findMany: vi.fn().mockResolvedValue([]),
-        },
-        purchaseOrder: {
-          update: vi.fn().mockResolvedValue({}),
-        },
-        inventoryItem: {
-          upsert: vi.fn().mockResolvedValue({}),
-        },
-        inventoryMovement: {
-          create: vi.fn().mockResolvedValue({}),
-        },
-        materialInventory: {
-          upsert: vi.fn().mockResolvedValue({}),
-        },
-        materialMovement: {
-          create: vi.fn().mockResolvedValue({}),
-        },
-        supplier: {
-          update: vi.fn().mockResolvedValue({}),
-        },
-      })),
+      $transaction: vi.fn((callback: any) => callback(createMockTransactionClient())),
     },
   };
 });
