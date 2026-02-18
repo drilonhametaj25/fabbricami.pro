@@ -145,7 +145,7 @@ function handleDashboardUpdate(data: any) {
  * Inizializza WebSocket routes
  */
 export function initWebSocket(server: FastifyInstance) {
-  server.get('/ws', { websocket: true }, (socket: SocketConnection, request: FastifyRequest) => {
+  (server.get as any)('/ws', { websocket: true }, (socket: SocketConnection, request: FastifyRequest): void => {
     const clientId = Math.random().toString(36).substring(7);
     const userId = (request as FastifyRequest & { user?: { id: string } }).user?.id || 'anonymous';
 

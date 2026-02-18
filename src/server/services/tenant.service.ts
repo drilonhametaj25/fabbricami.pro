@@ -36,7 +36,7 @@ export interface CreateTenantData {
 
 export interface UpdateTenantData {
   name?: string;
-  domain?: string;
+  domain?: string | null;
   settings?: Record<string, unknown>;
   status?: TenantStatus;
 }
@@ -85,7 +85,7 @@ class TenantService {
         name: data.name,
         slug: this.sanitizeSlug(data.slug),
         domain: data.domain || null,
-        settings: data.settings || {},
+        settings: (data.settings || {}) as any,
         status: 'ACTIVE',
       },
     });
@@ -177,7 +177,7 @@ class TenantService {
       data: {
         ...(data.name && { name: data.name }),
         ...(data.domain !== undefined && { domain: data.domain || null }),
-        ...(data.settings && { settings: data.settings }),
+        ...(data.settings && { settings: data.settings as any }),
         ...(data.status && { status: data.status }),
       },
     });

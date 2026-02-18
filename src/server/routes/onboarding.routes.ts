@@ -107,15 +107,6 @@ const onboardingRoutes: FastifyPluginAsync = async (server) => {
         const tenantRequest = request as TenantRequest;
         const body = companySettingsSchema.body.parse(request.body);
 
-        // Build address object
-        const address = {
-          street: body.street,
-          city: body.city,
-          province: body.province,
-          postalCode: body.postalCode,
-          country: body.country,
-        };
-
         // Check if settings already exist
         const existing = await prisma.companySettings.findFirst({
           where: { tenantId: tenantRequest.tenant.tenantId },
@@ -132,15 +123,19 @@ const onboardingRoutes: FastifyPluginAsync = async (server) => {
               legalName: body.legalName,
               vatNumber: body.vatNumber,
               fiscalCode: body.fiscalCode,
-              address,
+              address: body.street,
+              city: body.city,
+              province: body.province,
+              postalCode: body.postalCode,
+              country: body.country,
               phone: body.phone,
               email: body.email,
               pec: body.pec,
               sdiCode: body.sdiCode,
               bankName: body.bankName,
               iban: body.iban,
-              swift: body.swift,
-              logo: body.logo,
+              bic: body.swift,
+              logoUrl: body.logo,
             },
           });
         } else {
@@ -152,15 +147,19 @@ const onboardingRoutes: FastifyPluginAsync = async (server) => {
               legalName: body.legalName,
               vatNumber: body.vatNumber,
               fiscalCode: body.fiscalCode,
-              address,
+              address: body.street,
+              city: body.city,
+              province: body.province,
+              postalCode: body.postalCode,
+              country: body.country,
               phone: body.phone,
-              email: body.email,
+              email: body.email || body.companyName + '@example.com',
               pec: body.pec,
               sdiCode: body.sdiCode,
               bankName: body.bankName,
               iban: body.iban,
-              swift: body.swift,
-              logo: body.logo,
+              bic: body.swift,
+              logoUrl: body.logo,
             },
           });
         }
@@ -233,11 +232,11 @@ const onboardingRoutes: FastifyPluginAsync = async (server) => {
         // Build address object if provided
         const address = body.street ? {
           street: body.street,
-          city: body.city,
-          province: body.province,
-          postalCode: body.postalCode,
-          country: body.country,
-        } : null;
+          city: body.city || '',
+          province: body.province || '',
+          postalCode: body.postalCode || '',
+          country: body.country || 'IT',
+        } : undefined;
 
         // Create warehouse
         const warehouse = await prisma.warehouse.create({
@@ -245,9 +244,9 @@ const onboardingRoutes: FastifyPluginAsync = async (server) => {
             tenantId: tenantRequest.tenant.tenantId,
             name: body.name,
             code: body.code.toUpperCase(),
-            type: body.type,
             address,
             isActive: true,
+            isPrimary: true,
           },
         });
 
@@ -287,8 +286,8 @@ const onboardingRoutes: FastifyPluginAsync = async (server) => {
             tenantId: tenantRequest.tenant.tenantId,
             name: 'Magazzino Principale',
             code: 'MAIN',
-            type: 'MAIN',
             isActive: true,
+            isPrimary: true,
           },
         });
       }
