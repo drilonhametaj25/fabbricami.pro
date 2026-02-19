@@ -59,22 +59,22 @@ const tools = [
 
 const colorClasses = {
   blue: {
-    bg: 'bg-blue-100',
-    text: 'text-blue-600',
-    border: 'border-blue-200',
-    hover: 'hover:border-blue-400',
+    bg: 'bg-emerald-100',
+    text: 'text-emerald-600',
+    border: 'border-emerald-200',
+    hover: 'hover:border-emerald-400',
   },
   green: {
-    bg: 'bg-green-100',
-    text: 'text-green-600',
-    border: 'border-green-200',
-    hover: 'hover:border-green-400',
+    bg: 'bg-teal-100',
+    text: 'text-teal-600',
+    border: 'border-teal-200',
+    hover: 'hover:border-teal-400',
   },
   purple: {
-    bg: 'bg-purple-100',
-    text: 'text-purple-600',
-    border: 'border-purple-200',
-    hover: 'hover:border-purple-400',
+    bg: 'bg-emerald-100',
+    text: 'text-emerald-700',
+    border: 'border-emerald-200',
+    hover: 'hover:border-emerald-400',
   },
 };
 
@@ -82,16 +82,20 @@ export default function ToolsPage() {
   return (
     <>
       {/* Hero */}
-      <section className="pt-32 pb-16 bg-gradient-to-b from-gray-50 to-white">
-        <div className="container mx-auto px-4 lg:px-8">
+      <section className="pt-32 pb-16 bg-gradient-to-br from-gray-900 via-emerald-900 to-teal-900 relative overflow-hidden">
+        <div className="absolute inset-0 overflow-hidden">
+          <div className="absolute -top-40 -right-40 w-80 h-80 bg-emerald-500/20 rounded-full blur-3xl" />
+          <div className="absolute bottom-0 left-1/4 w-60 h-60 bg-teal-500/20 rounded-full blur-3xl" />
+        </div>
+        <div className="container mx-auto px-4 lg:px-8 relative z-10">
           <div className="text-center max-w-3xl mx-auto">
-            <span className="inline-block px-4 py-1.5 text-sm font-medium text-blue-600 bg-blue-50 rounded-full mb-4">
+            <span className="inline-block px-4 py-1.5 text-sm font-medium text-emerald-400 bg-emerald-500/20 rounded-full mb-4 border border-emerald-500/30">
               100% Gratuiti
             </span>
-            <h1 className="text-4xl sm:text-5xl font-bold text-gray-900 mb-6">
+            <h1 className="text-4xl sm:text-5xl font-bold text-white mb-6">
               Strumenti gratuiti per il tuo e-commerce
             </h1>
-            <p className="text-lg text-gray-600">
+            <p className="text-lg text-white/70">
               Mini-tools utili per ottimizzare il tuo business. Nessuna registrazione richiesta,
               nessun limite di utilizzo.
             </p>
@@ -172,7 +176,7 @@ export default function ToolsPage() {
             <div className="flex flex-wrap items-center justify-center gap-4">
               <Link
                 href="/auth/register"
-                className="px-8 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors"
+                className="px-8 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-semibold rounded-xl hover:from-emerald-700 hover:to-teal-700 transition-colors"
               >
                 Prova Gratis 14 Giorni
               </Link>

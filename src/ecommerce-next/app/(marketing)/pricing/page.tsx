@@ -17,16 +17,20 @@ export default function PricingPage() {
   return (
     <>
       {/* Hero Section */}
-      <section className="pt-32 pb-16 bg-gradient-to-b from-gray-50 to-white">
-        <div className="container mx-auto px-4 lg:px-8">
+      <section className="pt-32 pb-16 bg-gradient-to-br from-gray-900 via-emerald-900 to-teal-900 relative overflow-hidden">
+        <div className="absolute inset-0 overflow-hidden">
+          <div className="absolute -top-40 -right-40 w-80 h-80 bg-emerald-500/20 rounded-full blur-3xl" />
+          <div className="absolute bottom-0 left-1/4 w-60 h-60 bg-teal-500/20 rounded-full blur-3xl" />
+        </div>
+        <div className="container mx-auto px-4 lg:px-8 relative z-10">
           <div className="text-center max-w-3xl mx-auto">
-            <span className="inline-block px-4 py-1.5 text-sm font-medium text-emerald-600 bg-emerald-50 rounded-full mb-4">
+            <span className="inline-block px-4 py-1.5 text-sm font-medium text-emerald-400 bg-emerald-500/20 rounded-full mb-4 border border-emerald-500/30">
               Prezzi Semplici e Trasparenti
             </span>
-            <h1 className="text-4xl sm:text-5xl font-bold text-gray-900 mb-6">
+            <h1 className="text-4xl sm:text-5xl font-bold text-white mb-6">
               Un piano per ogni fase della tua crescita
             </h1>
-            <p className="text-lg text-gray-600">
+            <p className="text-lg text-white/70">
               Nessun costo nascosto. Nessun setup fee. Cambia piano quando vuoi.
               Inizia con 14 giorni di prova gratuita.
             </p>
