@@ -10,8 +10,8 @@ WORKDIR /app
 # Copy package files from ecommerce-next directory
 COPY src/ecommerce-next/package*.json ./
 
-# Install dependencies
-RUN npm ci --only=production
+# Install ALL dependencies (including dev for build)
+RUN npm ci
 
 # ===========================================
 # STAGE 2: Builder
@@ -22,7 +22,7 @@ WORKDIR /app
 # Copy deps from previous stage
 COPY --from=deps /app/node_modules ./node_modules
 
-# Copy source
+# Copy all source and config files
 COPY src/ecommerce-next/ ./
 
 # Build arguments
