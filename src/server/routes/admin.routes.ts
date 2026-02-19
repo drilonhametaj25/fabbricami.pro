@@ -101,104 +101,105 @@ const setTenantStatusSchema = {
 
 export default async function adminRoutes(fastify: FastifyInstance) {
   // ==========================================
-  // AUTH ROUTES (No auth required)
+  // PUBLIC AUTH ROUTES (No auth required)
   // ==========================================
+  await fastify.register(async function publicRoutes(publicFastify) {
+    /**
+     * POST /admin/auth/login
+     * Login super admin
+     */
+    publicFastify.post('/auth/login', async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const parsed = loginSchema.body.safeParse(request.body);
+        if (!parsed.success) {
+          return errorResponse(reply, 'Invalid input', 400);
+        }
 
-  /**
-   * POST /admin/auth/login
-   * Login super admin
-   */
-  fastify.post('/auth/login', async (request: FastifyRequest, reply: FastifyReply) => {
-    try {
-      const parsed = loginSchema.body.safeParse(request.body);
-      if (!parsed.success) {
-        return errorResponse(reply, 'Invalid input', 400);
+        const { email, password } = parsed.data;
+        const superAdmin = await adminService.authenticateSuperAdmin(email, password);
+
+        if (!superAdmin) {
+          return errorResponse(reply, 'Invalid credentials', 401);
+        }
+
+        const tokens = generateSuperAdminToken(superAdmin);
+        await adminService.updateSuperAdminRefreshToken(superAdmin.id, tokens.refreshToken);
+
+        await logSuperAdminAction(superAdmin.id, 'LOGIN', {
+          ipAddress: getClientIp(request),
+          userAgent: getUserAgent(request),
+        });
+
+        return successResponse(reply, {
+          superAdmin: {
+            id: superAdmin.id,
+            email: superAdmin.email,
+            name: superAdmin.name,
+          },
+          tokens,
+        });
+      } catch (error: any) {
+        return errorResponse(reply, error.message, 500);
       }
+    });
 
-      const { email, password } = parsed.data;
-      const superAdmin = await adminService.authenticateSuperAdmin(email, password);
+    /**
+     * POST /admin/auth/setup
+     * Create first super admin (only works if none exist)
+     */
+    publicFastify.post('/auth/setup', async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        // Check if any super admin exists
+        const existingCount = await prisma.superAdmin.count();
+        if (existingCount > 0) {
+          return errorResponse(reply, 'Super admin already exists. Use login instead.', 400);
+        }
 
-      if (!superAdmin) {
-        return errorResponse(reply, 'Invalid credentials', 401);
+        const body = request.body as { email: string; password: string; name: string };
+        if (!body.email || !body.password || !body.name) {
+          return errorResponse(reply, 'Email, password, and name are required', 400);
+        }
+
+        if (body.password.length < 8) {
+          return errorResponse(reply, 'Password must be at least 8 characters', 400);
+        }
+
+        const superAdmin = await adminService.createSuperAdmin(
+          body.email,
+          body.password,
+          body.name
+        );
+
+        const tokens = generateSuperAdminToken(superAdmin);
+        await adminService.updateSuperAdminRefreshToken(superAdmin.id, tokens.refreshToken);
+
+        return successResponse(reply, {
+          message: 'Super admin created successfully',
+          superAdmin: {
+            id: superAdmin.id,
+            email: superAdmin.email,
+            name: superAdmin.name,
+          },
+          tokens,
+        }, 201);
+      } catch (error: any) {
+        return errorResponse(reply, error.message, 500);
       }
-
-      const tokens = generateSuperAdminToken(superAdmin);
-      await adminService.updateSuperAdminRefreshToken(superAdmin.id, tokens.refreshToken);
-
-      await logSuperAdminAction(superAdmin.id, 'LOGIN', {
-        ipAddress: getClientIp(request),
-        userAgent: getUserAgent(request),
-      });
-
-      return successResponse(reply, {
-        superAdmin: {
-          id: superAdmin.id,
-          email: superAdmin.email,
-          name: superAdmin.name,
-        },
-        tokens,
-      });
-    } catch (error: any) {
-      return errorResponse(reply, error.message, 500);
-    }
-  });
-
-  /**
-   * POST /admin/auth/setup
-   * Create first super admin (only works if none exist)
-   */
-  fastify.post('/auth/setup', async (request: FastifyRequest, reply: FastifyReply) => {
-    try {
-      // Check if any super admin exists
-      const existingCount = await prisma.superAdmin.count();
-      if (existingCount > 0) {
-        return errorResponse(reply, 'Super admin already exists. Use login instead.', 400);
-      }
-
-      const body = request.body as { email: string; password: string; name: string };
-      if (!body.email || !body.password || !body.name) {
-        return errorResponse(reply, 'Email, password, and name are required', 400);
-      }
-
-      if (body.password.length < 8) {
-        return errorResponse(reply, 'Password must be at least 8 characters', 400);
-      }
-
-      const superAdmin = await adminService.createSuperAdmin(
-        body.email,
-        body.password,
-        body.name
-      );
-
-      const tokens = generateSuperAdminToken(superAdmin);
-      await adminService.updateSuperAdminRefreshToken(superAdmin.id, tokens.refreshToken);
-
-      return successResponse(reply, {
-        message: 'Super admin created successfully',
-        superAdmin: {
-          id: superAdmin.id,
-          email: superAdmin.email,
-          name: superAdmin.name,
-        },
-        tokens,
-      }, 201);
-    } catch (error: any) {
-      return errorResponse(reply, error.message, 500);
-    }
+    });
   });
 
   // ==========================================
   // PROTECTED ROUTES (Require super admin auth)
   // ==========================================
+  await fastify.register(async function protectedRoutes(protectedFastify) {
+    // Apply authentication to all routes in this plugin
+    protectedFastify.addHook('preHandler', authenticateSuperAdmin);
 
-  // Apply authentication to all subsequent routes
-  fastify.addHook('preHandler', authenticateSuperAdmin);
-
-  /**
-   * GET /admin/dashboard
-   * Get dashboard metrics
-   */
-  fastify.get('/dashboard', async (_request: FastifyRequest, reply: FastifyReply) => {
+    /**
+     * GET /admin/dashboard
+     * Get dashboard metrics
+     */
+    protectedFastify.get('/dashboard', async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
       const metrics = await adminService.getDashboardMetrics();
       return successResponse(reply, metrics);
@@ -215,7 +216,7 @@ export default async function adminRoutes(fastify: FastifyInstance) {
    * GET /admin/plans
    * List all subscription plans
    */
-  fastify.get('/plans', async (_request: FastifyRequest, reply: FastifyReply) => {
+    protectedFastify.get('/plans', async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
       const plans = await adminService.listPlans();
       return successResponse(reply, { items: plans });
@@ -228,7 +229,7 @@ export default async function adminRoutes(fastify: FastifyInstance) {
    * GET /admin/plans/:id
    * Get a single plan
    */
-  fastify.get('/plans/:id', async (request: FastifyRequest, reply: FastifyReply) => {
+    protectedFastify.get('/plans/:id', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const { id } = request.params as { id: string };
       const plan = await adminService.getPlan(id);
@@ -247,7 +248,7 @@ export default async function adminRoutes(fastify: FastifyInstance) {
    * POST /admin/plans
    * Create a new plan
    */
-  fastify.post('/plans', async (request: FastifyRequest, reply: FastifyReply) => {
+    protectedFastify.post('/plans', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const parsed = createPlanSchema.body.safeParse(request.body);
       if (!parsed.success) {
@@ -275,7 +276,7 @@ export default async function adminRoutes(fastify: FastifyInstance) {
    * PUT /admin/plans/:id
    * Update a plan
    */
-  fastify.put('/plans/:id', async (request: FastifyRequest, reply: FastifyReply) => {
+    protectedFastify.put('/plans/:id', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const { id } = request.params as { id: string };
       const parsed = updatePlanSchema.body.safeParse(request.body);
@@ -304,7 +305,7 @@ export default async function adminRoutes(fastify: FastifyInstance) {
    * DELETE /admin/plans/:id
    * Delete a plan
    */
-  fastify.delete('/plans/:id', async (request: FastifyRequest, reply: FastifyReply) => {
+    protectedFastify.delete('/plans/:id', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const { id } = request.params as { id: string };
       const result = await adminService.deletePlan(id);
@@ -331,7 +332,7 @@ export default async function adminRoutes(fastify: FastifyInstance) {
    * POST /admin/plans/:id/sync-stripe
    * Sync plan to Stripe
    */
-  fastify.post('/plans/:id/sync-stripe', async (request: FastifyRequest, reply: FastifyReply) => {
+    protectedFastify.post('/plans/:id/sync-stripe', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const { id } = request.params as { id: string };
       const result = await adminService.syncPlanToStripe(id);
@@ -363,7 +364,7 @@ export default async function adminRoutes(fastify: FastifyInstance) {
    * GET /admin/tenants
    * List tenants with filters
    */
-  fastify.get('/tenants', async (request: FastifyRequest, reply: FastifyReply) => {
+    protectedFastify.get('/tenants', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const query = request.query as Record<string, string>;
       const filters = {
@@ -386,7 +387,7 @@ export default async function adminRoutes(fastify: FastifyInstance) {
    * GET /admin/tenants/:id
    * Get tenant details
    */
-  fastify.get('/tenants/:id', async (request: FastifyRequest, reply: FastifyReply) => {
+    protectedFastify.get('/tenants/:id', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const { id } = request.params as { id: string };
       const tenant = await adminService.getTenantDetails(id);
@@ -405,7 +406,7 @@ export default async function adminRoutes(fastify: FastifyInstance) {
    * POST /admin/tenants/:id/extend-trial
    * Extend trial for a tenant
    */
-  fastify.post('/tenants/:id/extend-trial', async (request: FastifyRequest, reply: FastifyReply) => {
+    protectedFastify.post('/tenants/:id/extend-trial', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const { id } = request.params as { id: string };
       const parsed = extendTrialSchema.body.safeParse(request.body);
@@ -438,7 +439,7 @@ export default async function adminRoutes(fastify: FastifyInstance) {
    * POST /admin/tenants/:id/change-plan
    * Change tenant's subscription plan
    */
-  fastify.post('/tenants/:id/change-plan', async (request: FastifyRequest, reply: FastifyReply) => {
+    protectedFastify.post('/tenants/:id/change-plan', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const { id } = request.params as { id: string };
       const parsed = changePlanSchema.body.safeParse(request.body);
@@ -471,7 +472,7 @@ export default async function adminRoutes(fastify: FastifyInstance) {
    * POST /admin/tenants/:id/status
    * Suspend or reactivate tenant
    */
-  fastify.post('/tenants/:id/status', async (request: FastifyRequest, reply: FastifyReply) => {
+    protectedFastify.post('/tenants/:id/status', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const { id } = request.params as { id: string };
       const parsed = setTenantStatusSchema.body.safeParse(request.body);
@@ -508,7 +509,7 @@ export default async function adminRoutes(fastify: FastifyInstance) {
    * GET /admin/stripe/status
    * Get Stripe connection status
    */
-  fastify.get('/stripe/status', async (_request: FastifyRequest, reply: FastifyReply) => {
+    protectedFastify.get('/stripe/status', async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
       const status = await adminService.getStripeStatus();
       return successResponse(reply, status);
@@ -521,7 +522,7 @@ export default async function adminRoutes(fastify: FastifyInstance) {
    * GET /admin/stripe/webhooks
    * Get recent webhook activity
    */
-  fastify.get('/stripe/webhooks', async (request: FastifyRequest, reply: FastifyReply) => {
+    protectedFastify.get('/stripe/webhooks', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const query = request.query as { limit?: string };
       const limit = query.limit ? parseInt(query.limit, 10) : 50;
@@ -540,7 +541,7 @@ export default async function adminRoutes(fastify: FastifyInstance) {
    * GET /admin/audit-logs
    * Get admin audit logs
    */
-  fastify.get('/audit-logs', async (request: FastifyRequest, reply: FastifyReply) => {
+    protectedFastify.get('/audit-logs', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const query = request.query as { limit?: string; page?: string };
       const limit = query.limit ? parseInt(query.limit, 10) : 50;
@@ -571,4 +572,5 @@ export default async function adminRoutes(fastify: FastifyInstance) {
       return errorResponse(reply, error.message, 500);
     }
   });
+  }); // End of protectedRoutes register
 }
