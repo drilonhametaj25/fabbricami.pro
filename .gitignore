@@ -10,6 +10,8 @@ coverage/
 # Production
 dist/
 build/
+.next/
+out/
 
 # Environment
 .env
@@ -26,6 +28,7 @@ build/
 # OS
 .DS_Store
 Thumbs.db
+nul
 
 # Prisma
 prisma/migrations/*_migration.sql
