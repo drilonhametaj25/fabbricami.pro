@@ -32,6 +32,7 @@
     "prisma:seed:demo": "tsx prisma/seed-demo.ts",
     "prisma:seed:docker": "docker-compose exec backend npm run prisma:seed",
     "prisma:seed:demo:docker": "docker-compose exec backend npm run prisma:seed:demo",
+    "prisma:seed:plans": "tsx prisma/seed-plans.ts",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
     "docker:build": "docker-compose build",
@@ -43,7 +44,9 @@
     "shop:dev": "cd src/ecommerce-next && npm run dev",
     "shop:build": "cd src/ecommerce-next && npm run build",
     "shop:install": "cd src/ecommerce-next && npm install",
-    "dev:all": "concurrently \"npm run dev:server\" \"npm run dev:client\" \"npm run shop:dev\""
+    "admin:dev": "vite --config vite.config.admin.ts",
+    "admin:build": "vite build --config vite.config.admin.ts",
+    "dev:all": "concurrently \"npm run dev:server\" \"npm run dev:client\" \"npm run shop:dev\" \"npm run admin:dev\""
   },
   "keywords": [
     "erp",

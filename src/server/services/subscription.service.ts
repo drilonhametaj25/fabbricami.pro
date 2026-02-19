@@ -1,6 +1,7 @@
 import { prisma } from '../config/database';
 import { SaasSubscriptionStatus } from '@prisma/client';
 import Stripe from 'stripe';
+import { emailService } from './email.service';
 
 // ============================================
 // STRIPE CONFIGURATION
@@ -628,8 +629,36 @@ class SubscriptionService {
 
       case 'customer.subscription.trial_will_end': {
         const subscription = event.data.object as Stripe.Subscription;
-        // TODO: Inviare email di avviso fine trial
-        console.log(`Trial ending soon for subscription ${subscription.id}`);
+        const tenantId = subscription.metadata.tenantId;
+        if (tenantId) {
+          // Trova tenant e owner per inviare email
+          const tenant = await prisma.tenant.findUnique({
+            where: { id: tenantId },
+            include: {
+              members: {
+                where: { role: 'ADMIN' },
+                include: { user: true },
+                take: 1,
+              },
+            },
+          });
+
+          if (tenant && tenant.members[0]?.user) {
+            const owner = tenant.members[0].user;
+            const trialEnd = subscription.trial_end;
+            const daysRemaining = trialEnd
+              ? Math.ceil((trialEnd * 1000 - Date.now()) / (1000 * 60 * 60 * 24))
+              : 3;
+
+            await emailService.sendTrialEndingSoonEmail(
+              owner.email,
+              owner.firstName || owner.email.split('@')[0],
+              tenant.name,
+              Math.max(daysRemaining, 1)
+            );
+            console.log(`Trial ending email sent to ${owner.email} for tenant ${tenant.name}`);
+          }
+        }
         break;
       }
 
@@ -643,16 +672,39 @@ class SubscriptionService {
         const invoice = event.data.object as Stripe.Invoice;
         await this.recordBillingHistory(invoice, 'failed');
 
-        // Aggiorna status a PAST_DUE
+        // Aggiorna status a PAST_DUE e invia email
         if (invoice.subscription && typeof invoice.subscription === 'string') {
           const subscription = await prisma.saasSubscription.findFirst({
             where: { stripeSubscriptionId: invoice.subscription },
+            include: {
+              tenant: {
+                include: {
+                  members: {
+                    where: { role: 'ADMIN' },
+                    include: { user: true },
+                    take: 1,
+                  },
+                },
+              },
+            },
           });
           if (subscription) {
             await prisma.saasSubscription.update({
               where: { id: subscription.id },
               data: { status: 'PAST_DUE' },
             });
+
+            // Invia email pagamento fallito
+            const owner = subscription.tenant?.members[0]?.user;
+            if (owner && subscription.tenant) {
+              await emailService.sendPaymentFailedEmail(
+                owner.email,
+                owner.firstName || owner.email.split('@')[0],
+                subscription.tenant.name,
+                invoice.hosted_invoice_url || undefined
+              );
+              console.log(`Payment failed email sent to ${owner.email}`);
+            }
           }
         }
         break;

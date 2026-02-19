@@ -48,6 +48,15 @@ jest.mock('stripe', () => {
   return jest.fn().mockImplementation(() => mockStripe);
 });
 
+// Mock email service
+jest.mock('@server/services/email.service', () => ({
+  emailService: {
+    sendTrialEndingSoonEmail: jest.fn().mockResolvedValue(undefined),
+    sendPaymentFailedEmail: jest.fn().mockResolvedValue(undefined),
+    sendTrialExpiredEmail: jest.fn().mockResolvedValue(undefined),
+  },
+}));
+
 // Set environment variables before importing
 process.env.STRIPE_SECRET_KEY = 'sk_test_123456789';
 process.env.STRIPE_PRICE_STARTER_MONTHLY = 'price_starter_monthly';
@@ -1446,8 +1455,46 @@ describe('SubscriptionService', () => {
     });
 
     describe('customer.subscription.trial_will_end', () => {
-      it('should log trial ending soon', async () => {
+      it('should send trial ending email when tenant found', async () => {
         const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+
+        // Mock tenant lookup with member
+        prismaMock.tenant.findUnique.mockResolvedValue({
+          id: 'tenant-123',
+          name: 'Test Tenant',
+          slug: 'test-tenant',
+          domain: null,
+          settings: {},
+          status: 'ACTIVE' as const,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          members: [{
+            id: 'member-1',
+            tenantId: 'tenant-123',
+            userId: 'user-1',
+            role: 'ADMIN' as const,
+            invitedAt: new Date(),
+            acceptedAt: new Date(),
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            user: {
+              id: 'user-1',
+              email: 'owner@test.com',
+              firstName: 'Test',
+              lastName: 'Owner',
+              password: 'hashed',
+              isActive: true,
+              emailVerified: true,
+              emailVerificationToken: null,
+              resetPasswordToken: null,
+              resetPasswordExpires: null,
+              lastLogin: null,
+              stripeCustomerId: null,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            },
+          }],
+        } as any);
 
         const event = {
           type: 'customer.subscription.trial_will_end',
@@ -1455,14 +1502,35 @@ describe('SubscriptionService', () => {
             object: {
               id: 'sub_trial_ending',
               metadata: { tenantId: 'tenant-123' },
+              trial_end: Math.floor(Date.now() / 1000) + 3 * 24 * 60 * 60, // 3 days from now
             },
           },
         };
 
         await subscriptionService.handleStripeWebhook(event as any);
 
-        expect(consoleSpy).toHaveBeenCalledWith('Trial ending soon for subscription sub_trial_ending');
+        // Verify tenant was looked up
+        expect(prismaMock.tenant.findUnique).toHaveBeenCalled();
+        // Email should have been sent (logged)
+        expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Trial ending email sent'));
         consoleSpy.mockRestore();
+      });
+
+      it('should not crash when tenant not found', async () => {
+        prismaMock.tenant.findUnique.mockResolvedValue(null);
+
+        const event = {
+          type: 'customer.subscription.trial_will_end',
+          data: {
+            object: {
+              id: 'sub_trial_ending',
+              metadata: { tenantId: 'nonexistent-tenant' },
+            },
+          },
+        };
+
+        // Should not throw
+        await expect(subscriptionService.handleStripeWebhook(event as any)).resolves.not.toThrow();
       });
     });
 

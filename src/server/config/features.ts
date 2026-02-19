@@ -5,6 +5,7 @@ import { initStockAlertJobs } from '../jobs/stock-alert.job';
 import { initWordPressWorker } from '../jobs/wordpress.job';
 import { initSdiWorker, scheduleSdiJobs } from '../jobs/sdi.job';
 import { initSuggestionWorker, scheduleSuggestionJobs } from '../jobs/suggestion.job';
+import { initTrialExpirationJobs } from '../jobs/trial-expiration.job';
 import { initWebSocket } from '../utils/websocket.util';
 import { FastifyInstance } from 'fastify';
 import logger from '../config/logger';
@@ -47,6 +48,10 @@ export async function initQueueSystem() {
     initSuggestionWorker();
     await scheduleSuggestionJobs();
     logger.info('✅ Suggestion worker and jobs initialized');
+
+    // Inizializza job per gestione scadenza trial
+    initTrialExpirationJobs();
+    logger.info('✅ Trial expiration jobs initialized');
 
     logger.info('✅ Queue system initialized successfully');
   } catch (error: any) {

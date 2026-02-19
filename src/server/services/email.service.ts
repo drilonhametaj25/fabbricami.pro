@@ -907,6 +907,83 @@ class EmailService {
     });
   }
 
+  /**
+   * Send payment failed notification
+   */
+  async sendPaymentFailedEmail(
+    email: string,
+    firstName: string,
+    tenantName: string,
+    invoiceUrl?: string
+  ): Promise<boolean> {
+    const billingUrl = `${process.env.APP_URL || 'http://localhost:5173'}/settings/billing`;
+
+    const content = `
+      <h2>Pagamento non riuscito</h2>
+      <p>Ciao ${firstName},</p>
+      <p>Il pagamento per l'abbonamento di <strong>${tenantName}</strong> non è andato a buon fine.</p>
+
+      <div style="background-color: #fee2e2; border-left: 4px solid #dc2626; padding: 15px; margin: 20px 0;">
+        <strong>Azione richiesta</strong><br/>
+        Aggiorna il tuo metodo di pagamento per evitare l'interruzione del servizio.
+      </div>
+
+      <p style="text-align: center; margin: 30px 0;">
+        <a href="${billingUrl}" style="background-color: #dc2626; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">
+          Aggiorna Metodo di Pagamento
+        </a>
+      </p>
+
+      ${invoiceUrl ? `<p style="text-align: center;"><a href="${invoiceUrl}">Visualizza fattura</a></p>` : ''}
+
+      <p>Se hai bisogno di assistenza, contattaci rispondendo a questa email.</p>
+    `;
+
+    return this.send({
+      to: email,
+      subject: `Pagamento non riuscito per ${tenantName}`,
+      html: this.baseTemplate('Pagamento Fallito', content),
+      text: `Ciao ${firstName},\n\nIl pagamento per l'abbonamento di ${tenantName} non è andato a buon fine.\n\nAggiorna il tuo metodo di pagamento: ${billingUrl}\n\nHai bisogno di assistenza? Contattaci rispondendo a questa email.`,
+    });
+  }
+
+  /**
+   * Send trial expired notification
+   */
+  async sendTrialExpiredEmail(
+    email: string,
+    firstName: string,
+    tenantName: string
+  ): Promise<boolean> {
+    const billingUrl = `${process.env.APP_URL || 'http://localhost:5173'}/settings/billing`;
+
+    const content = `
+      <h2>Il tuo periodo di prova è terminato</h2>
+      <p>Ciao ${firstName},</p>
+      <p>Il periodo di prova gratuito per <strong>${tenantName}</strong> è terminato.</p>
+
+      <div style="background-color: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; margin: 20px 0;">
+        <strong>Accesso limitato</strong><br/>
+        Per continuare ad utilizzare tutte le funzionalità, passa a un piano a pagamento.
+      </div>
+
+      <p style="text-align: center; margin: 30px 0;">
+        <a href="${billingUrl}" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">
+          Scegli un Piano
+        </a>
+      </p>
+
+      <p>Hai domande? Contattaci rispondendo a questa email.</p>
+    `;
+
+    return this.send({
+      to: email,
+      subject: `Periodo di prova terminato per ${tenantName}`,
+      html: this.baseTemplate('Prova Terminata', content),
+      text: `Ciao ${firstName},\n\nIl periodo di prova gratuito per ${tenantName} è terminato.\n\nPassa a un piano a pagamento per continuare: ${billingUrl}\n\nHai domande? Contattaci rispondendo a questa email.`,
+    });
+  }
+
   // =============================================
   // UTILITY
   // =============================================

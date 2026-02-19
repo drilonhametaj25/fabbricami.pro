@@ -40,6 +40,7 @@ enum SaasSubscriptionStatus {
   PAST_DUE
   CANCELLED
   PAUSED
+  EXPIRED
 }
 
 model Tenant {
@@ -97,18 +98,22 @@ model TenantInvite {
 }
 
 model SubscriptionPlan {
-  id           String   @id @default(uuid())
-  code         String   @unique // STARTER, PRO, BUSINESS
-  name         String
-  description  String?  @db.Text
-  priceMonthly Decimal  @map("price_monthly") @db.Decimal(10, 2)
-  priceYearly  Decimal  @map("price_yearly") @db.Decimal(10, 2)
-  features     Json // { modules: [], capabilities: [] }
-  limits       Json // { maxUsers, maxWarehouses, maxProducts, maxOrders }
-  isActive     Boolean  @default(true) @map("is_active")
-  sortOrder    Int      @default(0) @map("sort_order")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  id                   String   @id @default(uuid())
+  code                 String   @unique // STARTER, PRO, BUSINESS
+  name                 String
+  description          String?  @db.Text
+  priceMonthly         Decimal  @map("price_monthly") @db.Decimal(10, 2)
+  priceYearly          Decimal  @map("price_yearly") @db.Decimal(10, 2)
+  features             Json // { modules: [], capabilities: [] }
+  limits               Json // { maxUsers, maxWarehouses, maxProducts, maxOrders }
+  isActive             Boolean  @default(true) @map("is_active")
+  sortOrder            Int      @default(0) @map("sort_order")
+  // Stripe Integration
+  stripeProductId      String?  @map("stripe_product_id")
+  stripePriceMonthlyId String?  @map("stripe_price_monthly_id")
+  stripePriceYearlyId  String?  @map("stripe_price_yearly_id")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
 
   // Relations
   subscriptions SaasSubscription[]
@@ -158,6 +163,46 @@ model BillingHistory {
   subscription SaasSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
 
   @@map("billing_history")
+}
+
+// ============================================
+// SUPER ADMIN (Platform Administration)
+// ============================================
+
+model SuperAdmin {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  password     String
+  name         String
+  isActive     Boolean   @default(true) @map("is_active")
+  lastLogin    DateTime? @map("last_login")
+  refreshToken String?   @map("refresh_token")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  // Audit trail for admin actions
+  auditLogs SuperAdminAuditLog[]
+
+  @@map("super_admins")
+}
+
+model SuperAdminAuditLog {
+  id           String   @id @default(uuid())
+  superAdminId String   @map("super_admin_id")
+  action       String   // CREATE_PLAN, UPDATE_TENANT, SYNC_STRIPE, etc.
+  entityType   String?  @map("entity_type") // PLAN, TENANT, SUBSCRIPTION
+  entityId     String?  @map("entity_id")
+  details      Json?    // Additional context
+  ipAddress    String?  @map("ip_address")
+  userAgent    String?  @map("user_agent") @db.Text
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  // Relations
+  superAdmin SuperAdmin @relation(fields: [superAdminId], references: [id], onDelete: Cascade)
+
+  @@index([superAdminId])
+  @@index([createdAt])
+  @@map("super_admin_audit_logs")
 }
 
 // ============================================

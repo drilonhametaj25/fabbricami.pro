@@ -236,6 +236,41 @@ services:
       - "traefik.http.routers.demo.middlewares=demo-headers,demo-compress,demo-security"
 
   # ===========================================
+  # MEGAADMIN PANEL (Vue 3)
+  # admin.fabbricami.pro - Platform administration
+  # ===========================================
+  admin:
+    build:
+      context: .
+      dockerfile: docker/admin/Dockerfile
+      target: production
+      args:
+        VITE_API_URL: https://api.${DOMAIN}/api/v1
+    restart: always
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:80/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - web
+    labels:
+      - "traefik.enable=true"
+      # Admin router
+      - "traefik.http.routers.admin.rule=Host(`admin.${DOMAIN}`)"
+      - "traefik.http.routers.admin.entrypoints=websecure"
+      - "traefik.http.routers.admin.tls.certresolver=letsencrypt"
+      - "traefik.http.services.admin.loadbalancer.server.port=80"
+      # Compression
+      - "traefik.http.middlewares.admin-compress.compress=true"
+      # Security Headers
+      - "traefik.http.middlewares.admin-security.headers.frameDeny=true"
+      - "traefik.http.middlewares.admin-security.headers.browserXssFilter=true"
+      - "traefik.http.middlewares.admin-security.headers.contentTypeNosniff=true"
+      - "traefik.http.routers.admin.middlewares=admin-compress,admin-security"
+
+  # ===========================================
   # REVERSE PROXY (Traefik)
   # ===========================================
   traefik:

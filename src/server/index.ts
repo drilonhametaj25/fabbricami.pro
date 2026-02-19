@@ -47,7 +47,9 @@ import threeWayMatchRoutes from './routes/three-way-match.routes';
 import reportsRoutes from './routes/reports.routes';
 import subscriptionRoutes from './routes/subscription.routes';
 import billingRoutes from './routes/billing.routes';
+import adminRoutes from './routes/admin.routes';
 import { initQueueSystem, shutdownSystems } from './config/features';
+import { validateStripeConfig } from './config/stripe.config';
 
 // Shop/E-commerce routes (public)
 import shopCartRoutes from './routes/shop-cart.routes';
@@ -171,6 +173,9 @@ async function setupServer() {
   await server.register(subscriptionRoutes, { prefix: `${apiPrefix}/subscription` });
   await server.register(billingRoutes, { prefix: `${apiPrefix}/billing` });
 
+  // MegaAdmin routes (platform administration)
+  await server.register(adminRoutes, { prefix: `${apiPrefix}/admin` });
+
   // SaaS Tenant and Onboarding routes
   const tenantRoutes = (await import('./routes/tenant.routes')).default;
   const onboardingRoutes = (await import('./routes/onboarding.routes')).default;
@@ -197,6 +202,9 @@ async function setupServer() {
 async function start() {
   try {
     await setupServer();
+
+    // Validate Stripe configuration at startup
+    validateStripeConfig();
 
     await server.listen({
       port: config.port,
