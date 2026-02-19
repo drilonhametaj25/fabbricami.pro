@@ -611,4 +611,577 @@ describe('GoodsReceiptService', () => {
       ).rejects.toThrow('Entrata merce non trovata');
     });
   });
+
+  describe('updateGoodsReceipt - additional coverage', () => {
+    it('should throw error for non-existent receipt', async () => {
+      prismaMock.goodsReceipt.findUnique.mockResolvedValue(null);
+
+      await expect(
+        goodsReceiptService.updateGoodsReceipt('non-existent', { carrier: 'DHL' })
+      ).rejects.toThrow('Entrata merce non trovata');
+    });
+
+    it('should throw error for cancelled receipt', async () => {
+      const mockReceipt = {
+        id: 'gr-1',
+        status: 'CANCELLED',
+      };
+
+      prismaMock.goodsReceipt.findUnique.mockResolvedValue(mockReceipt as any);
+
+      await expect(
+        goodsReceiptService.updateGoodsReceipt('gr-1', { carrier: 'DHL' })
+      ).rejects.toThrow('Impossibile modificare entrata merce in stato CANCELLED');
+    });
+  });
+
+  describe('receiveItems - additional coverage', () => {
+    it('should throw error for non-existent receipt', async () => {
+      prismaMock.goodsReceipt.findUnique.mockResolvedValue(null);
+
+      await expect(
+        goodsReceiptService.receiveItems('non-existent', { items: [] })
+      ).rejects.toThrow('Entrata merce non trovata');
+    });
+
+    it('should set PARTIAL status when all received but inspection is pending', async () => {
+      const mockReceipt = {
+        id: 'gr-1',
+        status: 'PENDING',
+        inspectionRequired: true,
+        inspectionStatus: 'PENDING',
+        items: [
+          { id: 'item-1', expectedQuantity: 100 },
+        ],
+      };
+
+      prismaMock.goodsReceipt.findUnique.mockResolvedValue(mockReceipt as any);
+      prismaMock.$transaction.mockImplementation(async (callback: any) => {
+        const tx = {
+          goodsReceiptItem: {
+            update: jest.fn().mockResolvedValue({}),
+            findMany: jest.fn().mockResolvedValue([
+              { expectedQuantity: 100, receivedQuantity: 100 },
+            ]),
+          },
+          goodsReceipt: {
+            update: jest.fn().mockResolvedValue({
+              ...mockReceipt,
+              status: 'PARTIAL',
+              items: [],
+              supplier: {},
+              warehouse: {},
+            }),
+          },
+        };
+        return callback(tx);
+      });
+
+      const result = await goodsReceiptService.receiveItems('gr-1', {
+        items: [
+          {
+            itemId: 'item-1',
+            receivedQuantity: 100,
+            acceptedQuantity: 100,
+          },
+        ],
+      });
+
+      expect(result.status).toBe('PARTIAL');
+    });
+
+    it('should set PARTIAL status when some items are received', async () => {
+      const mockReceipt = {
+        id: 'gr-1',
+        status: 'PENDING',
+        inspectionRequired: false,
+        inspectionStatus: 'NOT_REQUIRED',
+        items: [
+          { id: 'item-1', expectedQuantity: 100 },
+          { id: 'item-2', expectedQuantity: 100 },
+        ],
+      };
+
+      prismaMock.goodsReceipt.findUnique.mockResolvedValue(mockReceipt as any);
+      prismaMock.$transaction.mockImplementation(async (callback: any) => {
+        const tx = {
+          goodsReceiptItem: {
+            update: jest.fn().mockResolvedValue({}),
+            findMany: jest.fn().mockResolvedValue([
+              { expectedQuantity: 100, receivedQuantity: 50 }, // Partial
+              { expectedQuantity: 100, receivedQuantity: 0 },  // Not received
+            ]),
+          },
+          goodsReceipt: {
+            update: jest.fn().mockResolvedValue({
+              ...mockReceipt,
+              status: 'PARTIAL',
+              items: [],
+              supplier: {},
+              warehouse: {},
+            }),
+          },
+        };
+        return callback(tx);
+      });
+
+      const result = await goodsReceiptService.receiveItems('gr-1', {
+        items: [
+          {
+            itemId: 'item-1',
+            receivedQuantity: 50,
+            acceptedQuantity: 50,
+          },
+        ],
+      });
+
+      expect(result.status).toBe('PARTIAL');
+    });
+  });
+
+  describe('completeReceipt - additional coverage', () => {
+    it('should throw error for non-existent receipt', async () => {
+      prismaMock.goodsReceipt.findUnique.mockResolvedValue(null);
+
+      await expect(
+        goodsReceiptService.completeReceipt('non-existent')
+      ).rejects.toThrow('Entrata merce non trovata');
+    });
+
+    it('should update existing product inventory', async () => {
+      const mockReceipt = {
+        id: 'gr-1',
+        receiptNumber: 'EM-2026-000001',
+        status: 'PARTIAL',
+        inspectionRequired: false,
+        inspectionStatus: 'NOT_REQUIRED',
+        supplierId: 'sup-1',
+        warehouseId: 'wh-1',
+        warehouse: { code: 'MAIN' },
+        purchaseOrder: { expectedDate: new Date('2026-01-15') },
+        items: [
+          {
+            productId: 'prod-1',
+            materialId: null,
+            acceptedQuantity: 50,
+            product: { id: 'prod-1' },
+          },
+        ],
+      };
+
+      prismaMock.goodsReceipt.findUnique.mockResolvedValue(mockReceipt as any);
+
+      let inventoryItemUpdateCalled = false;
+
+      prismaMock.$transaction.mockImplementation(async (callback: any) => {
+        const tx = {
+          inventoryItem: {
+            findFirst: jest.fn().mockResolvedValue({ id: 'inv-1', quantity: 100 }), // Existing inventory
+            create: jest.fn().mockResolvedValue({}),
+            update: jest.fn().mockImplementation(() => {
+              inventoryItemUpdateCalled = true;
+              return Promise.resolve({});
+            }),
+          },
+          inventoryMovement: { create: jest.fn().mockResolvedValue({}) },
+          materialInventory: {
+            findFirst: jest.fn().mockResolvedValue(null),
+            create: jest.fn().mockResolvedValue({}),
+            update: jest.fn().mockResolvedValue({}),
+          },
+          materialMovement: { create: jest.fn().mockResolvedValue({}) },
+          goodsReceipt: {
+            update: jest.fn().mockResolvedValue({
+              ...mockReceipt,
+              status: 'COMPLETED',
+              purchaseOrder: {},
+            }),
+          },
+          supplier: { update: jest.fn().mockResolvedValue({}) },
+        };
+        return callback(tx);
+      });
+
+      await goodsReceiptService.completeReceipt('gr-1');
+
+      expect(inventoryItemUpdateCalled).toBe(true);
+    });
+
+    it('should handle material inventory updates', async () => {
+      const mockReceipt = {
+        id: 'gr-1',
+        receiptNumber: 'EM-2026-000001',
+        status: 'PARTIAL',
+        inspectionRequired: false,
+        inspectionStatus: 'NOT_REQUIRED',
+        supplierId: 'sup-1',
+        warehouseId: 'wh-1',
+        warehouse: { code: 'MAIN' },
+        purchaseOrder: { expectedDate: new Date('2026-01-15') },
+        items: [
+          {
+            productId: null,
+            materialId: 'mat-1',
+            acceptedQuantity: 100,
+            material: { id: 'mat-1', sku: 'MAT001' },
+          },
+        ],
+      };
+
+      prismaMock.goodsReceipt.findUnique.mockResolvedValue(mockReceipt as any);
+
+      let materialInventoryCreated = false;
+      let materialMovementCreated = false;
+
+      prismaMock.$transaction.mockImplementation(async (callback: any) => {
+        const tx = {
+          inventoryItem: {
+            findFirst: jest.fn().mockResolvedValue(null),
+            create: jest.fn().mockResolvedValue({}),
+            update: jest.fn().mockResolvedValue({}),
+          },
+          inventoryMovement: { create: jest.fn().mockResolvedValue({}) },
+          materialInventory: {
+            findFirst: jest.fn().mockResolvedValue(null), // No existing material inventory
+            create: jest.fn().mockImplementation(() => {
+              materialInventoryCreated = true;
+              return Promise.resolve({});
+            }),
+            update: jest.fn().mockResolvedValue({}),
+          },
+          materialMovement: {
+            create: jest.fn().mockImplementation(() => {
+              materialMovementCreated = true;
+              return Promise.resolve({});
+            }),
+          },
+          goodsReceipt: {
+            update: jest.fn().mockResolvedValue({
+              ...mockReceipt,
+              status: 'COMPLETED',
+              purchaseOrder: {},
+            }),
+          },
+          supplier: { update: jest.fn().mockResolvedValue({}) },
+        };
+        return callback(tx);
+      });
+
+      await goodsReceiptService.completeReceipt('gr-1');
+
+      expect(materialInventoryCreated).toBe(true);
+      expect(materialMovementCreated).toBe(true);
+    });
+
+    it('should update existing material inventory', async () => {
+      const mockReceipt = {
+        id: 'gr-1',
+        receiptNumber: 'EM-2026-000001',
+        status: 'PARTIAL',
+        inspectionRequired: false,
+        inspectionStatus: 'NOT_REQUIRED',
+        supplierId: 'sup-1',
+        warehouseId: 'wh-1',
+        warehouse: { code: 'MAIN' },
+        purchaseOrder: { expectedDate: new Date('2026-01-15') },
+        items: [
+          {
+            productId: null,
+            materialId: 'mat-1',
+            acceptedQuantity: 100,
+            material: { id: 'mat-1', sku: 'MAT001' },
+          },
+        ],
+      };
+
+      prismaMock.goodsReceipt.findUnique.mockResolvedValue(mockReceipt as any);
+
+      let materialInventoryUpdated = false;
+
+      prismaMock.$transaction.mockImplementation(async (callback: any) => {
+        const tx = {
+          inventoryItem: {
+            findFirst: jest.fn().mockResolvedValue(null),
+            create: jest.fn().mockResolvedValue({}),
+            update: jest.fn().mockResolvedValue({}),
+          },
+          inventoryMovement: { create: jest.fn().mockResolvedValue({}) },
+          materialInventory: {
+            findFirst: jest.fn().mockResolvedValue({ id: 'mat-inv-1', quantity: 50 }), // Existing
+            create: jest.fn().mockResolvedValue({}),
+            update: jest.fn().mockImplementation(() => {
+              materialInventoryUpdated = true;
+              return Promise.resolve({});
+            }),
+          },
+          materialMovement: { create: jest.fn().mockResolvedValue({}) },
+          goodsReceipt: {
+            update: jest.fn().mockResolvedValue({
+              ...mockReceipt,
+              status: 'COMPLETED',
+              purchaseOrder: {},
+            }),
+          },
+          supplier: { update: jest.fn().mockResolvedValue({}) },
+        };
+        return callback(tx);
+      });
+
+      await goodsReceiptService.completeReceipt('gr-1');
+
+      expect(materialInventoryUpdated).toBe(true);
+    });
+  });
+
+  describe('createGoodsReceipt - additional coverage', () => {
+    it('should update purchase order to RECEIVED when all items are received', async () => {
+      const mockPurchaseOrder = {
+        id: 'po-1',
+        supplierId: 'sup-1',
+        status: 'CONFIRMED',
+        items: [
+          {
+            id: 'poi-1',
+            productId: 'prod-1',
+            materialId: null,
+            quantity: 100,
+            receivedQuantity: 50, // Already partially received
+            product: { id: 'prod-1', sku: 'SKU001' },
+          },
+        ],
+      };
+
+      const mockGoodsReceipt = {
+        id: 'gr-1',
+        receiptNumber: 'EM-2026-000001',
+        purchaseOrderId: 'po-1',
+        supplierId: 'sup-1',
+        warehouseId: 'wh-1',
+        items: [],
+        supplier: {},
+        warehouse: {},
+      };
+
+      prismaMock.purchaseOrder.findUnique.mockResolvedValue(mockPurchaseOrder as any);
+      prismaMock.goodsReceipt.findFirst.mockResolvedValue(null);
+
+      let poStatus = '';
+
+      prismaMock.$transaction.mockImplementation(async (callback: any) => {
+        const tx = {
+          goodsReceipt: {
+            create: jest.fn().mockResolvedValue(mockGoodsReceipt),
+          },
+          purchaseOrderItem: {
+            update: jest.fn().mockResolvedValue({}),
+            findMany: jest.fn().mockResolvedValue([
+              { quantity: 100, receivedQuantity: 100 }, // Fully received after this goods receipt
+            ]),
+          },
+          purchaseOrder: {
+            update: jest.fn().mockImplementation((params: any) => {
+              poStatus = params.data.status;
+              return Promise.resolve({});
+            }),
+          },
+        };
+        return callback(tx);
+      });
+
+      await goodsReceiptService.createGoodsReceipt({
+        purchaseOrderId: 'po-1',
+        warehouseId: 'wh-1',
+        items: [
+          {
+            purchaseOrderItemId: 'poi-1',
+            receivedQuantity: 50,
+            acceptedQuantity: 50,
+          },
+        ],
+      });
+
+      expect(poStatus).toBe('RECEIVED');
+    });
+
+    it('should throw error for cancelled purchase order', async () => {
+      const mockPurchaseOrder = {
+        id: 'po-1',
+        status: 'CANCELLED',
+        items: [],
+      };
+
+      prismaMock.purchaseOrder.findUnique.mockResolvedValue(mockPurchaseOrder as any);
+
+      await expect(
+        goodsReceiptService.createGoodsReceipt({
+          purchaseOrderId: 'po-1',
+          warehouseId: 'wh-1',
+          items: [],
+        })
+      ).rejects.toThrow('Impossibile creare entrata merce per ordine in stato CANCELLED');
+    });
+  });
+
+  describe('recordInspection - additional coverage', () => {
+    it('should throw error for non-existent receipt', async () => {
+      prismaMock.goodsReceipt.findUnique.mockResolvedValue(null);
+
+      await expect(
+        goodsReceiptService.recordInspection('non-existent', {
+          inspectionStatus: 'PASSED' as any,
+          inspectedBy: 'inspector-1',
+        })
+      ).rejects.toThrow('Entrata merce non trovata');
+    });
+  });
+
+  describe('addAttachment - additional coverage', () => {
+    it('should throw error for non-existent receipt', async () => {
+      prismaMock.goodsReceipt.findUnique.mockResolvedValue(null);
+
+      await expect(
+        goodsReceiptService.addAttachment('non-existent', {
+          name: 'test.pdf',
+          url: '/files/test.pdf',
+          type: 'PDF',
+        })
+      ).rejects.toThrow('Entrata merce non trovata');
+    });
+  });
+
+  describe('generateReceiptNumber - additional coverage', () => {
+    it('should increment number when previous receipt exists', async () => {
+      const mockPurchaseOrder = {
+        id: 'po-1',
+        supplierId: 'sup-1',
+        status: 'CONFIRMED',
+        items: [
+          {
+            id: 'poi-1',
+            productId: 'prod-1',
+            materialId: null,
+            quantity: 100,
+            receivedQuantity: 0,
+            product: { id: 'prod-1', sku: 'SKU001' },
+          },
+        ],
+      };
+
+      const mockGoodsReceipt = {
+        id: 'gr-1',
+        receiptNumber: 'EM-2026-000006', // Expect increment from 000005
+        purchaseOrderId: 'po-1',
+        supplierId: 'sup-1',
+        warehouseId: 'wh-1',
+        items: [],
+        supplier: {},
+        warehouse: {},
+      };
+
+      prismaMock.purchaseOrder.findUnique.mockResolvedValue(mockPurchaseOrder as any);
+      // Return a previous receipt to trigger increment logic
+      prismaMock.goodsReceipt.findFirst.mockResolvedValue({
+        receiptNumber: 'EM-2026-000005',
+      } as any);
+
+      prismaMock.$transaction.mockImplementation(async (callback: any) => {
+        const tx = {
+          goodsReceipt: {
+            create: jest.fn().mockResolvedValue(mockGoodsReceipt),
+          },
+          purchaseOrderItem: {
+            update: jest.fn().mockResolvedValue({}),
+            findMany: jest.fn().mockResolvedValue([
+              { quantity: 100, receivedQuantity: 50 },
+            ]),
+          },
+          purchaseOrder: {
+            update: jest.fn().mockResolvedValue({}),
+          },
+        };
+        return callback(tx);
+      });
+
+      const result = await goodsReceiptService.createGoodsReceipt({
+        purchaseOrderId: 'po-1',
+        warehouseId: 'wh-1',
+        items: [
+          {
+            purchaseOrderItemId: 'poi-1',
+            receivedQuantity: 50,
+            acceptedQuantity: 48,
+          },
+        ],
+      });
+
+      expect(result.receiptNumber).toBe('EM-2026-000006');
+    });
+
+    it('should handle receipt number without numeric suffix', async () => {
+      const mockPurchaseOrder = {
+        id: 'po-1',
+        supplierId: 'sup-1',
+        status: 'CONFIRMED',
+        items: [
+          {
+            id: 'poi-1',
+            productId: 'prod-1',
+            materialId: null,
+            quantity: 100,
+            receivedQuantity: 0,
+            product: { id: 'prod-1', sku: 'SKU001' },
+          },
+        ],
+      };
+
+      const mockGoodsReceipt = {
+        id: 'gr-1',
+        receiptNumber: 'EM-2026-000001', // Should default to 1 if no match
+        purchaseOrderId: 'po-1',
+        supplierId: 'sup-1',
+        warehouseId: 'wh-1',
+        items: [],
+        supplier: {},
+        warehouse: {},
+      };
+
+      prismaMock.purchaseOrder.findUnique.mockResolvedValue(mockPurchaseOrder as any);
+      // Return a receipt with non-matching format (no numeric suffix match)
+      prismaMock.goodsReceipt.findFirst.mockResolvedValue({
+        receiptNumber: 'EM-2026-ABC', // No numeric suffix
+      } as any);
+
+      prismaMock.$transaction.mockImplementation(async (callback: any) => {
+        const tx = {
+          goodsReceipt: {
+            create: jest.fn().mockResolvedValue(mockGoodsReceipt),
+          },
+          purchaseOrderItem: {
+            update: jest.fn().mockResolvedValue({}),
+            findMany: jest.fn().mockResolvedValue([
+              { quantity: 100, receivedQuantity: 50 },
+            ]),
+          },
+          purchaseOrder: {
+            update: jest.fn().mockResolvedValue({}),
+          },
+        };
+        return callback(tx);
+      });
+
+      const result = await goodsReceiptService.createGoodsReceipt({
+        purchaseOrderId: 'po-1',
+        warehouseId: 'wh-1',
+        items: [
+          {
+            purchaseOrderItemId: 'poi-1',
+            receivedQuantity: 50,
+            acceptedQuantity: 48,
+          },
+        ],
+      });
+
+      expect(result.receiptNumber).toBe('EM-2026-000001');
+    });
+  });
 });

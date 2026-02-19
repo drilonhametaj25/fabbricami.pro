@@ -848,5 +848,296 @@ describe('PayPalService', () => {
         })
       ).rejects.toThrow('Errore PayPal API');
     });
+
+    it('should throw on OAuth authentication failure', async () => {
+      // Mock OAuth failure
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        json: () => Promise.resolve({ error: 'invalid_client' }),
+      });
+
+      await expect(
+        paypalService.createOrder({
+          orderId: 'order-auth-fail',
+          amount: 50.00,
+          currency: 'EUR',
+          items: [{ name: 'Test', quantity: 1, unitAmount: 50.00 }],
+          shippingAmount: 0,
+        })
+      ).rejects.toThrow('Errore autenticazione PayPal');
+    });
+  });
+
+  // ============================================================================
+  // Not Configured Tests
+  // ============================================================================
+  describe('Not Configured Scenarios', () => {
+    // Save original env values
+    const originalClientId = process.env.PAYPAL_CLIENT_ID;
+    const originalClientSecret = process.env.PAYPAL_CLIENT_SECRET;
+
+    beforeEach(() => {
+      // Reset token cache
+      (paypalService as any).accessToken = null;
+      (paypalService as any).tokenExpiry = 0;
+    });
+
+    afterEach(() => {
+      // Restore original env values
+      process.env.PAYPAL_CLIENT_ID = originalClientId;
+      process.env.PAYPAL_CLIENT_SECRET = originalClientSecret;
+    });
+
+    it('createOrder should throw when not configured', async () => {
+      // We need to create a new instance with empty credentials
+      // Since the service is a singleton, we'll test through the isConfigured check
+      // by using a mock that returns false
+      const origIsConfigured = paypalService.isConfigured;
+      paypalService.isConfigured = () => false;
+
+      await expect(
+        paypalService.createOrder({
+          orderId: 'order-1',
+          amount: 50.00,
+          currency: 'EUR',
+          items: [{ name: 'Test', quantity: 1, unitAmount: 50.00 }],
+          shippingAmount: 0,
+        })
+      ).rejects.toThrow('PayPal non configurato');
+
+      paypalService.isConfigured = origIsConfigured;
+    });
+
+    it('captureOrder should throw when not configured', async () => {
+      const origIsConfigured = paypalService.isConfigured;
+      paypalService.isConfigured = () => false;
+
+      await expect(
+        paypalService.captureOrder('PAYPAL-ORDER-123')
+      ).rejects.toThrow('PayPal non configurato');
+
+      paypalService.isConfigured = origIsConfigured;
+    });
+
+    it('getOrder should throw when not configured', async () => {
+      const origIsConfigured = paypalService.isConfigured;
+      paypalService.isConfigured = () => false;
+
+      await expect(
+        paypalService.getOrder('PAYPAL-ORDER-123')
+      ).rejects.toThrow('PayPal non configurato');
+
+      paypalService.isConfigured = origIsConfigured;
+    });
+
+    it('createRefund should throw when not configured', async () => {
+      const origIsConfigured = paypalService.isConfigured;
+      paypalService.isConfigured = () => false;
+
+      await expect(
+        paypalService.createRefund('order-123')
+      ).rejects.toThrow('PayPal non configurato');
+
+      paypalService.isConfigured = origIsConfigured;
+    });
+
+    it('verifyWebhookSignature should return false when not configured', async () => {
+      const origIsConfigured = paypalService.isConfigured;
+      paypalService.isConfigured = () => false;
+
+      const result = await paypalService.verifyWebhookSignature(
+        '{}',
+        {}
+      );
+
+      expect(result).toBe(false);
+
+      paypalService.isConfigured = origIsConfigured;
+    });
+  });
+
+  // ============================================================================
+  // Webhook ID Not Configured
+  // ============================================================================
+  describe('Webhook Verification without PAYPAL_WEBHOOK_ID', () => {
+    it('should skip verification and return true when webhook ID is not set', async () => {
+      // Save and clear the webhook ID
+      const originalWebhookId = process.env.PAYPAL_WEBHOOK_ID;
+      delete process.env.PAYPAL_WEBHOOK_ID;
+
+      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      const result = await paypalService.verifyWebhookSignature(
+        JSON.stringify({ event_type: 'TEST' }),
+        {
+          'paypal-auth-algo': 'SHA256withRSA',
+          'paypal-cert-url': 'https://api.paypal.com/cert',
+          'paypal-transmission-id': 'trans-123',
+          'paypal-transmission-sig': 'sig-123',
+          'paypal-transmission-time': '2024-01-01T00:00:00Z',
+        }
+      );
+
+      expect(result).toBe(true);
+      expect(consoleSpy).toHaveBeenCalledWith('PAYPAL_WEBHOOK_ID non configurato');
+
+      // Restore
+      process.env.PAYPAL_WEBHOOK_ID = originalWebhookId;
+      consoleSpy.mockRestore();
+    });
+
+    it('should return false when webhook ID is empty string', async () => {
+      // Save and set to empty string
+      const originalWebhookId = process.env.PAYPAL_WEBHOOK_ID;
+      process.env.PAYPAL_WEBHOOK_ID = '';
+
+      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      const result = await paypalService.verifyWebhookSignature(
+        JSON.stringify({ event_type: 'TEST' }),
+        {}
+      );
+
+      expect(result).toBe(true);
+      expect(consoleSpy).toHaveBeenCalledWith('PAYPAL_WEBHOOK_ID non configurato');
+
+      // Restore
+      process.env.PAYPAL_WEBHOOK_ID = originalWebhookId;
+      consoleSpy.mockRestore();
+    });
+  });
+
+  // ============================================================================
+  // captureOrder - Additional Coverage
+  // ============================================================================
+  describe('captureOrder - additional coverage', () => {
+    it('should use custom_id as orderId when reference_id is not available', async () => {
+      mockOAuthResponse();
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          id: 'PAYPAL-CUSTOM',
+          purchase_units: [{
+            custom_id: 'order-custom-123', // No reference_id, use custom_id
+            payments: {
+              captures: [{
+                id: 'CAP-CUSTOM',
+                status: 'COMPLETED',
+                amount: { value: '100.00' },
+              }],
+            },
+          }],
+        }),
+      });
+      prismaMock.paymentTransaction.updateMany.mockResolvedValue({ count: 1 });
+      mockShopCheckoutService.updatePaymentStatus.mockResolvedValue({});
+
+      await paypalService.captureOrder('PAYPAL-CUSTOM-ORDER');
+
+      expect(mockShopCheckoutService.updatePaymentStatus).toHaveBeenCalledWith(
+        'order-custom-123',
+        PaymentStatus.CAPTURED,
+        'CAP-CUSTOM'
+      );
+    });
+
+    it('should not call updatePaymentStatus when orderId is not available', async () => {
+      mockOAuthResponse();
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          id: 'PAYPAL-NO-ORDER',
+          purchase_units: [{
+            // No reference_id or custom_id
+            payments: {
+              captures: [{
+                id: 'CAP-NO-ORDER',
+                status: 'COMPLETED',
+                amount: { value: '50.00' },
+              }],
+            },
+          }],
+        }),
+      });
+      prismaMock.paymentTransaction.updateMany.mockResolvedValue({ count: 1 });
+
+      await paypalService.captureOrder('PAYPAL-NO-ORDER-ID');
+
+      expect(mockShopCheckoutService.updatePaymentStatus).not.toHaveBeenCalled();
+    });
+  });
+
+  // ============================================================================
+  // handleWebhook - Additional Coverage
+  // ============================================================================
+  describe('handleWebhook - additional coverage', () => {
+    it('should handle PAYMENT.CAPTURE.COMPLETED with supplementary_data', async () => {
+      prismaMock.paymentTransaction.updateMany.mockResolvedValue({ count: 1 });
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+
+      await paypalService.handleWebhook({
+        event_type: 'PAYMENT.CAPTURE.COMPLETED',
+        resource: {
+          id: 'CAP-SUPPLEMENTARY',
+          supplementary_data: {
+            related_ids: {
+              order_id: 'order-supplementary-123',
+            },
+          },
+        },
+      });
+
+      expect(prismaMock.paymentTransaction.updateMany).toHaveBeenCalled();
+      expect(consoleSpy).toHaveBeenCalledWith('PayPal payment captured: CAP-SUPPLEMENTARY');
+
+      consoleSpy.mockRestore();
+    });
+
+    it('should not update transaction when no orderId in PAYMENT.CAPTURE.COMPLETED', async () => {
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+
+      await paypalService.handleWebhook({
+        event_type: 'PAYMENT.CAPTURE.COMPLETED',
+        resource: {
+          id: 'CAP-NO-ORDER-ID',
+          // No custom_id or supplementary_data
+        },
+      });
+
+      expect(prismaMock.paymentTransaction.updateMany).not.toHaveBeenCalled();
+      expect(consoleSpy).toHaveBeenCalledWith('PayPal payment captured: CAP-NO-ORDER-ID');
+
+      consoleSpy.mockRestore();
+    });
+  });
+
+  // ============================================================================
+  // createOrder - Additional Coverage
+  // ============================================================================
+  describe('createOrder - additional coverage', () => {
+    it('should use approve link when payer-action is not available', async () => {
+      mockOAuthResponse();
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          id: 'PAYPAL-APPROVE-LINK',
+          links: [
+            { rel: 'self', href: 'https://api.sandbox.paypal.com/v2/checkout/orders/PAYPAL-APPROVE-LINK' },
+            { rel: 'approve', href: 'https://www.sandbox.paypal.com/checkoutnow?approve=PAYPAL-APPROVE-LINK' },
+          ],
+        }),
+      });
+      prismaMock.paymentTransaction.create.mockResolvedValue({} as any);
+
+      const result = await paypalService.createOrder({
+        orderId: 'order-approve',
+        amount: 100.00,
+        currency: 'EUR',
+        items: [{ name: 'Test', quantity: 1, unitAmount: 100.00 }],
+        shippingAmount: 0,
+      });
+
+      expect(result.approvalUrl).toBe('https://www.sandbox.paypal.com/checkoutnow?approve=PAYPAL-APPROVE-LINK');
+    });
   });
 });

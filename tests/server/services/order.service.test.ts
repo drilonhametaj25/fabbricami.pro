@@ -2063,5 +2063,2049 @@ describe('OrderService', () => {
 
       expect(result.trackingNumber).toBe('PARTIAL');
     });
+
+    it('should throw error when inventory deduction fails', async () => {
+      const mockOrder = {
+        ...createOrderWithDates({ id: 'ord-1', status: 'CONFIRMED' }),
+        source: 'ECOMMERCE',
+        items: [
+          {
+            id: 'item-1',
+            productId: 'prod-1',
+            quantity: 5,
+            allocatedLocation: 'WEB',
+            product: { sku: 'PROD-001' },
+          },
+        ],
+      };
+
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+
+      const inventoryService = require('@server/services/inventory.service').inventoryService;
+      inventoryService.deductInventoryRecursive.mockResolvedValue({
+        success: false,
+        deductions: [],
+        errors: [{ message: 'Stock insufficiente' }],
+        totalMovements: 0,
+      });
+
+      await expect(
+        orderService.createShipment('ord-1', {
+          carrier: 'DHL',
+          trackingNumber: 'TRACK123',
+          items: [{ orderItemId: 'item-1', quantity: 5 }],
+        })
+      ).rejects.toThrow('Scalatura inventario fallita');
+    });
+
+    it('should handle inventory deduction throwing an exception', async () => {
+      const mockOrder = {
+        ...createOrderWithDates({ id: 'ord-1', status: 'READY' }),
+        source: 'ECOMMERCE',
+        items: [
+          {
+            id: 'item-1',
+            productId: 'prod-1',
+            quantity: 5,
+            allocatedLocation: 'WEB',
+            product: { sku: 'PROD-001' },
+          },
+        ],
+      };
+
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+
+      const inventoryService = require('@server/services/inventory.service').inventoryService;
+      inventoryService.deductInventoryRecursive.mockRejectedValue(new Error('Database error'));
+
+      await expect(
+        orderService.createShipment('ord-1', {
+          carrier: 'DHL',
+          trackingNumber: 'TRACK123',
+          items: [{ orderItemId: 'item-1', quantity: 5 }],
+        })
+      ).rejects.toThrow('Scalatura inventario fallita');
+    });
+
+    it('should allow shipment for READY status', async () => {
+      const mockOrder = {
+        ...createOrderWithDates({ id: 'ord-1', status: 'READY' }),
+        source: 'ECOMMERCE',
+        items: [
+          {
+            id: 'item-1',
+            productId: 'prod-1',
+            quantity: 2,
+            allocatedLocation: 'WEB',
+            product: mockFactories.product({ id: 'prod-1' }),
+          },
+        ],
+      };
+
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+      prismaMock.order.update.mockResolvedValue({ ...mockOrder, status: 'SHIPPED' } as any);
+
+      const inventoryService = require('@server/services/inventory.service').inventoryService;
+      inventoryService.deductInventoryRecursive.mockResolvedValue({
+        success: true,
+        deductions: [],
+        errors: [],
+        totalMovements: 1,
+      });
+
+      const result = await orderService.createShipment('ord-1', {
+        carrier: 'FedEx',
+        trackingNumber: 'READY-SHIP',
+        items: [{ orderItemId: 'item-1', quantity: 2 }],
+      });
+
+      expect(result.trackingNumber).toBe('READY-SHIP');
+    });
+  });
+
+  // ==========================================
+  // updateOrder - additional edge cases
+  // ==========================================
+  describe('updateOrder - additional edge cases', () => {
+    it('should throw error when order not found', async () => {
+      prismaMock.order.findUnique.mockResolvedValue(null);
+
+      await expect(
+        orderService.updateOrder('non-existent', { notes: 'Test' })
+      ).rejects.toThrow('Order not found');
+    });
+
+    it('should throw error for invalid status transition in updateOrder', async () => {
+      const mockOrder = {
+        ...createOrderWithDates({ id: 'ord-1', status: 'CANCELLED' }),
+        customer: mockFactories.customer(),
+        items: [],
+        invoice: null,
+      };
+
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+
+      await expect(
+        orderService.updateOrder('ord-1', { status: 'CONFIRMED' })
+      ).rejects.toThrow('Invalid status transition from CANCELLED to CONFIRMED');
+    });
+  });
+
+  // ==========================================
+  // addOrderItem - B2B pricelist fallback
+  // ==========================================
+  describe('addOrderItem - B2B pricelist fallback', () => {
+    it('should fallback to product base price when B2B pricelist calculation fails', async () => {
+      const mockOrder = {
+        id: 'ord-1',
+        customerId: 'cust-1',
+        customer: {
+          id: 'cust-1',
+          type: 'B2B',
+          priceList: { id: 'pl-1' },
+        },
+      };
+      const mockProduct = {
+        id: 'prod-1',
+        sku: 'SKU-1',
+        name: 'Product',
+        price: createDecimal(100),
+        taxRate: createDecimal(22),
+      };
+
+      const priceListService = require('@server/services/pricelist.service').priceListService;
+      priceListService.calculatePrice = jest.fn().mockRejectedValue(new Error('Pricelist error'));
+
+      const mockTx = {
+        order: {
+          findUnique: jest.fn().mockResolvedValue(mockOrder),
+          update: jest.fn().mockResolvedValue(mockOrder),
+        },
+        product: { findUnique: jest.fn().mockResolvedValue(mockProduct) },
+        orderItem: {
+          create: jest.fn().mockResolvedValue({ id: 'item-1' }),
+          findMany: jest.fn().mockResolvedValue([{ subtotal: 100, tax: 22, total: 122 }]),
+        },
+      };
+
+      await orderService.addOrderItem(mockTx, 'ord-1', {
+        productId: 'prod-1',
+        quantity: 1,
+      });
+
+      // Should use product base price (100) when pricelist fails
+      expect(mockTx.orderItem.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            unitPrice: 100,
+            priceSource: 'product_base',
+          }),
+        })
+      );
+    });
+  });
+
+  // ==========================================
+  // updateOrderStatus - PROCESSING and PaymentDue generation
+  // ==========================================
+  describe('updateOrderStatus - PROCESSING and PaymentDue generation', () => {
+    it('should auto-generate payment dues when confirming order', async () => {
+      const mockOrder = {
+        ...createOrderWithDates({ id: 'ord-1', status: 'PENDING' }),
+        items: [],
+        source: 'MANUAL',
+      };
+
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+      prismaMock.paymentDue.count.mockResolvedValue(0);
+      prismaMock.$transaction.mockResolvedValue(mockOrder);
+      prismaMock.order.update.mockResolvedValue({ ...mockOrder, status: 'CONFIRMED' } as any);
+
+      // Mock generatePaymentDuesFromOrder to succeed
+      const generatePaymentSpy = jest.spyOn(orderService, 'generatePaymentDuesFromOrder');
+      generatePaymentSpy.mockResolvedValue([{ id: 'pd-1' }] as any);
+
+      await orderService.updateOrderStatus('ord-1', { status: 'CONFIRMED' });
+
+      expect(prismaMock.paymentDue.count).toHaveBeenCalledWith({ where: { orderId: 'ord-1' } });
+
+      generatePaymentSpy.mockRestore();
+    });
+
+    it('should skip payment dues generation if they already exist', async () => {
+      const mockOrder = {
+        ...createOrderWithDates({ id: 'ord-1', status: 'PENDING' }),
+        items: [],
+        source: 'MANUAL',
+      };
+
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+      prismaMock.paymentDue.count.mockResolvedValue(2); // Payment dues already exist
+      prismaMock.$transaction.mockResolvedValue(mockOrder);
+      prismaMock.order.update.mockResolvedValue({ ...mockOrder, status: 'CONFIRMED' } as any);
+
+      await orderService.updateOrderStatus('ord-1', { status: 'CONFIRMED' });
+
+      expect(prismaMock.paymentDue.count).toHaveBeenCalled();
+    });
+
+    it('should auto-create production orders when moving to PROCESSING', async () => {
+      const mockOrder = {
+        ...createOrderWithDates({ id: 'ord-1', status: 'CONFIRMED' }),
+        items: [{ id: 'item-1', productId: 'prod-1', quantity: 5 }],
+        source: 'MANUAL',
+      };
+
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+      prismaMock.order.update.mockResolvedValue({ ...mockOrder, status: 'PROCESSING' } as any);
+      prismaMock.user.findFirst.mockResolvedValue({ id: 'user-1' } as any);
+      prismaMock.productionOrder.findFirst.mockResolvedValue(null);
+
+      const manufacturingService = require('@server/services/manufacturing.service').default;
+      manufacturingService.createProductionOrder.mockResolvedValue({ id: 'po-1' });
+
+      await orderService.updateOrderStatus('ord-1', { status: 'PROCESSING' }, 'user-1');
+
+      expect(prismaMock.order.update).toHaveBeenCalled();
+    });
+
+    it('should handle production order creation failure gracefully', async () => {
+      const mockOrder = {
+        ...createOrderWithDates({ id: 'ord-1', status: 'CONFIRMED' }),
+        items: [{ id: 'item-1', productId: 'prod-1', quantity: 5 }],
+        source: 'MANUAL',
+      };
+
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+      prismaMock.order.update.mockResolvedValue({ ...mockOrder, status: 'PROCESSING' } as any);
+      prismaMock.user.findFirst.mockResolvedValue({ id: 'user-1' } as any);
+
+      // This will fail the production order creation
+      const manufacturingService = require('@server/services/manufacturing.service').default;
+      manufacturingService.createProductionOrder.mockRejectedValue(new Error('BOM not found'));
+
+      // Should not throw, just log warning
+      const result = await orderService.updateOrderStatus('ord-1', { status: 'PROCESSING' }, 'user-1');
+      expect(result.status).toBe('PROCESSING');
+    });
+  });
+
+  // ==========================================
+  // allocateInventoryForOrder - detailed tests
+  // ==========================================
+  describe('allocateInventoryForOrder - detailed tests', () => {
+    it('should throw error when inventory item not found', async () => {
+      const mockOrder = {
+        id: 'ord-1',
+        orderNumber: 'ORD-001',
+        source: 'WORDPRESS',
+        items: [
+          {
+            id: 'item-1',
+            productId: 'prod-1',
+            variantId: null,
+            quantity: 5,
+            sku: 'PROD-001',
+            product: { name: 'Product 1' },
+          },
+        ],
+      };
+
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+      prismaMock.$transaction.mockImplementation(async (fn: any) => {
+        return await fn({
+          inventoryItem: { findFirst: jest.fn().mockResolvedValue(null) },
+          inventoryMovement: { create: jest.fn() },
+          orderItem: { update: jest.fn() },
+          productMaterial: { findMany: jest.fn().mockResolvedValue([]) },
+        });
+      });
+
+      await expect(orderService.allocateInventoryForOrder('ord-1')).rejects.toThrow(
+        'Product 1 non disponibile in WEB'
+      );
+    });
+
+    it('should throw error when insufficient stock', async () => {
+      const mockOrder = {
+        id: 'ord-1',
+        orderNumber: 'ORD-001',
+        source: 'WORDPRESS',
+        items: [
+          {
+            id: 'item-1',
+            productId: 'prod-1',
+            variantId: null,
+            quantity: 100,
+            sku: 'PROD-001',
+            product: { name: 'Product 1' },
+          },
+        ],
+      };
+
+      const mockInventoryItem = { id: 'inv-1', quantity: 10, product: { name: 'Product 1' } };
+
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+      prismaMock.$transaction.mockImplementation(async (fn: any) => {
+        return await fn({
+          inventoryItem: {
+            findFirst: jest.fn().mockResolvedValue(mockInventoryItem),
+            update: jest.fn(),
+          },
+          inventoryMovement: { create: jest.fn() },
+          orderItem: { update: jest.fn() },
+          productMaterial: { findMany: jest.fn().mockResolvedValue([]) },
+        });
+      });
+
+      await expect(orderService.allocateInventoryForOrder('ord-1')).rejects.toThrow(
+        'Stock insufficiente per Product 1'
+      );
+    });
+
+    it('should deduct BOM materials when allocating', async () => {
+      const mockOrder = {
+        id: 'ord-1',
+        orderNumber: 'ORD-001',
+        source: 'MANUAL',
+        items: [
+          {
+            id: 'item-1',
+            productId: 'prod-1',
+            variantId: null,
+            quantity: 2,
+            sku: 'PROD-001',
+            product: { name: 'Product 1' },
+          },
+        ],
+      };
+
+      const mockInventoryItem = { id: 'inv-1', quantity: 50 };
+      const mockBomItems = [
+        { materialId: 'mat-1', quantity: createDecimal(3), material: { name: 'Material 1' } },
+        { materialId: 'mat-2', quantity: createDecimal(1.5), material: { name: 'Material 2' } },
+      ];
+
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+
+      const materialUpdateMock = jest.fn().mockResolvedValue({});
+      const materialMovementCreateMock = jest.fn().mockResolvedValue({});
+
+      prismaMock.$transaction.mockImplementation(async (fn: any) => {
+        return await fn({
+          inventoryItem: {
+            findFirst: jest.fn().mockResolvedValue(mockInventoryItem),
+            update: jest.fn().mockResolvedValue({}),
+          },
+          inventoryMovement: { create: jest.fn().mockResolvedValue({}) },
+          orderItem: { update: jest.fn().mockResolvedValue({}) },
+          productMaterial: { findMany: jest.fn().mockResolvedValue(mockBomItems) },
+          material: { update: materialUpdateMock },
+          materialMovement: { create: materialMovementCreateMock },
+        });
+      });
+
+      await orderService.allocateInventoryForOrder('ord-1');
+
+      // Should deduct 2 * 3 = 6 units of Material 1
+      expect(materialUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'mat-1' },
+          data: { currentStock: { decrement: 6 } },
+        })
+      );
+
+      // Should deduct 2 * 1.5 = 3 units of Material 2
+      expect(materialUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'mat-2' },
+          data: { currentStock: { decrement: 3 } },
+        })
+      );
+    });
+
+    it('should use variant-specific BOM materials when available', async () => {
+      const mockOrder = {
+        id: 'ord-1',
+        orderNumber: 'ORD-001',
+        source: 'B2B',
+        items: [
+          {
+            id: 'item-1',
+            productId: 'prod-1',
+            variantId: 'var-1',
+            quantity: 1,
+            sku: 'PROD-001-VAR',
+            variant: { name: 'Red Variant' },
+            product: { name: 'Product 1' },
+          },
+        ],
+      };
+
+      const mockInventoryItem = { id: 'inv-1', quantity: 100 };
+      const mockVariantBomItems = [
+        { materialId: 'mat-red', quantity: createDecimal(5), material: { name: 'Red Material' } },
+      ];
+
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+
+      const productMaterialFindManyMock = jest.fn()
+        // First call: look for variant-specific materials
+        .mockResolvedValueOnce(mockVariantBomItems)
+        // Second call would be for parent product, but shouldn't be called
+        .mockResolvedValueOnce([]);
+
+      const materialUpdateMock = jest.fn().mockResolvedValue({});
+
+      prismaMock.$transaction.mockImplementation(async (fn: any) => {
+        return await fn({
+          inventoryItem: {
+            findFirst: jest.fn().mockResolvedValue(mockInventoryItem),
+            update: jest.fn().mockResolvedValue({}),
+          },
+          inventoryMovement: { create: jest.fn().mockResolvedValue({}) },
+          orderItem: { update: jest.fn().mockResolvedValue({}) },
+          productMaterial: { findMany: productMaterialFindManyMock },
+          material: { update: materialUpdateMock },
+          materialMovement: { create: jest.fn().mockResolvedValue({}) },
+        });
+      });
+
+      await orderService.allocateInventoryForOrder('ord-1');
+
+      // Should use variant-specific materials
+      expect(productMaterialFindManyMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            productId: 'prod-1',
+            variantId: 'var-1',
+          }),
+        })
+      );
+    });
+
+    it('should fallback to product BOM when variant has no specific materials', async () => {
+      const mockOrder = {
+        id: 'ord-1',
+        orderNumber: 'ORD-001',
+        source: 'B2B',
+        items: [
+          {
+            id: 'item-1',
+            productId: 'prod-1',
+            variantId: 'var-1',
+            quantity: 1,
+            sku: 'PROD-001-VAR',
+            variant: { name: 'Red Variant' },
+            product: { name: 'Product 1' },
+          },
+        ],
+      };
+
+      const mockInventoryItem = { id: 'inv-1', quantity: 100 };
+      const mockProductBomItems = [
+        { materialId: 'mat-1', quantity: createDecimal(2), material: { name: 'Generic Material' } },
+      ];
+
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+
+      const productMaterialFindManyMock = jest.fn()
+        // First call: look for variant-specific materials (empty)
+        .mockResolvedValueOnce([])
+        // Second call: fallback to product materials
+        .mockResolvedValueOnce(mockProductBomItems);
+
+      const materialUpdateMock = jest.fn().mockResolvedValue({});
+
+      prismaMock.$transaction.mockImplementation(async (fn: any) => {
+        return await fn({
+          inventoryItem: {
+            findFirst: jest.fn().mockResolvedValue(mockInventoryItem),
+            update: jest.fn().mockResolvedValue({}),
+          },
+          inventoryMovement: { create: jest.fn().mockResolvedValue({}) },
+          orderItem: { update: jest.fn().mockResolvedValue({}) },
+          productMaterial: { findMany: productMaterialFindManyMock },
+          material: { update: materialUpdateMock },
+          materialMovement: { create: jest.fn().mockResolvedValue({}) },
+        });
+      });
+
+      await orderService.allocateInventoryForOrder('ord-1');
+
+      // Should also look for parent product materials
+      expect(productMaterialFindManyMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            productId: 'prod-1',
+            variantId: null,
+          }),
+        })
+      );
+    });
+  });
+
+  // ==========================================
+  // releaseInventoryForOrder - BOM restoration with variants
+  // ==========================================
+  describe('releaseInventoryForOrder - BOM restoration with variants', () => {
+    it('should restore variant-specific BOM materials', async () => {
+      const mockOrder = {
+        id: 'ord-1',
+        orderNumber: 'ORD-001',
+        items: [
+          {
+            id: 'item-1',
+            productId: 'prod-1',
+            variantId: 'var-1',
+            allocatedLocation: 'WEB',
+            allocatedQuantity: 3,
+          },
+        ],
+      };
+
+      const mockInventoryItem = { id: 'inv-1', quantity: 10 };
+      const mockVariantBomItems = [
+        { materialId: 'mat-1', quantity: createDecimal(4), material: { name: 'Material 1' } },
+      ];
+
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+
+      const productMaterialFindManyMock = jest.fn().mockResolvedValue(mockVariantBomItems);
+      const materialUpdateMock = jest.fn().mockResolvedValue({});
+
+      prismaMock.$transaction.mockImplementation(async (fn: any) => {
+        return await fn({
+          inventoryItem: {
+            findFirst: jest.fn().mockResolvedValue(mockInventoryItem),
+            update: jest.fn().mockResolvedValue({}),
+          },
+          inventoryMovement: { create: jest.fn().mockResolvedValue({}) },
+          orderItem: { update: jest.fn().mockResolvedValue({}) },
+          productMaterial: { findMany: productMaterialFindManyMock },
+          material: { update: materialUpdateMock },
+          materialMovement: { create: jest.fn().mockResolvedValue({}) },
+        });
+      });
+
+      await orderService.releaseInventoryForOrder('ord-1');
+
+      // Should restore 3 * 4 = 12 units of material
+      expect(materialUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'mat-1' },
+          data: { currentStock: { increment: 12 } },
+        })
+      );
+    });
+  });
+
+  // ==========================================
+  // generateOrderNumber - edge cases
+  // ==========================================
+  describe('generateOrderNumber', () => {
+    it('should generate order number with incremented counter', async () => {
+      const lastOrder = {
+        orderNumber: 'ORD-2026-000005',
+      };
+
+      prismaMock.order.findFirst.mockResolvedValue(lastOrder as any);
+      prismaMock.$transaction.mockImplementation(async (fn: any) => {
+        return await fn(prismaMock);
+      });
+
+      const mockOrder = createOrderWithDates({ orderNumber: 'ORD-2026-000006' });
+      prismaMock.order.create.mockResolvedValue(mockOrder as any);
+      prismaMock.orderItem.findMany.mockResolvedValue([]);
+      prismaMock.order.findUnique.mockResolvedValue({ ...mockOrder, items: [] } as any);
+      prismaMock.order.update.mockResolvedValue({ ...mockOrder, items: [] } as any);
+
+      const result = await orderService.createOrder({
+        customerId: 'cust-1',
+        source: 'MANUAL',
+      });
+
+      expect(prismaMock.order.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            orderNumber: expect.objectContaining({ startsWith: expect.any(String) }),
+          }),
+          orderBy: { orderNumber: 'desc' },
+        })
+      );
+    });
+
+    it('should handle non-matching order number format', async () => {
+      // Order number doesn't match expected pattern
+      const lastOrder = {
+        orderNumber: 'CUSTOM-ORDER',
+      };
+
+      prismaMock.order.findFirst.mockResolvedValue(lastOrder as any);
+      prismaMock.$transaction.mockImplementation(async (fn: any) => {
+        return await fn(prismaMock);
+      });
+
+      const mockOrder = createOrderWithDates({ orderNumber: 'ORD-2026-000001' });
+      prismaMock.order.create.mockResolvedValue(mockOrder as any);
+      prismaMock.orderItem.findMany.mockResolvedValue([]);
+      prismaMock.order.findUnique.mockResolvedValue({ ...mockOrder, items: [] } as any);
+      prismaMock.order.update.mockResolvedValue({ ...mockOrder, items: [] } as any);
+
+      const result = await orderService.createOrder({
+        customerId: 'cust-1',
+        source: 'MANUAL',
+      });
+
+      expect(result).toBeDefined();
+    });
+  });
+
+  // ==========================================
+  // createOrderFull - payment dues and pricelist
+  // ==========================================
+  describe('createOrderFull - payment dues and pricelist', () => {
+    it('should create order with custom installments', async () => {
+      const mockCustomer = {
+        id: 'cust-1',
+        type: 'B2B',
+        paymentTerms: 30,
+        priceList: null,
+        paymentPlan: null,
+        shippingAddress: { street: 'Via Test' },
+        billingAddress: { street: 'Via Test' },
+      };
+
+      const mockProduct = {
+        id: 'prod-1',
+        sku: 'SKU-1',
+        name: 'Product',
+        price: createDecimal(1000),
+        taxRate: createDecimal(22),
+      };
+
+      prismaMock.customer.findUnique.mockResolvedValue(mockCustomer as any);
+      prismaMock.order.findFirst.mockResolvedValue(null);
+
+      const paymentDueCreateMock = jest.fn().mockResolvedValue({ id: 'pd-1' });
+      const mockOrder = createOrderWithDates({ id: 'ord-new' });
+
+      prismaMock.$transaction.mockImplementation(async (fn: any) => {
+        return await fn({
+          order: {
+            create: jest.fn().mockResolvedValue(mockOrder),
+            findUnique: jest.fn().mockResolvedValue({ ...mockOrder, items: [], paymentDues: [{ id: 'pd-1' }] }),
+          },
+          product: { findUnique: jest.fn().mockResolvedValue(mockProduct) },
+          orderItem: { create: jest.fn().mockResolvedValue({}) },
+          paymentDue: { create: paymentDueCreateMock },
+        });
+      });
+
+      await orderService.createOrderFull({
+        customerId: 'cust-1',
+        source: 'B2B',
+        items: [{ productId: 'prod-1', quantity: 1 }],
+        customInstallments: [
+          { installmentNumber: 1, totalInstallments: 2, amount: 500, dueDate: '2026-03-01' },
+          { installmentNumber: 2, totalInstallments: 2, amount: 500, dueDate: '2026-04-01' },
+        ],
+      });
+
+      expect(paymentDueCreateMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('should generate payment dues using customer payment plan', async () => {
+      const mockCustomer = {
+        id: 'cust-1',
+        type: 'B2B',
+        paymentTerms: 30,
+        priceList: null,
+        paymentPlan: {
+          id: 'pp-1',
+          installments: [
+            { sequence: 1, percentage: createDecimal(50), daysFromInvoice: 0 },
+            { sequence: 2, percentage: createDecimal(50), daysFromInvoice: 30 },
+          ],
+        },
+        shippingAddress: { street: 'Via Test' },
+        billingAddress: { street: 'Via Test' },
+      };
+
+      const mockProduct = {
+        id: 'prod-1',
+        sku: 'SKU-1',
+        name: 'Product',
+        price: createDecimal(1000),
+        taxRate: createDecimal(22),
+      };
+
+      prismaMock.customer.findUnique.mockResolvedValue(mockCustomer as any);
+      prismaMock.order.findFirst.mockResolvedValue(null);
+
+      const paymentDueCreateMock = jest.fn().mockResolvedValue({ id: 'pd-1' });
+      const mockOrder = createOrderWithDates({ id: 'ord-new', total: createDecimal(1220) });
+
+      prismaMock.$transaction.mockImplementation(async (fn: any) => {
+        return await fn({
+          order: {
+            create: jest.fn().mockResolvedValue(mockOrder),
+            findUnique: jest.fn().mockResolvedValue({
+              ...mockOrder,
+              orderDate: new Date(),
+              b2bPaymentMethod: 'BONIFICO',
+              items: [],
+              paymentDues: [{ id: 'pd-1' }, { id: 'pd-2' }],
+            }),
+          },
+          product: { findUnique: jest.fn().mockResolvedValue(mockProduct) },
+          orderItem: { create: jest.fn().mockResolvedValue({}) },
+          paymentDue: { create: paymentDueCreateMock },
+        });
+      });
+
+      await orderService.createOrderFull({
+        customerId: 'cust-1',
+        source: 'B2B',
+        items: [{ productId: 'prod-1', quantity: 1 }],
+        generatePaymentDues: true,
+      });
+
+      // Should create 2 payment dues based on payment plan
+      expect(paymentDueCreateMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('should generate single payment due when no payment plan', async () => {
+      const mockCustomer = {
+        id: 'cust-1',
+        type: 'B2B',
+        paymentTerms: 60,
+        priceList: null,
+        paymentPlan: null, // No payment plan
+        shippingAddress: { street: 'Via Test' },
+        billingAddress: { street: 'Via Test' },
+      };
+
+      const mockProduct = {
+        id: 'prod-1',
+        sku: 'SKU-1',
+        name: 'Product',
+        price: createDecimal(500),
+        taxRate: createDecimal(22),
+      };
+
+      prismaMock.customer.findUnique.mockResolvedValue(mockCustomer as any);
+      prismaMock.order.findFirst.mockResolvedValue(null);
+
+      const paymentDueCreateMock = jest.fn().mockResolvedValue({ id: 'pd-1' });
+      const mockOrder = createOrderWithDates({ id: 'ord-new', total: createDecimal(610) });
+
+      prismaMock.$transaction.mockImplementation(async (fn: any) => {
+        return await fn({
+          order: {
+            create: jest.fn().mockResolvedValue(mockOrder),
+            findUnique: jest.fn().mockResolvedValue({
+              ...mockOrder,
+              orderDate: new Date(),
+              b2bPaymentMethod: 'RIBA',
+              b2bPaymentTerms: 60,
+              items: [],
+              paymentDues: [{ id: 'pd-1' }],
+            }),
+          },
+          product: { findUnique: jest.fn().mockResolvedValue(mockProduct) },
+          orderItem: { create: jest.fn().mockResolvedValue({}) },
+          paymentDue: { create: paymentDueCreateMock },
+        });
+      });
+
+      await orderService.createOrderFull({
+        customerId: 'cust-1',
+        source: 'B2B',
+        items: [{ productId: 'prod-1', quantity: 1 }],
+        generatePaymentDues: true,
+      });
+
+      // Should create single payment due
+      expect(paymentDueCreateMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('should use B2B pricelist and fallback on error', async () => {
+      const mockCustomer = {
+        id: 'cust-1',
+        type: 'B2B',
+        paymentTerms: 30,
+        priceList: { id: 'pl-1' },
+        paymentPlan: null,
+        shippingAddress: { street: 'Via Test' },
+        billingAddress: { street: 'Via Test' },
+      };
+
+      const mockProduct = {
+        id: 'prod-1',
+        sku: 'SKU-1',
+        name: 'Product',
+        price: createDecimal(200),
+        taxRate: createDecimal(22),
+      };
+
+      prismaMock.customer.findUnique.mockResolvedValue(mockCustomer as any);
+      prismaMock.order.findFirst.mockResolvedValue(null);
+
+      const priceListService = require('@server/services/pricelist.service').priceListService;
+      priceListService.calculatePrice = jest.fn().mockRejectedValue(new Error('Pricelist error'));
+
+      const itemCreateMock = jest.fn().mockResolvedValue({});
+      const mockOrder = createOrderWithDates({ id: 'ord-new' });
+
+      prismaMock.$transaction.mockImplementation(async (fn: any) => {
+        return await fn({
+          order: {
+            create: jest.fn().mockResolvedValue(mockOrder),
+            findUnique: jest.fn().mockResolvedValue({ ...mockOrder, items: [], paymentDues: [] }),
+          },
+          product: { findUnique: jest.fn().mockResolvedValue(mockProduct) },
+          orderItem: { create: itemCreateMock },
+        });
+      });
+
+      await orderService.createOrderFull({
+        customerId: 'cust-1',
+        source: 'B2B',
+        items: [{ productId: 'prod-1', quantity: 2 }],
+      });
+
+      // Should fallback to product base price
+      expect(itemCreateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            unitPrice: 200,
+            priceSource: 'product_base',
+          }),
+        })
+      );
+    });
+
+    it('should use product base price for non-B2B customers without manual price', async () => {
+      const mockCustomer = {
+        id: 'cust-1',
+        type: 'B2C', // Not B2B
+        paymentTerms: 0,
+        priceList: null,
+        paymentPlan: null,
+        shippingAddress: { street: 'Via Test' },
+        billingAddress: { street: 'Via Test' },
+      };
+
+      const mockProduct = {
+        id: 'prod-1',
+        sku: 'SKU-1',
+        name: 'Product',
+        price: createDecimal(150),
+        taxRate: createDecimal(22),
+      };
+
+      prismaMock.customer.findUnique.mockResolvedValue(mockCustomer as any);
+      prismaMock.order.findFirst.mockResolvedValue(null);
+
+      const itemCreateMock = jest.fn().mockResolvedValue({});
+      const mockOrder = createOrderWithDates({ id: 'ord-new' });
+
+      prismaMock.$transaction.mockImplementation(async (fn: any) => {
+        return await fn({
+          order: {
+            create: jest.fn().mockResolvedValue(mockOrder),
+            findUnique: jest.fn().mockResolvedValue({ ...mockOrder, items: [], paymentDues: [] }),
+          },
+          product: { findUnique: jest.fn().mockResolvedValue(mockProduct) },
+          orderItem: { create: itemCreateMock },
+        });
+      });
+
+      await orderService.createOrderFull({
+        customerId: 'cust-1',
+        source: 'MANUAL',
+        items: [{ productId: 'prod-1', quantity: 1 }],
+      });
+
+      expect(itemCreateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            unitPrice: 150,
+            priceSource: 'product_base',
+          }),
+        })
+      );
+    });
+  });
+
+  // ==========================================
+  // updateOrderFull - pricelist and attachments
+  // ==========================================
+  describe('updateOrderFull - pricelist and attachments', () => {
+    it('should use B2B pricelist when updating items', async () => {
+      const mockOrder = {
+        ...createOrderWithDates({ id: 'ord-1', status: 'PENDING' }),
+        customer: {
+          id: 'cust-1',
+          type: 'B2B',
+          priceList: { id: 'pl-1' },
+        },
+        items: [],
+        shipping: createDecimal(10),
+        discount: createDecimal(5),
+      };
+
+      const mockProduct = {
+        id: 'prod-1',
+        sku: 'SKU-1',
+        name: 'Product',
+        price: createDecimal(100),
+        taxRate: createDecimal(22),
+      };
+
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+
+      const priceListService = require('@server/services/pricelist.service').priceListService;
+      priceListService.calculatePrice = jest.fn().mockResolvedValue({
+        finalPrice: 85,
+        discount: 15,
+        discountSource: 'volume_discount',
+      });
+
+      const itemCreateMock = jest.fn().mockResolvedValue({});
+
+      prismaMock.$transaction.mockImplementation(async (fn: any) => {
+        return await fn({
+          order: {
+            update: jest.fn().mockResolvedValue(mockOrder),
+            findUnique: jest.fn().mockResolvedValue({ ...mockOrder, items: [] }),
+          },
+          orderItem: { deleteMany: jest.fn(), create: itemCreateMock },
+          product: { findUnique: jest.fn().mockResolvedValue(mockProduct) },
+        });
+      });
+
+      await orderService.updateOrderFull('ord-1', {
+        items: [{ productId: 'prod-1', quantity: 5 }],
+        priceListId: 'pl-override',
+      });
+
+      expect(priceListService.calculatePrice).toHaveBeenCalledWith(
+        'cust-1',
+        'prod-1',
+        5,
+        'pl-override'
+      );
+    });
+
+    it('should fallback to product base price when B2B pricelist fails in update', async () => {
+      const mockOrder = {
+        ...createOrderWithDates({ id: 'ord-1', status: 'PENDING' }),
+        customer: {
+          id: 'cust-1',
+          type: 'B2B',
+          priceList: { id: 'pl-1' },
+        },
+        items: [],
+        shipping: createDecimal(0),
+        discount: createDecimal(0),
+      };
+
+      const mockProduct = {
+        id: 'prod-1',
+        sku: 'SKU-1',
+        name: 'Product',
+        price: createDecimal(250),
+        taxRate: createDecimal(22),
+      };
+
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+
+      const priceListService = require('@server/services/pricelist.service').priceListService;
+      priceListService.calculatePrice = jest.fn().mockRejectedValue(new Error('Pricelist error'));
+
+      const itemCreateMock = jest.fn().mockResolvedValue({});
+
+      prismaMock.$transaction.mockImplementation(async (fn: any) => {
+        return await fn({
+          order: {
+            update: jest.fn().mockResolvedValue(mockOrder),
+            findUnique: jest.fn().mockResolvedValue({ ...mockOrder, items: [] }),
+          },
+          orderItem: { deleteMany: jest.fn(), create: itemCreateMock },
+          product: { findUnique: jest.fn().mockResolvedValue(mockProduct) },
+        });
+      });
+
+      await orderService.updateOrderFull('ord-1', {
+        items: [{ productId: 'prod-1', quantity: 1 }],
+      });
+
+      expect(itemCreateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            unitPrice: 250,
+            priceSource: 'product_base',
+          }),
+        })
+      );
+    });
+
+    it('should map attachments with IDs when updating', async () => {
+      const mockOrder = {
+        ...createOrderWithDates({ id: 'ord-1', status: 'PENDING' }),
+        customer: { id: 'cust-1', type: 'B2C', priceList: null },
+        items: [],
+      };
+
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+
+      const updateMock = jest.fn().mockResolvedValue(mockOrder);
+
+      prismaMock.$transaction.mockImplementation(async (fn: any) => {
+        return await fn({
+          order: {
+            update: updateMock,
+            findUnique: jest.fn().mockResolvedValue({ ...mockOrder, items: [] }),
+          },
+          orderItem: { deleteMany: jest.fn(), create: jest.fn() },
+          product: { findUnique: jest.fn() },
+        });
+      });
+
+      await orderService.updateOrderFull('ord-1', {
+        attachments: [
+          { name: 'file1.pdf', url: '/uploads/file1.pdf', type: 'application/pdf' },
+          { name: 'file2.pdf', url: '/uploads/file2.pdf', type: 'application/pdf', addedAt: '2026-01-15T10:00:00Z' },
+        ],
+      });
+
+      expect(updateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            attachments: expect.arrayContaining([
+              expect.objectContaining({ name: 'file1.pdf', id: expect.any(String), addedAt: expect.any(String) }),
+              expect.objectContaining({ name: 'file2.pdf', id: expect.any(String) }),
+            ]),
+          }),
+        })
+      );
+    });
+
+    it('should skip product when not found in update', async () => {
+      const mockOrder = {
+        ...createOrderWithDates({ id: 'ord-1', status: 'PENDING' }),
+        customer: { id: 'cust-1', type: 'B2C', priceList: null },
+        items: [{ id: 'item-1', productId: 'prod-1', quantity: 1 }],
+        shipping: createDecimal(0),
+        discount: createDecimal(0),
+      };
+
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+
+      const itemCreateMock = jest.fn().mockResolvedValue({});
+
+      prismaMock.$transaction.mockImplementation(async (fn: any) => {
+        return await fn({
+          order: {
+            update: jest.fn().mockResolvedValue(mockOrder),
+            findUnique: jest.fn().mockResolvedValue({ ...mockOrder, items: [] }),
+          },
+          orderItem: { deleteMany: jest.fn(), create: itemCreateMock },
+          product: { findUnique: jest.fn().mockResolvedValue(null) }, // Product not found
+        });
+      });
+
+      await orderService.updateOrderFull('ord-1', {
+        items: [{ productId: 'non-existent', quantity: 1 }],
+      });
+
+      // Should skip creating item for non-existent product
+      expect(itemCreateMock).not.toHaveBeenCalled();
+    });
+  });
+
+  // ==========================================
+  // getOrderFull - calculations
+  // ==========================================
+  describe('getOrderFull - calculations', () => {
+    it('should calculate totalRefunded from completed refunds', async () => {
+      const mockOrder = {
+        ...createOrderWithDates({ id: 'ord-1', total: createDecimal(1000) }),
+        customer: mockFactories.customer(),
+        items: [],
+        invoice: null,
+        orderNotes: [],
+        refunds: [
+          { id: 'ref-1', amount: createDecimal(100), status: 'COMPLETED', items: [] },
+          { id: 'ref-2', amount: createDecimal(50), status: 'PENDING', items: [] }, // Should not count
+          { id: 'ref-3', amount: createDecimal(200), status: 'COMPLETED', items: [] },
+        ],
+        paymentDues: [
+          { id: 'pd-1', paidAmount: createDecimal(300), payments: [] },
+          { id: 'pd-2', paidAmount: createDecimal(200), payments: [] },
+        ],
+        productionOrders: [],
+        attachments: [],
+      };
+
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+
+      const result = await orderService.getOrderFull('ord-1');
+
+      expect(result?.calculations.totalRefunded).toBe(300); // 100 + 200 (completed only)
+      expect(result?.calculations.totalPaid).toBe(500); // 300 + 200
+      expect(result?.calculations.balance).toBe(200); // 1000 - 300 - 500
+    });
+
+    it('should calculate payment progress percentage', async () => {
+      const mockOrder = {
+        ...createOrderWithDates({ id: 'ord-1', total: createDecimal(1000) }),
+        customer: mockFactories.customer(),
+        items: [],
+        invoice: null,
+        orderNotes: [],
+        refunds: [],
+        paymentDues: [
+          { id: 'pd-1', paidAmount: createDecimal(500), payments: [] },
+        ],
+        productionOrders: [],
+        attachments: [],
+      };
+
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+
+      const result = await orderService.getOrderFull('ord-1');
+
+      expect(result?.calculations.paymentProgress).toBe(50);
+    });
+
+    it('should return 0 payment progress when no payment dues', async () => {
+      const mockOrder = {
+        ...createOrderWithDates({ id: 'ord-1', total: createDecimal(1000) }),
+        customer: mockFactories.customer(),
+        items: [],
+        invoice: null,
+        orderNotes: [],
+        refunds: [],
+        paymentDues: [],
+        productionOrders: [],
+        attachments: [],
+      };
+
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+
+      const result = await orderService.getOrderFull('ord-1');
+
+      expect(result?.calculations.paymentProgress).toBe(0);
+    });
+
+    it('should ensure attachments is always an array', async () => {
+      const mockOrder = {
+        ...createOrderWithDates({ id: 'ord-1' }),
+        customer: mockFactories.customer(),
+        items: [],
+        invoice: null,
+        orderNotes: [],
+        refunds: [],
+        paymentDues: [],
+        productionOrders: [],
+        attachments: null, // null attachments
+      };
+
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+
+      const result = await orderService.getOrderFull('ord-1');
+
+      expect(result?.attachments).toEqual([]);
+    });
+  });
+
+  // ==========================================
+  // getOrderAttachments - error handling
+  // ==========================================
+  describe('getOrderAttachments - error handling', () => {
+    it('should throw error when order not found', async () => {
+      prismaMock.order.findUnique.mockResolvedValue(null);
+
+      await expect(orderService.getOrderAttachments('non-existent')).rejects.toThrow(
+        'Ordine non trovato'
+      );
+    });
+
+    it('should return empty array when attachments is null', async () => {
+      prismaMock.order.findUnique.mockResolvedValue({ attachments: null } as any);
+
+      const result = await orderService.getOrderAttachments('ord-1');
+
+      expect(result).toEqual([]);
+    });
+  });
+
+  // ==========================================
+  // createProductionOrdersForOrder - detailed tests
+  // ==========================================
+  describe('createProductionOrdersForOrder - detailed tests', () => {
+    it('should create production orders for each item with userId', async () => {
+      const mockOrder = {
+        id: 'ord-1',
+        orderNumber: 'ORD-001',
+        priority: 0,
+        items: [
+          { id: 'item-1', productId: 'prod-1', quantity: 5, product: { sku: 'SKU-1' } },
+          { id: 'item-2', productId: 'prod-2', quantity: 3, product: { sku: 'SKU-2' } },
+        ],
+      };
+
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+      prismaMock.productionOrder.findFirst.mockResolvedValue(null);
+
+      const manufacturingService = require('@server/services/manufacturing.service').default;
+      manufacturingService.createProductionOrder.mockResolvedValue({ id: 'po-1' });
+
+      const result = await orderService.createProductionOrdersForOrder('ord-1', 'user-1');
+
+      expect(manufacturingService.createProductionOrder).toHaveBeenCalledTimes(2);
+      expect(result).toHaveLength(2);
+    });
+
+    it('should find system user when no userId provided', async () => {
+      const mockOrder = {
+        id: 'ord-1',
+        orderNumber: 'ORD-001',
+        priority: 0,
+        items: [{ id: 'item-1', productId: 'prod-1', quantity: 5, product: { sku: 'SKU-1' } }],
+      };
+
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+      prismaMock.user.findFirst.mockResolvedValue({ id: 'system-user' } as any);
+      prismaMock.productionOrder.findFirst.mockResolvedValue(null);
+
+      const manufacturingService = require('@server/services/manufacturing.service').default;
+      manufacturingService.createProductionOrder.mockResolvedValue({ id: 'po-1' });
+
+      await orderService.createProductionOrdersForOrder('ord-1');
+
+      expect(prismaMock.user.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            OR: expect.arrayContaining([
+              { email: 'system@ecommerceerp.com' },
+              { role: 'ADMIN' },
+            ]),
+          }),
+        })
+      );
+    });
+
+    it('should throw error when no user available', async () => {
+      const mockOrder = {
+        id: 'ord-1',
+        orderNumber: 'ORD-001',
+        priority: 0,
+        items: [{ id: 'item-1', productId: 'prod-1', quantity: 5, product: { sku: 'SKU-1' } }],
+      };
+
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+      prismaMock.user.findFirst.mockResolvedValue(null);
+
+      await expect(orderService.createProductionOrdersForOrder('ord-1')).rejects.toThrow(
+        'Nessun utente disponibile per creare ordini di produzione'
+      );
+    });
+
+    it('should skip items that already have production orders', async () => {
+      const mockOrder = {
+        id: 'ord-1',
+        orderNumber: 'ORD-001',
+        priority: 0,
+        items: [
+          { id: 'item-1', productId: 'prod-1', quantity: 5, product: { sku: 'SKU-1' } },
+        ],
+      };
+
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+      // Production order already exists
+      prismaMock.productionOrder.findFirst.mockResolvedValue({ id: 'existing-po' } as any);
+
+      const manufacturingService = require('@server/services/manufacturing.service').default;
+      manufacturingService.createProductionOrder.mockResolvedValue({ id: 'po-1' });
+
+      const result = await orderService.createProductionOrdersForOrder('ord-1', 'user-1');
+
+      expect(manufacturingService.createProductionOrder).not.toHaveBeenCalled();
+      expect(result).toHaveLength(0);
+    });
+
+    it('should set priority based on order priority', async () => {
+      const mockOrder = {
+        id: 'ord-1',
+        orderNumber: 'ORD-001',
+        priority: 'URGENT',
+        items: [{ id: 'item-1', productId: 'prod-1', quantity: 5, product: { sku: 'SKU-1' } }],
+      };
+
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+      prismaMock.productionOrder.findFirst.mockResolvedValue(null);
+
+      const manufacturingService = require('@server/services/manufacturing.service').default;
+      manufacturingService.createProductionOrder.mockResolvedValue({ id: 'po-1' });
+
+      await orderService.createProductionOrdersForOrder('ord-1', 'user-1');
+
+      expect(manufacturingService.createProductionOrder).toHaveBeenCalledWith(
+        expect.objectContaining({
+          priority: 10, // URGENT = 10
+        })
+      );
+    });
+
+    it('should handle production order creation failure gracefully', async () => {
+      const mockOrder = {
+        id: 'ord-1',
+        orderNumber: 'ORD-001',
+        priority: 0,
+        items: [
+          { id: 'item-1', productId: 'prod-1', quantity: 5, product: { sku: 'SKU-1' } },
+          { id: 'item-2', productId: 'prod-2', quantity: 3, product: { sku: 'SKU-2' } },
+        ],
+      };
+
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+      prismaMock.productionOrder.findFirst.mockResolvedValue(null);
+
+      const manufacturingService = require('@server/services/manufacturing.service').default;
+      manufacturingService.createProductionOrder
+        .mockRejectedValueOnce(new Error('BOM not found'))
+        .mockResolvedValueOnce({ id: 'po-2' });
+
+      const result = await orderService.createProductionOrdersForOrder('ord-1', 'user-1');
+
+      // Should continue with other items even if one fails
+      expect(result).toHaveLength(1);
+    });
+  });
+
+  // ==========================================
+  // getOptimizationSuggestions - grouping tests
+  // ==========================================
+  describe('getOptimizationSuggestions - grouping tests', () => {
+    it('should group orders by destination country', async () => {
+      const mockOrders = [
+        {
+          ...createOrderWithDates({ id: 'ord-1', status: 'PENDING' }),
+          shippingAddress: { country: 'Italy' },
+          total: createDecimal(100),
+          priority: 0,
+          items: [],
+          customer: { businessName: 'Company A' },
+        },
+        {
+          ...createOrderWithDates({ id: 'ord-2', status: 'PENDING' }),
+          shippingAddress: { country: 'Italy' },
+          total: createDecimal(200),
+          priority: 0,
+          items: [],
+          customer: { businessName: 'Company B' },
+        },
+        {
+          ...createOrderWithDates({ id: 'ord-3', status: 'PENDING' }),
+          shippingAddress: { country: 'Germany' },
+          total: createDecimal(150),
+          priority: 0,
+          items: [],
+          customer: { businessName: 'Company C' },
+        },
+      ];
+
+      prismaMock.order.findMany.mockResolvedValue(mockOrders as any);
+
+      const result = await orderService.getOptimizationSuggestions();
+
+      // Should have grouping by Italy (2 orders)
+      expect(result.groupings.byDestination).toContainEqual(
+        expect.objectContaining({
+          country: 'Italy',
+          orderCount: 2,
+        })
+      );
+    });
+
+    it('should group orders by product', async () => {
+      const mockOrders = [
+        {
+          ...createOrderWithDates({ id: 'ord-1', status: 'PENDING' }),
+          shippingAddress: { country: 'Italy' },
+          total: createDecimal(100),
+          priority: 0,
+          items: [
+            { productId: 'prod-1', quantity: 5, product: { id: 'prod-1', name: 'Product A', sku: 'SKU-A' } },
+          ],
+          customer: { businessName: 'Company A' },
+        },
+        {
+          ...createOrderWithDates({ id: 'ord-2', status: 'CONFIRMED' }),
+          shippingAddress: { country: 'Germany' },
+          total: createDecimal(200),
+          priority: 0,
+          items: [
+            { productId: 'prod-1', quantity: 10, product: { id: 'prod-1', name: 'Product A', sku: 'SKU-A' } },
+          ],
+          customer: { businessName: 'Company B' },
+        },
+      ];
+
+      prismaMock.order.findMany.mockResolvedValue(mockOrders as any);
+
+      const result = await orderService.getOptimizationSuggestions();
+
+      // Should have grouping by Product A (2 orders, 15 total quantity)
+      expect(result.groupings.byProduct).toContainEqual(
+        expect.objectContaining({
+          product: expect.objectContaining({ name: 'Product A' }),
+          orderCount: 2,
+          totalQuantity: 15,
+        })
+      );
+    });
+
+    it('should generate suggestions for urgent orders', async () => {
+      const mockOrders = [
+        {
+          ...createOrderWithDates({ id: 'ord-1', status: 'PENDING' }),
+          shippingAddress: { country: 'Italy' },
+          total: createDecimal(100),
+          priority: 5, // HIGH priority
+          items: [],
+          customer: { businessName: 'Company A' },
+        },
+      ];
+
+      prismaMock.order.findMany.mockResolvedValue(mockOrders as any);
+
+      const result = await orderService.getOptimizationSuggestions();
+
+      // Should have urgent suggestion
+      expect(result.suggestions).toContainEqual(
+        expect.objectContaining({
+          type: 'URGENT',
+          orders: expect.arrayContaining([
+            expect.objectContaining({ id: 'ord-1' }),
+          ]),
+        })
+      );
+    });
+
+    it('should generate product batch suggestions', async () => {
+      const mockOrders = [
+        {
+          ...createOrderWithDates({ id: 'ord-1', status: 'PENDING' }),
+          shippingAddress: null,
+          total: createDecimal(100),
+          priority: 0,
+          items: [
+            { productId: 'prod-1', quantity: 5, product: { id: 'prod-1', name: 'Product A', sku: 'SKU-A' } },
+          ],
+          customer: { businessName: 'Company A' },
+        },
+        {
+          ...createOrderWithDates({ id: 'ord-2', status: 'PENDING' }),
+          shippingAddress: null,
+          total: createDecimal(200),
+          priority: 0,
+          items: [
+            { productId: 'prod-1', quantity: 10, product: { id: 'prod-1', name: 'Product A', sku: 'SKU-A' } },
+          ],
+          customer: { businessName: 'Company B' },
+        },
+      ];
+
+      prismaMock.order.findMany.mockResolvedValue(mockOrders as any);
+
+      const result = await orderService.getOptimizationSuggestions();
+
+      // Should have product batch suggestion
+      expect(result.suggestions).toContainEqual(
+        expect.objectContaining({
+          type: 'PRODUCT_BATCH',
+          productSku: 'SKU-A',
+        })
+      );
+    });
+
+    it('should generate shipping batch suggestions', async () => {
+      const mockOrders = [
+        {
+          ...createOrderWithDates({ id: 'ord-1', status: 'PENDING' }),
+          shippingAddress: { country: 'France' },
+          total: createDecimal(100),
+          priority: 0,
+          items: [],
+          customer: { businessName: 'Company A' },
+        },
+        {
+          ...createOrderWithDates({ id: 'ord-2', status: 'PENDING' }),
+          shippingAddress: { country: 'France' },
+          total: createDecimal(200),
+          priority: 0,
+          items: [],
+          customer: { businessName: 'Company B' },
+        },
+      ];
+
+      prismaMock.order.findMany.mockResolvedValue(mockOrders as any);
+
+      const result = await orderService.getOptimizationSuggestions();
+
+      // Should have shipping batch suggestion for France
+      expect(result.suggestions).toContainEqual(
+        expect.objectContaining({
+          type: 'SHIPPING_BATCH',
+          country: 'France',
+        })
+      );
+    });
+
+    it('should generate standard suggestion for remaining orders', async () => {
+      const mockOrders = [
+        {
+          ...createOrderWithDates({ id: 'ord-1', status: 'PENDING' }),
+          shippingAddress: { country: 'Unique Country' },
+          total: createDecimal(100),
+          priority: 0,
+          items: [{ productId: 'unique-prod', quantity: 1, product: { id: 'unique-prod', name: 'Unique', sku: 'U' } }],
+          customer: { businessName: 'Solo Company' },
+        },
+      ];
+
+      prismaMock.order.findMany.mockResolvedValue(mockOrders as any);
+
+      const result = await orderService.getOptimizationSuggestions();
+
+      // Should have standard suggestion for orders that don't fit other groups
+      expect(result.suggestions).toContainEqual(
+        expect.objectContaining({
+          type: 'STANDARD',
+        })
+      );
+    });
+
+    it('should estimate time savings correctly', async () => {
+      const mockOrders = [
+        {
+          ...createOrderWithDates({ id: 'ord-1', status: 'PENDING' }),
+          shippingAddress: { country: 'Italy' },
+          total: createDecimal(100),
+          priority: 0,
+          items: [{ productId: 'prod-1', quantity: 5, product: { id: 'prod-1', name: 'Product A', sku: 'SKU-A' } }],
+          customer: { businessName: 'Company A' },
+        },
+        {
+          ...createOrderWithDates({ id: 'ord-2', status: 'PENDING' }),
+          shippingAddress: { country: 'Italy' },
+          total: createDecimal(200),
+          priority: 0,
+          items: [{ productId: 'prod-1', quantity: 10, product: { id: 'prod-1', name: 'Product A', sku: 'SKU-A' } }],
+          customer: { businessName: 'Company B' },
+        },
+        {
+          ...createOrderWithDates({ id: 'ord-3', status: 'PENDING' }),
+          shippingAddress: { country: 'Italy' },
+          total: createDecimal(150),
+          priority: 0,
+          items: [{ productId: 'prod-1', quantity: 3, product: { id: 'prod-1', name: 'Product A', sku: 'SKU-A' } }],
+          customer: { businessName: 'Company C' },
+        },
+      ];
+
+      prismaMock.order.findMany.mockResolvedValue(mockOrders as any);
+
+      const result = await orderService.getOptimizationSuggestions();
+
+      // Should have estimated savings
+      expect(result.estimatedSavings).toBeDefined();
+      expect(result.estimatedSavings.totalOrdersOptimized).toBeGreaterThan(0);
+    });
+
+    it('should handle orders with null shipping address', async () => {
+      const mockOrders = [
+        {
+          ...createOrderWithDates({ id: 'ord-1', status: 'PENDING' }),
+          shippingAddress: null,
+          total: createDecimal(100),
+          priority: 0,
+          items: [],
+          customer: { businessName: 'Company A' },
+        },
+      ];
+
+      prismaMock.order.findMany.mockResolvedValue(mockOrders as any);
+
+      const result = await orderService.getOptimizationSuggestions();
+
+      // Should handle gracefully - group under "Sconosciuto"
+      expect(result).toBeDefined();
+    });
+  });
+
+  // ==========================================
+  // getOrdersTimeline - summary calculations
+  // ==========================================
+  describe('getOrdersTimeline - summary calculations', () => {
+    it('should calculate pending deliveries correctly', async () => {
+      const now = new Date();
+      const futureDate = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000);
+      const pastDate = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+
+      const mockOrders = [
+        {
+          id: 'ord-1',
+          orderNumber: 'ORD-001',
+          status: 'CONFIRMED',
+          orderDate: now,
+          estimatedDelivery: futureDate, // Future - pending
+          total: createDecimal(100),
+          shippingAddress: null,
+          customer: { firstName: 'John', lastName: 'Doe', businessName: null },
+        },
+        {
+          id: 'ord-2',
+          orderNumber: 'ORD-002',
+          status: 'SHIPPED',
+          orderDate: pastDate,
+          estimatedDelivery: pastDate, // Past - overdue
+          total: createDecimal(200),
+          shippingAddress: null,
+          customer: { firstName: 'Jane', lastName: 'Doe', businessName: null },
+        },
+        {
+          id: 'ord-3',
+          orderNumber: 'ORD-003',
+          status: 'DELIVERED', // Delivered - not counted
+          orderDate: pastDate,
+          estimatedDelivery: pastDate,
+          total: createDecimal(150),
+          shippingAddress: null,
+          customer: { firstName: 'Bob', lastName: 'Smith', businessName: null },
+        },
+      ];
+
+      prismaMock.order.findMany.mockResolvedValue(mockOrders as any);
+
+      const result = await orderService.getOrdersTimeline(30);
+
+      expect(result.summary.pendingDeliveries).toBe(1);
+      expect(result.summary.overdueDeliveries).toBe(1);
+    });
+
+    it('should calculate average order value', async () => {
+      const now = new Date();
+
+      const mockOrders = [
+        {
+          id: 'ord-1',
+          orderNumber: 'ORD-001',
+          status: 'PENDING',
+          orderDate: now,
+          estimatedDelivery: null,
+          total: createDecimal(100),
+          shippingAddress: null,
+          customer: { firstName: 'John', lastName: 'Doe', businessName: null },
+        },
+        {
+          id: 'ord-2',
+          orderNumber: 'ORD-002',
+          status: 'PENDING',
+          orderDate: now,
+          estimatedDelivery: null,
+          total: createDecimal(200),
+          shippingAddress: null,
+          customer: { firstName: 'Jane', lastName: 'Doe', businessName: null },
+        },
+      ];
+
+      prismaMock.order.findMany.mockResolvedValue(mockOrders as any);
+
+      const result = await orderService.getOrdersTimeline(30);
+
+      expect(result.summary.avgOrderValue).toBe(150); // (100 + 200) / 2
+      expect(result.summary.totalRevenue).toBe(300);
+      expect(result.summary.totalReceived).toBe(2);
+    });
+  });
+
+  // ==========================================
+  // markAsDelivered - status validation
+  // ==========================================
+  describe('markAsDelivered - status validation', () => {
+    it('should set delivered date when marking as delivered', async () => {
+      const mockOrder = {
+        ...createOrderWithDates({ id: 'ord-1', status: 'SHIPPED' }),
+        items: [],
+      };
+
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+      prismaMock.order.update.mockResolvedValue({
+        ...mockOrder,
+        status: 'DELIVERED',
+        deliveredDate: new Date(),
+      } as any);
+
+      await orderService.markAsDelivered('ord-1');
+
+      expect(prismaMock.order.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: 'DELIVERED',
+            deliveredDate: expect.any(Date),
+          }),
+        })
+      );
+    });
+  });
+
+  // ==========================================
+  // listOrders - additional filter tests
+  // ==========================================
+  describe('listOrders - additional filter tests', () => {
+    it('should filter by dateFrom only', async () => {
+      prismaMock.order.findMany.mockResolvedValue([]);
+      prismaMock.order.count.mockResolvedValue(0);
+
+      await orderService.listOrders({ dateFrom: '2026-01-01' });
+
+      expect(prismaMock.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            orderDate: { gte: new Date('2026-01-01') },
+          }),
+        })
+      );
+    });
+
+    it('should filter by dateTo only', async () => {
+      prismaMock.order.findMany.mockResolvedValue([]);
+      prismaMock.order.count.mockResolvedValue(0);
+
+      await orderService.listOrders({ dateTo: '2026-12-31' });
+
+      expect(prismaMock.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            orderDate: { lte: new Date('2026-12-31') },
+          }),
+        })
+      );
+    });
+  });
+
+  // ==========================================
+  // getOptimizationSuggestions - sorting tests
+  // ==========================================
+  describe('getOptimizationSuggestions - sorting tests', () => {
+    it('should sort destination groups by order count descending', async () => {
+      const mockOrders = [
+        // 3 orders for Italy (should be first)
+        {
+          ...createOrderWithDates({ id: 'ord-1', status: 'PENDING' }),
+          shippingAddress: { country: 'Italy' },
+          total: createDecimal(100),
+          priority: 0,
+          items: [],
+          customer: { businessName: 'Company A' },
+        },
+        {
+          ...createOrderWithDates({ id: 'ord-2', status: 'PENDING' }),
+          shippingAddress: { country: 'Italy' },
+          total: createDecimal(100),
+          priority: 0,
+          items: [],
+          customer: { businessName: 'Company B' },
+        },
+        {
+          ...createOrderWithDates({ id: 'ord-3', status: 'PENDING' }),
+          shippingAddress: { country: 'Italy' },
+          total: createDecimal(100),
+          priority: 0,
+          items: [],
+          customer: { businessName: 'Company C' },
+        },
+        // 2 orders for Germany (should be second)
+        {
+          ...createOrderWithDates({ id: 'ord-4', status: 'PENDING' }),
+          shippingAddress: { country: 'Germany' },
+          total: createDecimal(200),
+          priority: 0,
+          items: [],
+          customer: { businessName: 'Company D' },
+        },
+        {
+          ...createOrderWithDates({ id: 'ord-5', status: 'PENDING' }),
+          shippingAddress: { country: 'Germany' },
+          total: createDecimal(200),
+          priority: 0,
+          items: [],
+          customer: { businessName: 'Company E' },
+        },
+      ];
+
+      prismaMock.order.findMany.mockResolvedValue(mockOrders as any);
+
+      const result = await orderService.getOptimizationSuggestions();
+
+      // Italy (3 orders) should come before Germany (2 orders)
+      expect(result.groupings.byDestination[0].country).toBe('Italy');
+      expect(result.groupings.byDestination[0].orderCount).toBe(3);
+      expect(result.groupings.byDestination[1].country).toBe('Germany');
+      expect(result.groupings.byDestination[1].orderCount).toBe(2);
+    });
+
+    it('should sort product groups by total quantity descending', async () => {
+      const mockOrders = [
+        // Product A: 2 orders, 25 total units (should be first)
+        {
+          ...createOrderWithDates({ id: 'ord-1', status: 'PENDING' }),
+          shippingAddress: null,
+          total: createDecimal(100),
+          priority: 0,
+          items: [
+            { productId: 'prod-a', quantity: 15, product: { id: 'prod-a', name: 'Product A', sku: 'SKU-A' } },
+          ],
+          customer: { businessName: 'Company A' },
+        },
+        {
+          ...createOrderWithDates({ id: 'ord-2', status: 'PENDING' }),
+          shippingAddress: null,
+          total: createDecimal(100),
+          priority: 0,
+          items: [
+            { productId: 'prod-a', quantity: 10, product: { id: 'prod-a', name: 'Product A', sku: 'SKU-A' } },
+          ],
+          customer: { businessName: 'Company B' },
+        },
+        // Product B: 2 orders, 8 total units (should be second)
+        {
+          ...createOrderWithDates({ id: 'ord-3', status: 'PENDING' }),
+          shippingAddress: null,
+          total: createDecimal(200),
+          priority: 0,
+          items: [
+            { productId: 'prod-b', quantity: 5, product: { id: 'prod-b', name: 'Product B', sku: 'SKU-B' } },
+          ],
+          customer: { businessName: 'Company C' },
+        },
+        {
+          ...createOrderWithDates({ id: 'ord-4', status: 'PENDING' }),
+          shippingAddress: null,
+          total: createDecimal(200),
+          priority: 0,
+          items: [
+            { productId: 'prod-b', quantity: 3, product: { id: 'prod-b', name: 'Product B', sku: 'SKU-B' } },
+          ],
+          customer: { businessName: 'Company D' },
+        },
+      ];
+
+      prismaMock.order.findMany.mockResolvedValue(mockOrders as any);
+
+      const result = await orderService.getOptimizationSuggestions();
+
+      // Product A (25 units) should come before Product B (8 units)
+      expect(result.groupings.byProduct[0].product.name).toBe('Product A');
+      expect(result.groupings.byProduct[0].totalQuantity).toBe(25);
+      expect(result.groupings.byProduct[1].product.name).toBe('Product B');
+      expect(result.groupings.byProduct[1].totalQuantity).toBe(8);
+    });
+  });
+
+  // ==========================================
+  // updateOrderStatus - production order error logging
+  // ==========================================
+  describe('updateOrderStatus - production order error logging', () => {
+    it('should log warning when createProductionOrdersForOrder throws', async () => {
+      const mockOrder = {
+        ...createOrderWithDates({ id: 'ord-1', status: 'CONFIRMED' }),
+        items: [{ id: 'item-1', productId: 'prod-1', quantity: 5 }],
+        source: 'B2B',
+      };
+
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+      prismaMock.order.update.mockResolvedValue({ ...mockOrder, status: 'PROCESSING' } as any);
+
+      // Mock createProductionOrdersForOrder to throw
+      const createProdOrdersSpy = jest.spyOn(orderService, 'createProductionOrdersForOrder');
+      createProdOrdersSpy.mockRejectedValue(new Error('Production order creation failed'));
+
+      const result = await orderService.updateOrderStatus('ord-1', { status: 'PROCESSING' }, 'user-1');
+
+      // Should still return successfully even though production order creation failed
+      expect(result.status).toBe('PROCESSING');
+      expect(createProdOrdersSpy).toHaveBeenCalled();
+
+      createProdOrdersSpy.mockRestore();
+    });
+  });
+
+  // ==========================================
+  // createShipment - post-shipment check handling
+  // ==========================================
+  describe('createShipment - post-shipment check handling', () => {
+    it('should complete shipment even when post-shipment check fails asynchronously', async () => {
+      const mockOrder = {
+        ...createOrderWithDates({ id: 'ord-1', status: 'CONFIRMED' }),
+        source: 'B2B',
+        items: [
+          {
+            id: 'item-1',
+            productId: 'prod-1',
+            quantity: 2,
+            shippedQuantity: 0,
+            allocatedLocation: 'B2B',
+            product: mockFactories.product({ id: 'prod-1' }),
+          },
+        ],
+      };
+
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+      prismaMock.$transaction.mockImplementation(async (fn: any) => {
+        return await fn(prismaMock);
+      });
+      prismaMock.orderShipment.create.mockResolvedValue({
+        id: 'ship-1',
+        trackingNumber: 'TRACK-123',
+      } as any);
+      prismaMock.orderItem.update.mockResolvedValue({} as any);
+      prismaMock.order.update.mockResolvedValue({
+        ...mockOrder,
+        status: 'SHIPPED',
+        orderNumber: 'ORD-001',
+      } as any);
+
+      const inventoryService = require('@server/services/inventory.service').inventoryService;
+      inventoryService.deductInventoryRecursive.mockResolvedValue({
+        success: true,
+        deductions: [{ productId: 'prod-1', quantity: 2 }],
+        errors: [],
+        totalMovements: 1,
+      });
+
+      // The post-shipment check happens asynchronously and its failure
+      // should not affect the main shipment result
+      const result = await orderService.createShipment('ord-1', {
+        carrier: 'UPS',
+        trackingNumber: 'TRACK-123',
+        items: [{ orderItemId: 'item-1', quantity: 2 }],
+      });
+
+      // Main shipment should succeed
+      expect(result.trackingNumber).toBe('TRACK-123');
+      expect(result.inventoryDeducted).toBe(true);
+    });
+
+    it('should log error when post-shipment check fails', async () => {
+      const mockOrder = {
+        ...createOrderWithDates({ id: 'ord-fail', status: 'CONFIRMED' }),
+        source: 'B2B',
+        items: [
+          {
+            id: 'item-1',
+            productId: 'prod-1',
+            quantity: 1,
+            shippedQuantity: 0,
+            allocatedLocation: 'B2B',
+            product: mockFactories.product({ id: 'prod-1' }),
+          },
+        ],
+      };
+
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+      prismaMock.$transaction.mockImplementation(async (fn: any) => {
+        return await fn(prismaMock);
+      });
+      prismaMock.orderShipment.create.mockResolvedValue({
+        id: 'ship-1',
+        trackingNumber: 'TRACK-FAIL',
+      } as any);
+      prismaMock.orderItem.update.mockResolvedValue({} as any);
+      prismaMock.order.update.mockResolvedValue({
+        ...mockOrder,
+        status: 'SHIPPED',
+        orderNumber: 'ORD-FAIL',
+      } as any);
+
+      const inventoryService = require('@server/services/inventory.service').inventoryService;
+      inventoryService.deductInventoryRecursive.mockResolvedValue({
+        success: true,
+        deductions: [{ productId: 'prod-1', quantity: 1 }],
+        errors: [],
+        totalMovements: 1,
+      });
+
+      // Mock triggerPostShipmentCheck to reject
+      const stockAlertJob = require('@server/jobs/stock-alert.job');
+      stockAlertJob.triggerPostShipmentCheck.mockRejectedValueOnce(
+        new Error('Post-shipment check failed')
+      );
+
+      const logger = require('@server/config/logger').default;
+
+      const result = await orderService.createShipment('ord-fail', {
+        carrier: 'DHL',
+        trackingNumber: 'TRACK-FAIL',
+        items: [{ orderItemId: 'item-1', quantity: 1 }],
+      });
+
+      // Main shipment should still succeed
+      expect(result.trackingNumber).toBe('TRACK-FAIL');
+
+      // Wait for async catch to execute
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      // Logger.error should have been called with the error message
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to trigger post-shipment check')
+      );
+    });
   });
 });

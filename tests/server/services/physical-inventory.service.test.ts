@@ -1046,5 +1046,399 @@ describe('Physical Inventory Service', () => {
         physicalInventoryService.batchCount('invalid', [{ sku: 'SKU', quantity: 1 }], 'user-1')
       ).rejects.toThrow('Sessione non valida o non in corso');
     });
+
+    it('should handle errors during count item', async () => {
+      const mockSession = { id: 'session-1', status: 'IN_PROGRESS', requireDoubleCount: false };
+      const mockItem = {
+        id: 'item-1',
+        sessionId: 'session-1',
+        sku: 'SKU-001',
+        expectedQuantity: 100,
+        unitCost: 10,
+      };
+
+      mockPrisma.physicalCountSession.findUnique.mockResolvedValue(mockSession);
+      mockPrisma.physicalCountItem.findFirst.mockResolvedValue(mockItem);
+      mockPrisma.physicalCountItem.findUnique.mockResolvedValue(mockItem);
+      // Make update fail to trigger error handling
+      mockPrisma.physicalCountItem.update.mockRejectedValueOnce(new Error('Update failed'));
+
+      const counts = [
+        { sku: 'SKU-001', quantity: 100 },
+      ];
+
+      const result = await physicalInventoryService.batchCount('session-1', counts, 'user-1');
+
+      expect(result.success).toBe(0);
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0].error).toBe('Update failed');
+    });
+  });
+
+  // =====================================
+  // startSession - Additional Coverage
+  // =====================================
+  describe('startSession - additional coverage', () => {
+    it('should filter by skuPrefix when specified', async () => {
+      const mockSession = {
+        id: 'session-1',
+        status: 'DRAFT',
+        warehouseId: 'wh-1',
+        filters: { skuPrefix: 'PROD-' },
+        warehouse: { id: 'wh-1', code: 'WH1' },
+      };
+
+      mockPrisma.physicalCountSession.findUnique
+        .mockResolvedValueOnce(mockSession)
+        .mockResolvedValueOnce({ ...mockSession, status: 'IN_PROGRESS', items: [] });
+      mockPrisma.inventoryItem.findMany.mockResolvedValue([]);
+      mockPrisma.materialInventory.findMany.mockResolvedValue([]);
+      mockPrisma.physicalCountItem.createMany.mockResolvedValue({ count: 0 });
+      mockPrisma.physicalCountSession.update.mockResolvedValue({ ...mockSession, status: 'IN_PROGRESS' });
+
+      await physicalInventoryService.startSession('session-1', 'user-1');
+
+      expect(mockPrisma.inventoryItem.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            product: expect.objectContaining({
+              sku: { startsWith: 'PROD-' },
+            }),
+          }),
+        })
+      );
+    });
+
+    it('should filter materials by skuPrefix when specified', async () => {
+      const mockSession = {
+        id: 'session-1',
+        status: 'DRAFT',
+        warehouseId: 'wh-1',
+        filters: { skuPrefix: 'MAT-', materialOnly: true },
+        warehouse: { id: 'wh-1', code: 'WH1' },
+      };
+
+      mockPrisma.physicalCountSession.findUnique
+        .mockResolvedValueOnce(mockSession)
+        .mockResolvedValueOnce({ ...mockSession, status: 'IN_PROGRESS', items: [] });
+      mockPrisma.inventoryItem.findMany.mockResolvedValue([]);
+      mockPrisma.materialInventory.findMany.mockResolvedValue([]);
+      mockPrisma.physicalCountItem.createMany.mockResolvedValue({ count: 0 });
+      mockPrisma.physicalCountSession.update.mockResolvedValue({ ...mockSession, status: 'IN_PROGRESS' });
+
+      await physicalInventoryService.startSession('session-1', 'user-1');
+
+      expect(mockPrisma.materialInventory.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            material: expect.objectContaining({
+              sku: { startsWith: 'MAT-' },
+            }),
+          }),
+        })
+      );
+    });
+  });
+
+  // =====================================
+  // listSessions - Additional Coverage
+  // =====================================
+  describe('listSessions - additional coverage', () => {
+    it('should filter by warehouseId', async () => {
+      mockPrisma.physicalCountSession.findMany.mockResolvedValue([]);
+      mockPrisma.physicalCountSession.count.mockResolvedValue(0);
+
+      await physicalInventoryService.listSessions({ warehouseId: 'wh-1' });
+
+      expect(mockPrisma.physicalCountSession.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            warehouseId: 'wh-1',
+          }),
+        })
+      );
+    });
+
+    it('should filter by countType', async () => {
+      mockPrisma.physicalCountSession.findMany.mockResolvedValue([]);
+      mockPrisma.physicalCountSession.count.mockResolvedValue(0);
+
+      await physicalInventoryService.listSessions({ countType: 'CYCLE' });
+
+      expect(mockPrisma.physicalCountSession.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            countType: 'CYCLE',
+          }),
+        })
+      );
+    });
+
+    it('should filter by single status (not array)', async () => {
+      mockPrisma.physicalCountSession.findMany.mockResolvedValue([]);
+      mockPrisma.physicalCountSession.count.mockResolvedValue(0);
+
+      await physicalInventoryService.listSessions({
+        status: 'IN_PROGRESS' as any,
+      });
+
+      expect(mockPrisma.physicalCountSession.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            status: 'IN_PROGRESS',
+          }),
+        })
+      );
+    });
+  });
+
+  // =====================================
+  // verifyItem - Additional Coverage
+  // =====================================
+  describe('verifyItem - additional coverage', () => {
+    it('should throw error when session not found', async () => {
+      mockPrisma.physicalCountSession.findUnique.mockResolvedValue(null);
+
+      await expect(
+        physicalInventoryService.verifyItem({
+          sessionId: 'non-existent',
+          itemId: 'item-1',
+          verifiedQuantity: 100,
+          verifiedBy: 'user-1',
+        })
+      ).rejects.toThrow('Sessione non trovata');
+    });
+
+    it('should throw error when item not found in session', async () => {
+      const mockSession = { id: 'session-1', requireDoubleCount: true };
+      mockPrisma.physicalCountSession.findUnique.mockResolvedValue(mockSession);
+      mockPrisma.physicalCountItem.findUnique.mockResolvedValue(null);
+
+      await expect(
+        physicalInventoryService.verifyItem({
+          sessionId: 'session-1',
+          itemId: 'non-existent',
+          verifiedQuantity: 100,
+          verifiedBy: 'user-1',
+        })
+      ).rejects.toThrow('Item non trovato nella sessione');
+    });
+
+    it('should throw error when item belongs to different session', async () => {
+      const mockSession = { id: 'session-1', requireDoubleCount: true };
+      const mockItem = {
+        id: 'item-1',
+        sessionId: 'different-session', // Different session
+        status: 'COUNTED',
+      };
+
+      mockPrisma.physicalCountSession.findUnique.mockResolvedValue(mockSession);
+      mockPrisma.physicalCountItem.findUnique.mockResolvedValue(mockItem);
+
+      await expect(
+        physicalInventoryService.verifyItem({
+          sessionId: 'session-1',
+          itemId: 'item-1',
+          verifiedQuantity: 100,
+          verifiedBy: 'user-1',
+        })
+      ).rejects.toThrow('Item non trovato nella sessione');
+    });
+  });
+
+  // =====================================
+  // getItemsToCount - Additional Coverage
+  // =====================================
+  describe('getItemsToCount - additional coverage', () => {
+    it('should throw error when session not found', async () => {
+      mockPrisma.physicalCountSession.findUnique.mockResolvedValue(null);
+
+      await expect(
+        physicalInventoryService.getItemsToCount('non-existent')
+      ).rejects.toThrow('Sessione non trovata');
+    });
+  });
+
+  // =====================================
+  // completeSession - Additional Coverage
+  // =====================================
+  describe('completeSession - additional coverage', () => {
+    it('should throw error when session not found', async () => {
+      mockPrisma.physicalCountSession.findUnique.mockResolvedValue(null);
+
+      await expect(
+        physicalInventoryService.completeSession('non-existent', 'user-1')
+      ).rejects.toThrow('Sessione non trovata');
+    });
+
+    it('should apply material inventory adjustments', async () => {
+      const mockSession = {
+        id: 'session-1',
+        code: 'INV-WH1-2026-001',
+        status: 'IN_PROGRESS',
+        warehouseId: 'wh-1',
+        requireDoubleCount: false,
+        createdById: 'user-1',
+        items: [
+          {
+            id: 'item-1',
+            materialId: 'mat-1',
+            productId: null,
+            variantId: null,
+            location: 'B1',
+            status: 'RECONCILED',
+            finalQuantity: 45,
+            expectedQuantity: 50,
+            variance: -5,
+          },
+        ],
+      };
+
+      mockPrisma.physicalCountSession.findUnique.mockResolvedValue(mockSession);
+      mockPrisma.materialInventory.updateMany.mockResolvedValue({ count: 1 });
+      mockPrisma.materialInventory.aggregate.mockResolvedValue({ _sum: { quantity: 45 } });
+      mockPrisma.material.update.mockResolvedValue({});
+      mockPrisma.materialMovement.create.mockResolvedValue({ id: 'mov-1' });
+      mockPrisma.physicalCountSession.update.mockResolvedValue({
+        ...mockSession,
+        status: 'COMPLETED',
+      });
+
+      const result = await physicalInventoryService.completeSession('session-1', 'user-1', true);
+
+      expect(result.status).toBe('COMPLETED');
+      expect(mockPrisma.materialInventory.updateMany).toHaveBeenCalled();
+      expect(mockPrisma.materialInventory.aggregate).toHaveBeenCalled();
+      expect(mockPrisma.material.update).toHaveBeenCalled();
+      expect(mockPrisma.materialMovement.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            type: 'ADJUSTMENT',
+            materialId: 'mat-1',
+          }),
+        })
+      );
+    });
+
+    it('should throw error when session has COUNTED items with double count required', async () => {
+      const mockSession = {
+        id: 'session-1',
+        status: 'IN_PROGRESS',
+        requireDoubleCount: true,
+        items: [
+          { status: 'COUNTED' }, // Needs verification
+          { status: 'RECONCILED' },
+        ],
+      };
+
+      mockPrisma.physicalCountSession.findUnique.mockResolvedValue(mockSession);
+
+      await expect(
+        physicalInventoryService.completeSession('session-1', 'user-1')
+      ).rejects.toThrow('Ci sono ancora 1 items non riconciliati');
+    });
+  });
+
+  // =====================================
+  // submitForReview - Additional Coverage
+  // =====================================
+  describe('submitForReview - additional coverage', () => {
+    it('should throw error when session not found', async () => {
+      mockPrisma.physicalCountSession.findUnique.mockResolvedValue(null);
+
+      await expect(
+        physicalInventoryService.submitForReview('non-existent')
+      ).rejects.toThrow('Sessione non trovata');
+    });
+  });
+
+  // =====================================
+  // generateVarianceReport - Additional Coverage
+  // =====================================
+  describe('generateVarianceReport - additional coverage', () => {
+    it('should handle materials category in variance report', async () => {
+      const mockSession = {
+        id: 'session-1',
+        items: [
+          {
+            sku: 'MAT-001',
+            description: 'Material 1',
+            expectedQuantity: 100,
+            finalQuantity: 90,
+            variance: -10,
+            varianceValue: 100,
+            product: null,
+            material: { category: 'Raw Materials' },
+          },
+          {
+            sku: 'PROD-001',
+            description: 'Product 1',
+            expectedQuantity: 50,
+            finalQuantity: 50,
+            variance: 0,
+            varianceValue: 0,
+            product: null,
+            material: null, // No category - should use 'Senza categoria'
+          },
+        ],
+      };
+
+      mockPrisma.physicalCountSession.findUnique.mockResolvedValue(mockSession);
+
+      const result = await physicalInventoryService.generateVarianceReport('session-1');
+
+      expect(result.byCategory['Raw Materials']).toBeDefined();
+      expect(result.byCategory['Raw Materials'].variance).toBe(-10);
+    });
+
+    it('should use "Senza categoria" for items without product or material category', async () => {
+      const mockSession = {
+        id: 'session-1',
+        items: [
+          {
+            sku: 'ITEM-001',
+            description: 'Item 1',
+            expectedQuantity: 50,
+            finalQuantity: 55,
+            variance: 5,
+            varianceValue: 50,
+            product: null, // No product
+            material: null, // No material
+          },
+        ],
+      };
+
+      mockPrisma.physicalCountSession.findUnique.mockResolvedValue(mockSession);
+
+      const result = await physicalInventoryService.generateVarianceReport('session-1');
+
+      expect(result.byCategory['Senza categoria']).toBeDefined();
+      expect(result.byCategory['Senza categoria'].variance).toBe(5);
+    });
+  });
+
+  // =====================================
+  // countItem - Additional Coverage
+  // =====================================
+  describe('countItem - additional coverage', () => {
+    it('should throw error when item belongs to different session', async () => {
+      const mockSession = { id: 'session-1', status: 'IN_PROGRESS', requireDoubleCount: false };
+      const mockItem = {
+        id: 'item-1',
+        sessionId: 'different-session', // Different session
+      };
+
+      mockPrisma.physicalCountSession.findUnique.mockResolvedValue(mockSession);
+      mockPrisma.physicalCountItem.findUnique.mockResolvedValue(mockItem);
+
+      await expect(
+        physicalInventoryService.countItem({
+          sessionId: 'session-1',
+          itemId: 'item-1',
+          countedQuantity: 100,
+          countedById: 'user-1',
+        })
+      ).rejects.toThrow('Item non trovato nella sessione');
+    });
   });
 });

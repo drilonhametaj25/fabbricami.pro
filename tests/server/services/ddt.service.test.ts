@@ -915,4 +915,521 @@ describe('DdtService', () => {
       );
     });
   });
+
+  // ==================== list - additional coverage ====================
+  describe('list - additional filters', () => {
+    it('should filter by orderId', async () => {
+      prismaMock.dDT.findMany.mockResolvedValue([]);
+      prismaMock.dDT.count.mockResolvedValue(0);
+
+      await ddtService.list({ orderId: 'order-123' });
+
+      expect(prismaMock.dDT.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            orderId: 'order-123',
+          }),
+        })
+      );
+    });
+
+    it('should filter by dateFrom only', async () => {
+      prismaMock.dDT.findMany.mockResolvedValue([]);
+      prismaMock.dDT.count.mockResolvedValue(0);
+
+      await ddtService.list({ dateFrom: '2024-01-01' });
+
+      expect(prismaMock.dDT.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            issueDate: {
+              gte: expect.any(Date),
+            },
+          }),
+        })
+      );
+    });
+
+    it('should filter by dateTo only', async () => {
+      prismaMock.dDT.findMany.mockResolvedValue([]);
+      prismaMock.dDT.count.mockResolvedValue(0);
+
+      await ddtService.list({ dateTo: '2024-01-31' });
+
+      expect(prismaMock.dDT.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            issueDate: {
+              lte: expect.any(Date),
+            },
+          }),
+        })
+      );
+    });
+  });
+
+  // ==================== generatePdf - additional coverage ====================
+  describe('generatePdf - additional scenarios', () => {
+    it('should handle DDT without company settings', async () => {
+      const mockDdt = {
+        id: 'ddt-1',
+        ddtNumber: 'DDT-2024/00001',
+        issueDate: new Date('2024-01-15'),
+        transportDate: new Date('2024-01-16'),
+        customer: { businessName: 'Test Co' },
+        shippingAddress: { street: '123 Test', city: 'City', zip: '12345' },
+        items: [
+          { lineNumber: 1, sku: 'SKU001', description: 'Product 1', quantity: 5, unit: 'pz' },
+        ],
+      };
+
+      prismaMock.dDT.findUnique.mockResolvedValue(mockDdt as any);
+      prismaMock.dDT.update.mockResolvedValue({} as any);
+      // Return null for company settings to test the fallback
+      mockCompanySettingsService.get.mockResolvedValueOnce(null);
+
+      const result = await ddtService.generatePdf('ddt-1');
+
+      expect(result.buffer).toBeInstanceOf(Buffer);
+      // PDF should still be generated
+      expect(result.path).toContain('DDT_DDT-2024-00001.pdf');
+    });
+
+    it('should render non-IT country in shipping address', async () => {
+      const mockDdt = {
+        id: 'ddt-1',
+        ddtNumber: 'DDT-2024/00001',
+        issueDate: new Date('2024-01-15'),
+        transportDate: new Date('2024-01-16'),
+        customer: { businessName: 'Foreign Customer' },
+        shippingAddress: {
+          street: '456 Foreign St',
+          city: 'Paris',
+          zip: '75001',
+          province: null,
+          country: 'FR', // Non-IT country
+        },
+        items: [],
+      };
+
+      prismaMock.dDT.findUnique.mockResolvedValue(mockDdt as any);
+      prismaMock.dDT.update.mockResolvedValue({} as any);
+
+      const result = await ddtService.generatePdf('ddt-1');
+
+      expect(result.buffer).toBeInstanceOf(Buffer);
+    });
+
+    it('should render DDT with all transport details', async () => {
+      const mockDdt = {
+        id: 'ddt-1',
+        ddtNumber: 'DDT-2024/00001',
+        issueDate: new Date('2024-01-15'),
+        transportDate: new Date('2024-01-16'),
+        carrier: 'DHL Express',
+        numberOfPackages: 5,
+        totalWeight: createDecimal(25.5),
+        shipmentAppearance: 'Scatole di cartone',
+        transportReason: 'VENDITA',
+        customer: { businessName: 'Test Co' },
+        shippingAddress: { street: '123 Test', city: 'City', zip: '12345' },
+        items: [],
+      };
+
+      prismaMock.dDT.findUnique.mockResolvedValue(mockDdt as any);
+      prismaMock.dDT.update.mockResolvedValue({} as any);
+
+      const result = await ddtService.generatePdf('ddt-1');
+
+      expect(result.buffer).toBeInstanceOf(Buffer);
+    });
+
+    it('should render items with lot and serial numbers', async () => {
+      const mockDdt = {
+        id: 'ddt-1',
+        ddtNumber: 'DDT-2024/00001',
+        issueDate: new Date('2024-01-15'),
+        customer: { businessName: 'Test Co' },
+        shippingAddress: { street: '123 Test', city: 'City', zip: '12345' },
+        items: [
+          {
+            lineNumber: 1,
+            sku: 'SKU001',
+            description: 'Product 1',
+            quantity: 5,
+            unit: 'pz',
+            lotNumber: 'LOT-2024-001',
+            serialNumber: 'SN-123456',
+          },
+          {
+            lineNumber: 2,
+            sku: 'SKU002',
+            description: 'Product 2',
+            quantity: 3,
+            unit: 'pz',
+            lotNumber: 'LOT-2024-002',
+            serialNumber: null,
+          },
+        ],
+      };
+
+      prismaMock.dDT.findUnique.mockResolvedValue(mockDdt as any);
+      prismaMock.dDT.update.mockResolvedValue({} as any);
+
+      const result = await ddtService.generatePdf('ddt-1');
+
+      expect(result.buffer).toBeInstanceOf(Buffer);
+    });
+
+    it('should render DDT with notes and carrier notes', async () => {
+      const mockDdt = {
+        id: 'ddt-1',
+        ddtNumber: 'DDT-2024/00001',
+        issueDate: new Date('2024-01-15'),
+        notes: 'Important delivery notes for the customer',
+        carrierNotes: 'Handle with care - fragile contents',
+        customer: { businessName: 'Test Co' },
+        shippingAddress: { street: '123 Test', city: 'City', zip: '12345' },
+        items: [],
+      };
+
+      prismaMock.dDT.findUnique.mockResolvedValue(mockDdt as any);
+      prismaMock.dDT.update.mockResolvedValue({} as any);
+
+      const result = await ddtService.generatePdf('ddt-1');
+
+      expect(result.buffer).toBeInstanceOf(Buffer);
+    });
+
+    it('should handle DDT with many items requiring page break', async () => {
+      // Create 50 items to trigger page break
+      const items = Array.from({ length: 50 }, (_, i) => ({
+        lineNumber: i + 1,
+        sku: `SKU${String(i).padStart(3, '0')}`,
+        description: `Product ${i} - This is a longer description`,
+        quantity: (i + 1) * 2,
+        unit: 'pz',
+        lotNumber: i % 3 === 0 ? `LOT-${i}` : null,
+        serialNumber: i % 5 === 0 ? `SN-${i}` : null,
+      }));
+
+      const mockDdt = {
+        id: 'ddt-1',
+        ddtNumber: 'DDT-2024/00001',
+        issueDate: new Date('2024-01-15'),
+        customer: { businessName: 'Large Order Customer' },
+        shippingAddress: { street: '123 Test', city: 'City', zip: '12345' },
+        items: items,
+      };
+
+      prismaMock.dDT.findUnique.mockResolvedValue(mockDdt as any);
+      prismaMock.dDT.update.mockResolvedValue({} as any);
+
+      const result = await ddtService.generatePdf('ddt-1');
+
+      expect(result.buffer).toBeInstanceOf(Buffer);
+      expect(result.path).toContain('DDT_DDT-2024-00001.pdf');
+    });
+
+    it('should render DDT without order reference', async () => {
+      const mockDdt = {
+        id: 'ddt-1',
+        ddtNumber: 'DDT-2024/00001',
+        issueDate: new Date('2024-01-15'),
+        order: null, // No associated order
+        customer: { businessName: 'Test Co' },
+        shippingAddress: { street: '123 Test', city: 'City', zip: '12345' },
+        items: [],
+      };
+
+      prismaMock.dDT.findUnique.mockResolvedValue(mockDdt as any);
+      prismaMock.dDT.update.mockResolvedValue({} as any);
+
+      const result = await ddtService.generatePdf('ddt-1');
+
+      expect(result.buffer).toBeInstanceOf(Buffer);
+    });
+
+    it('should render customer with firstName and lastName', async () => {
+      const mockDdt = {
+        id: 'ddt-1',
+        ddtNumber: 'DDT-2024/00001',
+        issueDate: new Date('2024-01-15'),
+        customer: {
+          businessName: null,
+          firstName: 'Mario',
+          lastName: 'Rossi',
+        },
+        shippingAddress: { street: '123 Test', city: 'City', zip: '12345' },
+        items: [],
+      };
+
+      prismaMock.dDT.findUnique.mockResolvedValue(mockDdt as any);
+      prismaMock.dDT.update.mockResolvedValue({} as any);
+
+      const result = await ddtService.generatePdf('ddt-1');
+
+      expect(result.buffer).toBeInstanceOf(Buffer);
+    });
+
+    it('should handle company settings with optional fields', async () => {
+      const mockDdt = {
+        id: 'ddt-1',
+        ddtNumber: 'DDT-2024/00001',
+        issueDate: new Date('2024-01-15'),
+        customer: { businessName: 'Test Co' },
+        shippingAddress: { street: '123 Test', city: 'City', zip: '12345' },
+        items: [],
+      };
+
+      prismaMock.dDT.findUnique.mockResolvedValue(mockDdt as any);
+      prismaMock.dDT.update.mockResolvedValue({} as any);
+      mockCompanySettingsService.get.mockResolvedValueOnce({
+        companyName: 'Test Company',
+        address: '123 Test St',
+        postalCode: '12345',
+        city: 'Test City',
+        province: 'TC',
+        vatNumber: 'IT12345678901',
+        fiscalCode: null, // Optional
+        phone: null, // Optional
+        email: null, // Optional
+      });
+
+      const result = await ddtService.generatePdf('ddt-1');
+
+      expect(result.buffer).toBeInstanceOf(Buffer);
+    });
+  });
+
+  // ==================== generatePeriodReport - additional coverage ====================
+  describe('generatePeriodReport - additional scenarios', () => {
+    it('should handle DDT without customer (edge case)', async () => {
+      const mockDdts = [
+        {
+          customerId: 'cust-1',
+          customer: null, // Customer deleted
+          carrier: 'DHL',
+          isInvoiced: false,
+          items: [{ id: 'item-1' }],
+        },
+      ];
+
+      prismaMock.dDT.findMany.mockResolvedValue(mockDdts as any);
+
+      const result = await ddtService.generatePeriodReport(
+        new Date('2024-01-01'),
+        new Date('2024-01-31')
+      );
+
+      expect(result.totalDdts).toBe(1);
+      // Customer without data should not be counted in byCustomer
+      expect(result.byCustomer).toHaveLength(0);
+    });
+
+    it('should handle DDT with null carrier', async () => {
+      const mockDdts = [
+        {
+          customerId: 'cust-1',
+          customer: { businessName: 'Test' },
+          carrier: null, // No carrier
+          isInvoiced: true,
+          items: [],
+        },
+      ];
+
+      prismaMock.dDT.findMany.mockResolvedValue(mockDdts as any);
+
+      const result = await ddtService.generatePeriodReport(
+        new Date('2024-01-01'),
+        new Date('2024-01-31')
+      );
+
+      expect(result.byCarrier).toContainEqual({
+        carrier: null,
+        count: 1,
+      });
+    });
+
+    it('should handle customer with firstName/lastName but no businessName', async () => {
+      const mockDdts = [
+        {
+          customerId: 'cust-1',
+          customer: {
+            id: 'cust-1',
+            businessName: null,
+            firstName: 'John',
+            lastName: 'Doe',
+          },
+          carrier: 'DHL',
+          isInvoiced: true,
+          items: [{ id: 'item-1' }],
+        },
+      ];
+
+      prismaMock.dDT.findMany.mockResolvedValue(mockDdts as any);
+
+      const result = await ddtService.generatePeriodReport(
+        new Date('2024-01-01'),
+        new Date('2024-01-31')
+      );
+
+      expect(result.byCustomer[0].customerName).toBe('John Doe');
+    });
+  });
+
+  // ==================== createFromOrder - additional coverage ====================
+  describe('createFromOrder - shipping address formats', () => {
+    it('should handle order with street field instead of address_1', async () => {
+      const mockOrder = {
+        id: 'order-1',
+        customerId: 'cust-1',
+        carrier: null,
+        shippingAddress: {
+          street: '456 Main Road', // Uses street instead of address_1
+          city: 'Milan',
+          province: 'MI',
+          zip: '20100',
+          country: 'IT',
+        },
+        items: [],
+        customer: { businessName: 'Test Co' },
+      };
+
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+      prismaMock.dDT.create.mockResolvedValue({ id: 'ddt-1', ddtNumber: 'DDT-2024/00001' } as any);
+
+      const result = await ddtService.createFromOrder('order-1');
+
+      const createCall = prismaMock.dDT.create.mock.calls[0][0];
+      expect(createCall.data.shippingAddress.street).toBe('456 Main Road');
+    });
+
+    it('should handle order with state field instead of province', async () => {
+      const mockOrder = {
+        id: 'order-1',
+        customerId: 'cust-1',
+        carrier: null,
+        shippingAddress: {
+          address_1: '123 Test St',
+          city: 'Milan',
+          state: 'MI', // Uses state instead of province
+          postcode: '20100',
+          country: 'IT',
+        },
+        items: [],
+        customer: { businessName: 'Test Co' },
+      };
+
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+      prismaMock.dDT.create.mockResolvedValue({ id: 'ddt-1', ddtNumber: 'DDT-2024/00001' } as any);
+
+      await ddtService.createFromOrder('order-1');
+
+      const createCall = prismaMock.dDT.create.mock.calls[0][0];
+      expect(createCall.data.shippingAddress.province).toBe('MI');
+    });
+
+    it('should handle order item without product unit', async () => {
+      const mockOrder = {
+        id: 'order-1',
+        customerId: 'cust-1',
+        shippingAddress: {
+          street: '123 Test',
+          city: 'City',
+          zip: '12345',
+        },
+        items: [
+          {
+            productId: 'prod-1',
+            sku: 'SKU001',
+            productName: 'Product 1',
+            quantity: 5,
+            unitPrice: createDecimal(10),
+            product: null, // No product reference
+          },
+        ],
+        customer: { businessName: 'Test Co' },
+      };
+
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+      prismaMock.dDT.create.mockResolvedValue({ id: 'ddt-1', ddtNumber: 'DDT-2024/00001' } as any);
+
+      await ddtService.createFromOrder('order-1');
+
+      const createCall = prismaMock.dDT.create.mock.calls[0][0];
+      // Should default to 'pz' when product.unit is not available
+      expect(createCall.data.items.create[0].unit).toBe('pz');
+    });
+  });
+
+  // ==================== clone - additional coverage ====================
+  describe('clone - additional scenarios', () => {
+    it('should clone DDT with all optional fields', async () => {
+      const original = {
+        id: 'ddt-1',
+        ddtNumber: 'DDT-2024/00001',
+        customerId: 'cust-1',
+        shippingAddress: { street: '123 Test', city: 'City', province: 'MI', zip: '12345', country: 'IT' },
+        carrier: 'DHL',
+        carrierNotes: 'Handle with care',
+        numberOfPackages: 3,
+        totalWeight: createDecimal(15.5),
+        transportReason: 'CONTO LAVORAZIONE',
+        shipmentAppearance: 'Pallet',
+        notes: 'Important notes',
+        items: [
+          {
+            productId: 'prod-1',
+            variantId: 'var-1',
+            sku: 'SKU001',
+            description: 'Product 1',
+            quantity: 5,
+            unit: 'kg',
+            lotNumber: 'LOT-001',
+            serialNumber: 'SN-001',
+            unitPrice: createDecimal(10.5),
+          },
+        ],
+      };
+
+      prismaMock.dDT.findUnique.mockResolvedValue(original as any);
+      prismaMock.dDT.create.mockResolvedValue({ id: 'ddt-2', ddtNumber: 'DDT-2024/00002' } as any);
+
+      await ddtService.clone('ddt-1');
+
+      const createCall = prismaMock.dDT.create.mock.calls[0][0];
+      expect(createCall.data.carrier).toBe('DHL');
+      expect(createCall.data.carrierNotes).toBe('Handle with care');
+      expect(createCall.data.numberOfPackages).toBe(3);
+      expect(createCall.data.totalWeight).toBe(15.5);
+      expect(createCall.data.transportReason).toBe('CONTO LAVORAZIONE');
+      expect(createCall.data.shipmentAppearance).toBe('Pallet');
+      expect(createCall.data.notes).toBe('Important notes');
+    });
+
+    it('should clone DDT with empty/null optional fields', async () => {
+      const original = {
+        id: 'ddt-1',
+        ddtNumber: 'DDT-2024/00001',
+        customerId: 'cust-1',
+        shippingAddress: { street: '123 Test', city: 'City', zip: '12345' },
+        carrier: null,
+        carrierNotes: null,
+        numberOfPackages: null,
+        totalWeight: null,
+        transportReason: null,
+        shipmentAppearance: null,
+        notes: null,
+        items: [],
+      };
+
+      prismaMock.dDT.findUnique.mockResolvedValue(original as any);
+      prismaMock.dDT.create.mockResolvedValue({ id: 'ddt-2', ddtNumber: 'DDT-2024/00002' } as any);
+
+      await ddtService.clone('ddt-1');
+
+      expect(prismaMock.dDT.create).toHaveBeenCalled();
+    });
+  });
 });
