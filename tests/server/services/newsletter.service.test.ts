@@ -168,13 +168,16 @@ describe('NewsletterService', () => {
         id: 'sub-1',
         email: 'test@example.com',
         status: 'PENDING',
+        confirmToken: 'existing-token',
       });
 
       const result = await newsletterService.subscribe({
         email: 'test@example.com',
       });
 
-      // Pending status doesn't match CONFIRMED or UNSUBSCRIBED, so no action in those branches
+      // PENDING status should return early with requiresConfirmation: true
+      // and not create a new subscription or update
+      expect(result).toEqual({ success: true, requiresConfirmation: true });
       expect(mockPrisma.newsletterSubscription.create).not.toHaveBeenCalled();
       expect(mockPrisma.newsletterSubscription.update).not.toHaveBeenCalled();
     });

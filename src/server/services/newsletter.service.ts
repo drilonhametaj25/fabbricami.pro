@@ -52,6 +52,9 @@ class NewsletterService {
       if (existing.status === 'CONFIRMED') {
         // Already subscribed
         return { success: true, requiresConfirmation: false };
+      } else if (existing.status === 'PENDING') {
+        // Already pending - just tell them to check their email
+        return { success: true, requiresConfirmation: true };
       } else if (existing.status === 'UNSUBSCRIBED') {
         // Resubscribe
         const confirmToken = randomBytes(32).toString('hex');
