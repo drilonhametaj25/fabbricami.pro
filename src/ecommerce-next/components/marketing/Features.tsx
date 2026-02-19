@@ -72,7 +72,7 @@ const features = [
 ];
 
 const colorClasses = {
-  blue: 'bg-blue-100 text-blue-600 group-hover:bg-blue-600 group-hover:text-white',
+  blue: 'bg-emerald-100 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white',
   green: 'bg-green-100 text-green-600 group-hover:bg-green-600 group-hover:text-white',
   purple: 'bg-purple-100 text-purple-600 group-hover:bg-purple-600 group-hover:text-white',
   orange: 'bg-orange-100 text-orange-600 group-hover:bg-orange-600 group-hover:text-white',
@@ -92,7 +92,7 @@ export function Features() {
             initial={{ opacity: 0 }}
             whileInView={{ opacity: 1 }}
             viewport={{ once: true }}
-            className="inline-block px-4 py-1.5 text-sm font-medium text-blue-600 bg-blue-50 rounded-full mb-4"
+            className="inline-block px-4 py-1.5 text-sm font-medium text-emerald-600 bg-emerald-50 rounded-full mb-4"
           >
             Funzionalita Complete
           </motion.span>
@@ -134,7 +134,7 @@ export function Features() {
               >
                 <feature.icon className="w-7 h-7" />
               </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors">
+              <h3 className="text-lg font-semibold text-gray-900 mb-2 group-hover:text-emerald-600 transition-colors">
                 {feature.title}
               </h3>
               <p className="text-gray-600 text-sm leading-relaxed">
@@ -153,7 +153,7 @@ export function Features() {
         >
           <a
             href="/features"
-            className="inline-flex items-center gap-2 text-blue-600 font-medium hover:text-blue-700 transition-colors"
+            className="inline-flex items-center gap-2 text-emerald-600 font-medium hover:text-emerald-700 transition-colors"
           >
             Scopri tutte le funzionalita
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -90,7 +90,7 @@ export function PricingTable() {
             initial={{ opacity: 0 }}
             whileInView={{ opacity: 1 }}
             viewport={{ once: true }}
-            className="inline-block px-4 py-1.5 text-sm font-medium text-blue-600 bg-blue-50 rounded-full mb-4"
+            className="inline-block px-4 py-1.5 text-sm font-medium text-emerald-600 bg-emerald-50 rounded-full mb-4"
           >
             Prezzi Trasparenti
           </motion.span>
@@ -118,7 +118,7 @@ export function PricingTable() {
               onClick={() => setIsYearly(false)}
               className={`px-5 py-2 text-sm font-medium rounded-full transition-all ${
                 !isYearly
-                  ? 'bg-blue-600 text-white shadow-sm'
+                  ? 'bg-emerald-600 text-white shadow-sm'
                   : 'text-gray-600 hover:text-gray-900'
               }`}
             >
@@ -128,7 +128,7 @@ export function PricingTable() {
               onClick={() => setIsYearly(true)}
               className={`px-5 py-2 text-sm font-medium rounded-full transition-all flex items-center gap-2 ${
                 isYearly
-                  ? 'bg-blue-600 text-white shadow-sm'
+                  ? 'bg-emerald-600 text-white shadow-sm'
                   : 'text-gray-600 hover:text-gray-900'
               }`}
             >
@@ -151,14 +151,14 @@ export function PricingTable() {
               transition={{ delay: index * 0.1 }}
               className={`relative bg-white rounded-2xl p-8 ${
                 plan.popular
-                  ? 'border-2 border-blue-600 shadow-xl'
+                  ? 'border-2 border-emerald-600 shadow-xl'
                   : 'border border-gray-200 shadow-lg'
               }`}
             >
               {/* Popular Badge */}
               {plan.popular && (
                 <div className="absolute -top-4 left-1/2 -translate-x-1/2">
-                  <span className="inline-flex items-center gap-1.5 px-4 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-semibold rounded-full shadow-lg">
+                  <span className="inline-flex items-center gap-1.5 px-4 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 text-white text-sm font-semibold rounded-full shadow-lg">
                     <Sparkles className="w-4 h-4" />
                     Piu Popolare
                   </span>
@@ -207,7 +207,7 @@ export function PricingTable() {
                 href={plan.name === 'Business' ? '/contact' : '/auth/register'}
                 className={`block w-full py-3 text-center font-semibold rounded-xl transition-all ${
                   plan.popular
-                    ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-500/25'
+                    ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:from-emerald-700 hover:to-teal-700 shadow-lg shadow-emerald-500/25'
                     : 'bg-gray-100 text-gray-900 hover:bg-gray-200'
                 }`}
               >
@@ -226,7 +226,7 @@ export function PricingTable() {
         >
           <p className="text-gray-600">
             Hai bisogno di piu di 15 utenti o funzionalita custom?{' '}
-            <Link href="/contact" className="text-blue-600 font-medium hover:text-blue-700">
+            <Link href="/contact" className="text-emerald-600 font-medium hover:text-emerald-700">
               Contattaci per un piano Enterprise
             </Link>
           </p>

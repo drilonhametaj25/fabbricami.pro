@@ -13,11 +13,11 @@ const benefits = [
 
 export function CTASection() {
   return (
-    <section className="py-24 bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800 relative overflow-hidden">
+    <section className="py-24 bg-gradient-to-br from-emerald-600 via-emerald-700 to-teal-800 relative overflow-hidden">
       {/* Background Elements */}
       <div className="absolute inset-0">
-        <div className="absolute top-0 left-1/4 w-96 h-96 bg-blue-500/20 rounded-full blur-3xl" />
-        <div className="absolute bottom-0 right-1/4 w-80 h-80 bg-indigo-500/20 rounded-full blur-3xl" />
+        <div className="absolute top-0 left-1/4 w-96 h-96 bg-emerald-500/20 rounded-full blur-3xl" />
+        <div className="absolute bottom-0 right-1/4 w-80 h-80 bg-teal-500/20 rounded-full blur-3xl" />
 
         {/* Grid Pattern */}
         <div
@@ -62,7 +62,7 @@ export function CTASection() {
           >
             <Link
               href="/auth/register"
-              className="group inline-flex items-center gap-2 px-8 py-4 text-base font-semibold text-blue-600 bg-white rounded-xl hover:bg-gray-50 transition-all shadow-lg"
+              className="group inline-flex items-center gap-2 px-8 py-4 text-base font-semibold text-emerald-600 bg-white rounded-xl hover:bg-gray-50 transition-all shadow-lg"
             >
               Inizia Gratis Ora
               <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />

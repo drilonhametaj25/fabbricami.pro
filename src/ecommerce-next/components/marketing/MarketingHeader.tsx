@@ -67,7 +67,7 @@ export function MarketingHeader() {
           <div className="flex items-center justify-between h-20">
             {/* Logo */}
             <Link href="/" className="flex items-center gap-2">
-              <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-xl flex items-center justify-center">
+              <div className="w-10 h-10 bg-gradient-to-br from-emerald-600 to-teal-700 rounded-xl flex items-center justify-center">
                 <span className="text-white font-bold text-xl">F</span>
               </div>
               <span className={cn(
@@ -93,7 +93,7 @@ export function MarketingHeader() {
                       'px-4 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-1',
                       isScrolled
                         ? pathname === link.href || pathname.startsWith(link.href + '/')
-                          ? 'text-blue-600'
+                          ? 'text-emerald-600'
                           : 'text-gray-700 hover:text-gray-900 hover:bg-gray-100'
                         : pathname === link.href || pathname.startsWith(link.href + '/')
                         ? 'text-white'
@@ -122,7 +122,7 @@ export function MarketingHeader() {
                               className={cn(
                                 'block px-4 py-2.5 text-sm transition-colors',
                                 pathname === child.href
-                                  ? 'text-blue-600 bg-blue-50'
+                                  ? 'text-emerald-600 bg-emerald-50'
                                   : 'text-gray-700 hover:text-gray-900 hover:bg-gray-50'
                               )}
                             >
@@ -163,7 +163,7 @@ export function MarketingHeader() {
               </Link>
               <Link
                 href="/auth/register"
-                className="px-5 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg hover:from-blue-700 hover:to-indigo-700 transition-all shadow-lg shadow-blue-500/25"
+                className="px-5 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-emerald-600 to-teal-600 rounded-lg hover:from-emerald-700 hover:to-teal-700 transition-all shadow-lg shadow-emerald-500/25"
               >
                 Inizia Gratis
               </Link>
@@ -234,7 +234,7 @@ export function MarketingHeader() {
                         className={cn(
                           'block px-6 py-3 text-base font-medium transition-colors',
                           pathname === link.href
-                            ? 'text-blue-600 bg-blue-50'
+                            ? 'text-emerald-600 bg-emerald-50'
                             : 'text-gray-700 hover:bg-gray-50'
                         )}
                       >
@@ -249,7 +249,7 @@ export function MarketingHeader() {
                               className={cn(
                                 'block px-4 py-2.5 text-sm transition-colors',
                                 pathname === child.href
-                                  ? 'text-blue-600'
+                                  ? 'text-emerald-600'
                                   : 'text-gray-600 hover:text-gray-900'
                               )}
                             >
@@ -272,7 +272,7 @@ export function MarketingHeader() {
                   </Link>
                   <Link
                     href="/auth/register"
-                    className="block w-full px-4 py-3 text-center text-white font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg hover:from-blue-700 hover:to-indigo-700 transition-all"
+                    className="block w-full px-4 py-3 text-center text-white font-semibold bg-gradient-to-r from-emerald-600 to-teal-600 rounded-lg hover:from-emerald-700 hover:to-teal-700 transition-all"
                   >
                     Inizia Gratis
                   </Link>

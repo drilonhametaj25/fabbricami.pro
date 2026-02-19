@@ -59,7 +59,7 @@ export function FAQ() {
             initial={{ opacity: 0 }}
             whileInView={{ opacity: 1 }}
             viewport={{ once: true }}
-            className="inline-block px-4 py-1.5 text-sm font-medium text-blue-600 bg-blue-50 rounded-full mb-4"
+            className="inline-block px-4 py-1.5 text-sm font-medium text-emerald-600 bg-emerald-50 rounded-full mb-4"
           >
             FAQ
           </motion.span>
@@ -106,7 +106,7 @@ export function FAQ() {
                 <span
                   className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
                     openIndex === index
-                      ? 'bg-blue-600 text-white'
+                      ? 'bg-emerald-600 text-white'
                       : 'bg-gray-100 text-gray-600'
                   }`}
                 >

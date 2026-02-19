@@ -33,9 +33,9 @@ const tools = [
 
 const colorClasses = {
   blue: {
-    bg: 'bg-blue-100',
-    text: 'text-blue-600',
-    hover: 'group-hover:bg-blue-600 group-hover:text-white',
+    bg: 'bg-emerald-100',
+    text: 'text-emerald-600',
+    hover: 'group-hover:bg-emerald-600 group-hover:text-white',
   },
   green: {
     bg: 'bg-green-100',
@@ -59,7 +59,7 @@ export function ToolsPreview() {
             initial={{ opacity: 0 }}
             whileInView={{ opacity: 1 }}
             viewport={{ once: true }}
-            className="inline-block px-4 py-1.5 text-sm font-medium text-blue-600 bg-blue-50 rounded-full mb-4"
+            className="inline-block px-4 py-1.5 text-sm font-medium text-emerald-600 bg-emerald-50 rounded-full mb-4"
           >
             Strumenti Gratuiti
           </motion.span>
@@ -107,7 +107,7 @@ export function ToolsPreview() {
                   </div>
 
                   {/* Content */}
-                  <h3 className="text-xl font-semibold text-gray-900 mb-3 group-hover:text-blue-600 transition-colors">
+                  <h3 className="text-xl font-semibold text-gray-900 mb-3 group-hover:text-emerald-600 transition-colors">
                     {tool.title}
                   </h3>
                   <p className="text-gray-600 mb-4 leading-relaxed">
@@ -115,7 +115,7 @@ export function ToolsPreview() {
                   </p>
 
                   {/* Link */}
-                  <span className="inline-flex items-center gap-2 text-blue-600 font-medium group-hover:gap-3 transition-all">
+                  <span className="inline-flex items-center gap-2 text-emerald-600 font-medium group-hover:gap-3 transition-all">
                     Usa gratis
                     <ArrowRight className="w-4 h-4" />
                   </span>

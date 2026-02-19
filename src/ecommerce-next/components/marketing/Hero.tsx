@@ -16,7 +16,7 @@ export function Hero() {
   return (
     <section className="relative min-h-screen flex items-center overflow-hidden">
       {/* Background Gradient */}
-      <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-blue-900 to-indigo-900" />
+      <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-emerald-900 to-teal-900" />
 
       {/* Animated Background Elements */}
       <div className="absolute inset-0 overflow-hidden">
@@ -51,7 +51,7 @@ export function Hero() {
             {/* Headline */}
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-white leading-tight mb-6">
               Gestisci il tuo{' '}
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-400">
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-400">
                 E-commerce
               </span>{' '}
               con un ERP completo
@@ -67,7 +67,7 @@ export function Hero() {
             <div className="flex flex-wrap items-center gap-4 mb-8">
               <Link
                 href="/auth/register"
-                className="group inline-flex items-center gap-2 px-8 py-4 text-base font-semibold text-white bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all shadow-lg shadow-blue-500/30"
+                className="group inline-flex items-center gap-2 px-8 py-4 text-base font-semibold text-white bg-gradient-to-r from-emerald-600 to-teal-600 rounded-xl hover:from-emerald-700 hover:to-teal-700 transition-all shadow-lg shadow-emerald-500/30"
               >
                 Inizia Gratis
                 <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
@@ -101,7 +101,7 @@ export function Hero() {
           >
             {/* Main Dashboard Image */}
             <div className="relative">
-              <div className="absolute -inset-1 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-2xl blur opacity-30" />
+              <div className="absolute -inset-1 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-2xl blur opacity-30" />
               <div className="relative bg-gray-900 rounded-2xl shadow-2xl overflow-hidden border border-white/10">
                 {/* Browser Bar */}
                 <div className="flex items-center gap-2 px-4 py-3 bg-gray-800/50 border-b border-white/10">

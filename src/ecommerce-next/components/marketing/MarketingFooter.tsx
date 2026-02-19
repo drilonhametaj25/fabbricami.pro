@@ -55,7 +55,7 @@ export function MarketingFooter() {
           {/* Brand Column */}
           <div className="col-span-2 md:col-span-3 lg:col-span-1">
             <Link href="/" className="flex items-center gap-2 mb-4">
-              <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center">
+              <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl flex items-center justify-center">
                 <span className="text-white font-bold text-xl">F</span>
               </div>
               <span className="text-xl font-bold">Fabbricami</span>
@@ -214,7 +214,7 @@ export function MarketingFooter() {
               <span className="px-3 py-1 text-xs font-medium text-green-400 bg-green-500/10 rounded-full">
                 GDPR Compliant
               </span>
-              <span className="px-3 py-1 text-xs font-medium text-blue-400 bg-blue-500/10 rounded-full">
+              <span className="px-3 py-1 text-xs font-medium text-emerald-400 bg-emerald-500/10 rounded-full">
                 SSL Secured
               </span>
             </div>
