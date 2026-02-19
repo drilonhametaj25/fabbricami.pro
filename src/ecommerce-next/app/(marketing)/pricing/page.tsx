@@ -20,7 +20,7 @@ export default function PricingPage() {
       <section className="pt-32 pb-16 bg-gradient-to-b from-gray-50 to-white">
         <div className="container mx-auto px-4 lg:px-8">
           <div className="text-center max-w-3xl mx-auto">
-            <span className="inline-block px-4 py-1.5 text-sm font-medium text-blue-600 bg-blue-50 rounded-full mb-4">
+            <span className="inline-block px-4 py-1.5 text-sm font-medium text-emerald-600 bg-emerald-50 rounded-full mb-4">
               Prezzi Semplici e Trasparenti
             </span>
             <h1 className="text-4xl sm:text-5xl font-bold text-gray-900 mb-6">
@@ -54,7 +54,7 @@ export default function PricingPage() {
                   <th className="py-4 px-6 text-center text-gray-900 font-semibold">
                     Starter
                   </th>
-                  <th className="py-4 px-6 text-center text-blue-600 font-semibold bg-blue-50/50 rounded-t-lg">
+                  <th className="py-4 px-6 text-center text-emerald-600 font-semibold bg-emerald-50/50 rounded-t-lg">
                     Pro
                   </th>
                   <th className="py-4 px-6 text-center text-gray-900 font-semibold">
@@ -97,7 +97,7 @@ export default function PricingPage() {
                         <span className="text-gray-900">{row.starter}</span>
                       )}
                     </td>
-                    <td className="py-4 px-6 text-center bg-blue-50/30">
+                    <td className="py-4 px-6 text-center bg-emerald-50/30">
                       {typeof row.pro === 'boolean' ? (
                         row.pro ? (
                           <span className="text-green-500">✓</span>
