@@ -82,12 +82,42 @@ jobs:
           host: ${{ secrets.PRODUCTION_HOST }}
           username: ${{ secrets.PRODUCTION_USER }}
           key: ${{ secrets.PRODUCTION_SSH_KEY }}
+          command_timeout: 30m
+          script_stop: true
           script: |
+            set -e
+            echo "=========================================="
+            echo "DEPLOY STARTED at $(date)"
+            echo "=========================================="
+
             cd /opt/ecommerceerp
+
+            echo ">>> Pulling latest code..."
             git fetch origin main
             git checkout main
-            git pull origin main
-            docker compose -f docker-compose.prod.yml build --pull
+            git reset --hard origin/main
+
+            echo ">>> Current commit:"
+            git log -1 --oneline
+
+            echo ">>> Stopping old containers..."
+            docker compose -f docker-compose.prod.yml down --remove-orphans || true
+
+            echo ">>> Building containers..."
+            docker compose -f docker-compose.prod.yml build --pull --parallel
+
+            echo ">>> Starting containers..."
             docker compose -f docker-compose.prod.yml up -d
+
+            echo ">>> Waiting for database to be ready..."
+            sleep 10
+
+            echo ">>> Running database migrations..."
             docker compose -f docker-compose.prod.yml exec -T backend npx prisma migrate deploy
-            echo "Deploy completed at $(date)"
+
+            echo ">>> Checking container status..."
+            docker compose -f docker-compose.prod.yml ps
+
+            echo "=========================================="
+            echo "DEPLOY COMPLETED at $(date)"
+            echo "=========================================="
