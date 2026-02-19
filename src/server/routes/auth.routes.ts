@@ -283,11 +283,11 @@ const authRoutes: FastifyPluginAsync = async (server) => {
         },
       });
 
-      // Setup tenant and subscription
+      // Setup tenant and subscription (use plan from registration or default to PRO)
       const tenant = await tenantService.setupInitialTenant(
         user.id,
         body.companyName,
-        'PRO' // Default trial plan
+        body.plan || 'PRO'
       );
 
       // Send verification email (using SaaS template)

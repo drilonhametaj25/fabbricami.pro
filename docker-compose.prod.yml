@@ -139,31 +139,70 @@ services:
       - "traefik.http.routers.erp.middlewares=erp-compress,erp-security"
 
   # ===========================================
-  # E-COMMERCE FRONTEND (Nuxt 3) - Optional
+  # MARKETING SITE (Next.js) - fabbricami.pro
   # ===========================================
-  # Decommenta se vuoi includere lo shop
-  # ecommerce:
-  #   build:
-  #     context: ./src/ecommerce
-  #     dockerfile: Dockerfile
-  #     args:
-  #       NUXT_PUBLIC_API_BASE: https://api.${DOMAIN}/api/v1
-  #   container_name: ecommerceerp-ecommerce
-  #   restart: always
-  #   networks:
-  #     - web
-  #   labels:
-  #     - "traefik.enable=true"
-  #     - "traefik.http.routers.shop.rule=Host(`${DOMAIN}`) || Host(`www.${DOMAIN}`)"
-  #     - "traefik.http.routers.shop.entrypoints=websecure"
-  #     - "traefik.http.routers.shop.tls.certresolver=letsencrypt"
-  #     - "traefik.http.services.shop.loadbalancer.server.port=3000"
-  #     # Redirect www to non-www
-  #     - "traefik.http.middlewares.shop-redirect.redirectregex.regex=^https://www\\.(.*)"
-  #     - "traefik.http.middlewares.shop-redirect.redirectregex.replacement=https://$${1}"
-  #     - "traefik.http.middlewares.shop-redirect.redirectregex.permanent=true"
-  #     - "traefik.http.middlewares.shop-compress.compress=true"
-  #     - "traefik.http.routers.shop.middlewares=shop-redirect,shop-compress"
+  marketing:
+    build:
+      context: .
+      dockerfile: docker/marketing/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: https://api.${DOMAIN}
+    container_name: ecommerceerp-marketing
+    restart: always
+    networks:
+      - web
+    labels:
+      - "traefik.enable=true"
+      # Marketing site router (main domain)
+      - "traefik.http.routers.marketing.rule=Host(`${DOMAIN}`) || Host(`www.${DOMAIN}`)"
+      - "traefik.http.routers.marketing.entrypoints=websecure"
+      - "traefik.http.routers.marketing.tls.certresolver=letsencrypt"
+      - "traefik.http.services.marketing.loadbalancer.server.port=3000"
+      # Redirect www to non-www
+      - "traefik.http.middlewares.marketing-redirect.redirectregex.regex=^https://www\\.(.*)"
+      - "traefik.http.middlewares.marketing-redirect.redirectregex.replacement=https://$${1}"
+      - "traefik.http.middlewares.marketing-redirect.redirectregex.permanent=true"
+      # Compression
+      - "traefik.http.middlewares.marketing-compress.compress=true"
+      # Security Headers
+      - "traefik.http.middlewares.marketing-security.headers.frameDeny=true"
+      - "traefik.http.middlewares.marketing-security.headers.browserXssFilter=true"
+      - "traefik.http.middlewares.marketing-security.headers.contentTypeNosniff=true"
+      - "traefik.http.routers.marketing.middlewares=marketing-redirect,marketing-compress,marketing-security"
+
+  # ===========================================
+  # DEMO ERP (same frontend, different routing)
+  # demo.fabbricami.pro - Accesso demo con reset giornaliero
+  # ===========================================
+  demo:
+    build:
+      context: .
+      dockerfile: docker/frontend/Dockerfile
+      target: production
+      args:
+        VITE_API_URL: https://api.${DOMAIN}
+        VITE_DEMO_MODE: "true"
+    container_name: ecommerceerp-demo
+    restart: always
+    environment:
+      - DEMO_MODE=true
+    networks:
+      - web
+    labels:
+      - "traefik.enable=true"
+      # Demo router
+      - "traefik.http.routers.demo.rule=Host(`demo.${DOMAIN}`)"
+      - "traefik.http.routers.demo.entrypoints=websecure"
+      - "traefik.http.routers.demo.tls.certresolver=letsencrypt"
+      - "traefik.http.services.demo.loadbalancer.server.port=80"
+      # Demo header injection (backend uses this to identify demo requests)
+      - "traefik.http.middlewares.demo-headers.headers.customrequestheaders.X-Demo-Mode=true"
+      # Compression
+      - "traefik.http.middlewares.demo-compress.compress=true"
+      # Security
+      - "traefik.http.middlewares.demo-security.headers.frameDeny=true"
+      - "traefik.http.middlewares.demo-security.headers.browserXssFilter=true"
+      - "traefik.http.routers.demo.middlewares=demo-headers,demo-compress,demo-security"
 
   # ===========================================
   # REVERSE PROXY (Traefik)

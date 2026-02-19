@@ -11,11 +11,12 @@ import {
 // ONBOARDING STATUS TYPES
 // ============================================
 
-type OnboardingStep = 'verify-email' | 'company-settings' | 'create-warehouse' | 'complete';
+type OnboardingStep = 'verify-email' | 'company-settings' | 'wordpress-integration' | 'create-warehouse' | 'complete';
 
 interface OnboardingStatus {
   emailVerified: boolean;
   companySettingsComplete: boolean;
+  wordpressIntegrationComplete: boolean;
   firstWarehouseCreated: boolean;
   currentStep: OnboardingStep;
   completedSteps: string[];
@@ -53,6 +54,13 @@ const onboardingRoutes: FastifyPluginAsync = async (server) => {
         where: { tenantId: tenantRequest.tenant.tenantId },
       });
 
+      // Check if WordPress integration was configured or skipped
+      const tenant = await prisma.tenant.findUnique({
+        where: { id: tenantRequest.tenant.tenantId },
+      });
+      const tenantSettings = (tenant?.settings as Record<string, unknown>) || {};
+      const wordpressIntegrationComplete = !!tenantSettings.wordpressConfigured || !!tenantSettings.wordpressSkipped;
+
       const emailVerified = user?.emailVerified ?? false;
       const companySettingsComplete = !!companySettings;
       const firstWarehouseCreated = warehouseCount > 0;
@@ -71,11 +79,17 @@ const onboardingRoutes: FastifyPluginAsync = async (server) => {
         } else {
           completedSteps.push('company-settings');
 
-          if (!firstWarehouseCreated) {
-            currentStep = 'create-warehouse';
+          if (!wordpressIntegrationComplete) {
+            currentStep = 'wordpress-integration';
           } else {
-            completedSteps.push('create-warehouse');
-            currentStep = 'complete';
+            completedSteps.push('wordpress-integration');
+
+            if (!firstWarehouseCreated) {
+              currentStep = 'create-warehouse';
+            } else {
+              completedSteps.push('create-warehouse');
+              currentStep = 'complete';
+            }
           }
         }
       }
@@ -83,6 +97,7 @@ const onboardingRoutes: FastifyPluginAsync = async (server) => {
       const status: OnboardingStatus = {
         emailVerified,
         companySettingsComplete,
+        wordpressIntegrationComplete,
         firstWarehouseCreated,
         currentStep,
         completedSteps,
@@ -296,6 +311,204 @@ const onboardingRoutes: FastifyPluginAsync = async (server) => {
         success: true,
         data: { message: 'Magazzino di default creato' },
       });
+    }
+  );
+
+  /**
+   * POST /onboarding/wordpress-integration
+   * Save WordPress/WooCommerce integration settings
+   */
+  server.post(
+    '/wordpress-integration',
+    { preHandler: [authenticate, tenantMiddleware] },
+    async (request, reply) => {
+      try {
+        const tenantRequest = request as TenantRequest;
+        const body = request.body as {
+          enabled: boolean;
+          siteUrl?: string;
+          consumerKey?: string;
+          consumerSecret?: string;
+        };
+
+        // Get current tenant settings
+        const tenant = await prisma.tenant.findUnique({
+          where: { id: tenantRequest.tenant.tenantId },
+        });
+
+        const currentSettings = (tenant?.settings as Record<string, unknown>) || {};
+
+        if (body.enabled) {
+          // Save WordPress configuration
+          const newSettings = {
+            ...currentSettings,
+            wordpressConfigured: true,
+            wordpressSkipped: false,
+            wordpress: {
+              enabled: true,
+              siteUrl: body.siteUrl,
+              consumerKey: body.consumerKey,
+              // Store consumer secret securely (in production, encrypt this)
+              consumerSecret: body.consumerSecret,
+              configuredAt: new Date().toISOString(),
+            },
+          };
+
+          await prisma.tenant.update({
+            where: { id: tenantRequest.tenant.tenantId },
+            data: { settings: newSettings },
+          });
+        } else {
+          // Mark as skipped
+          const newSettings = {
+            ...currentSettings,
+            wordpressConfigured: false,
+            wordpressSkipped: true,
+          };
+
+          await prisma.tenant.update({
+            where: { id: tenantRequest.tenant.tenantId },
+            data: { settings: newSettings },
+          });
+        }
+
+        return reply.send({
+          success: true,
+          data: { message: 'Configurazione WordPress salvata' },
+        });
+      } catch (error) {
+        console.error('WordPress integration error:', error);
+        return reply.status(400).send({
+          success: false,
+          error: error instanceof Error ? error.message : 'Errore salvataggio configurazione',
+        });
+      }
+    }
+  );
+
+  /**
+   * POST /onboarding/skip-wordpress
+   * Skip WordPress integration step
+   */
+  server.post(
+    '/skip-wordpress',
+    { preHandler: [authenticate, tenantMiddleware] },
+    async (request, reply) => {
+      const tenantRequest = request as TenantRequest;
+
+      // Get current tenant settings
+      const tenant = await prisma.tenant.findUnique({
+        where: { id: tenantRequest.tenant.tenantId },
+      });
+
+      const currentSettings = (tenant?.settings as Record<string, unknown>) || {};
+      const newSettings = {
+        ...currentSettings,
+        wordpressConfigured: false,
+        wordpressSkipped: true,
+      };
+
+      await prisma.tenant.update({
+        where: { id: tenantRequest.tenant.tenantId },
+        data: { settings: newSettings },
+      });
+
+      return reply.send({
+        success: true,
+        data: { message: 'Integrazione WordPress saltata' },
+      });
+    }
+  );
+
+  /**
+   * POST /onboarding/test-wordpress
+   * Test WordPress/WooCommerce connection
+   */
+  server.post(
+    '/test-wordpress',
+    { preHandler: [authenticate, tenantMiddleware] },
+    async (request, reply) => {
+      try {
+        const body = request.body as {
+          siteUrl?: string;
+          consumerKey?: string;
+          consumerSecret?: string;
+        };
+
+        if (!body.siteUrl || !body.consumerKey || !body.consumerSecret) {
+          return reply.send({
+            success: true,
+            data: {
+              valid: false,
+              message: 'Tutti i campi sono obbligatori',
+            },
+          });
+        }
+
+        // Normalize URL
+        let url = body.siteUrl.trim();
+        if (!url.startsWith('http://') && !url.startsWith('https://')) {
+          url = 'https://' + url;
+        }
+        if (url.endsWith('/')) {
+          url = url.slice(0, -1);
+        }
+
+        // Try to connect to WooCommerce REST API
+        const testUrl = `${url}/wp-json/wc/v3/system_status`;
+        const credentials = Buffer.from(`${body.consumerKey}:${body.consumerSecret}`).toString('base64');
+
+        const response = await fetch(testUrl, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Basic ${credentials}`,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (response.ok) {
+          return reply.send({
+            success: true,
+            data: {
+              valid: true,
+              message: 'Connessione riuscita! WooCommerce configurato correttamente.',
+            },
+          });
+        } else if (response.status === 401) {
+          return reply.send({
+            success: true,
+            data: {
+              valid: false,
+              message: 'Credenziali API non valide. Verifica Consumer Key e Secret.',
+            },
+          });
+        } else if (response.status === 404) {
+          return reply.send({
+            success: true,
+            data: {
+              valid: false,
+              message: 'WooCommerce REST API non trovata. Verifica che WooCommerce sia installato.',
+            },
+          });
+        } else {
+          return reply.send({
+            success: true,
+            data: {
+              valid: false,
+              message: `Errore connessione: ${response.status} ${response.statusText}`,
+            },
+          });
+        }
+      } catch (error) {
+        console.error('WordPress test error:', error);
+        return reply.send({
+          success: true,
+          data: {
+            valid: false,
+            message: error instanceof Error ? `Errore: ${error.message}` : 'Impossibile connettersi al sito',
+          },
+        });
+      }
     }
   );
 

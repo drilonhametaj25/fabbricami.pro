@@ -77,11 +77,12 @@ const {
   isStepCompleted,
   fetchStatus,
   skipWarehouse,
+  skipWordPressIntegration,
 } = useOnboarding();
 
 // Computed
 const showSkipButton = computed(() => {
-  return currentStep.value === 'create-warehouse';
+  return currentStep.value === 'create-warehouse' || currentStep.value === 'wordpress-integration';
 });
 
 const showLogoutButton = computed(() => true);
@@ -91,6 +92,9 @@ async function skipStep() {
   if (currentStep.value === 'create-warehouse') {
     await skipWarehouse();
     router.push('/');
+  } else if (currentStep.value === 'wordpress-integration') {
+    await skipWordPressIntegration();
+    router.push('/onboarding/create-warehouse');
   }
 }
 

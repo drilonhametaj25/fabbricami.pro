@@ -6,6 +6,7 @@ import type {
   OnboardingStep,
   CompanySettingsForm,
   CreateWarehouseForm,
+  WordPressIntegrationForm,
 } from '../types';
 
 export function useOnboarding() {
@@ -34,11 +35,16 @@ export function useOnboarding() {
     () => status.value?.firstWarehouseCreated || false
   );
 
+  const wordpressIntegrationComplete = computed(
+    () => status.value?.wordpressIntegrationComplete || false
+  );
+
   // Calcola la percentuale di progresso
   const progress = computed(() => {
     const steps: OnboardingStep[] = [
       'verify-email',
       'company-settings',
+      'wordpress-integration',
       'create-warehouse',
       'complete',
     ];
@@ -59,6 +65,12 @@ export function useOnboarding() {
       label: 'Dati Azienda',
       icon: 'pi pi-building',
       completed: companySettingsComplete.value,
+    },
+    {
+      id: 'wordpress-integration' as OnboardingStep,
+      label: 'E-commerce',
+      icon: 'pi pi-shopping-cart',
+      completed: wordpressIntegrationComplete.value,
     },
     {
       id: 'create-warehouse' as OnboardingStep,
@@ -191,6 +203,80 @@ export function useOnboarding() {
     }
   }
 
+  // Salva le impostazioni WordPress
+  async function saveWordPressIntegration(data: WordPressIntegrationForm): Promise<boolean> {
+    loading.value = true;
+    error.value = null;
+
+    try {
+      const response = await api.post('/onboarding/wordpress-integration', data);
+      if (response.success) {
+        // Aggiorna lo stato
+        await fetchStatus();
+        return true;
+      } else {
+        error.value = response.error || 'Errore salvataggio integrazione WordPress';
+        return false;
+      }
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : 'Errore salvataggio integrazione WordPress';
+      return false;
+    } finally {
+      loading.value = false;
+    }
+  }
+
+  // Salta integrazione WordPress
+  async function skipWordPressIntegration(): Promise<boolean> {
+    loading.value = true;
+    error.value = null;
+
+    try {
+      const response = await api.post('/onboarding/skip-wordpress');
+      if (response.success) {
+        // Aggiorna lo stato
+        await fetchStatus();
+        return true;
+      } else {
+        error.value = response.error || 'Errore skip WordPress';
+        return false;
+      }
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : 'Errore skip WordPress';
+      return false;
+    } finally {
+      loading.value = false;
+    }
+  }
+
+  // Test connessione WordPress
+  async function testWordPressConnection(data: WordPressIntegrationForm): Promise<{ success: boolean; message: string }> {
+    loading.value = true;
+    error.value = null;
+
+    try {
+      const response = await api.post<{ valid: boolean; message: string }>('/onboarding/test-wordpress', data);
+      if (response.success && response.data) {
+        return {
+          success: response.data.valid,
+          message: response.data.message,
+        };
+      } else {
+        return {
+          success: false,
+          message: response.error || 'Errore test connessione',
+        };
+      }
+    } catch (err) {
+      return {
+        success: false,
+        message: err instanceof Error ? err.message : 'Errore test connessione',
+      };
+    } finally {
+      loading.value = false;
+    }
+  }
+
   // Marca l'onboarding come completo
   async function completeOnboarding(): Promise<boolean> {
     loading.value = true;
@@ -252,6 +338,7 @@ export function useOnboarding() {
     const stepOrder: OnboardingStep[] = [
       'verify-email',
       'company-settings',
+      'wordpress-integration',
       'create-warehouse',
       'complete',
     ];
@@ -285,6 +372,7 @@ export function useOnboarding() {
     completedSteps,
     emailVerified,
     companySettingsComplete,
+    wordpressIntegrationComplete,
     firstWarehouseCreated,
     progress,
     steps,
@@ -296,6 +384,9 @@ export function useOnboarding() {
     saveCompanySettings,
     createWarehouse,
     skipWarehouse,
+    saveWordPressIntegration,
+    skipWordPressIntegration,
+    testWordPressConnection,
     completeOnboarding,
     resendVerificationEmail,
     goToCurrentStep,

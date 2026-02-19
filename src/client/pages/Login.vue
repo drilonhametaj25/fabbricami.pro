@@ -117,16 +117,16 @@
             <p>Accedi al tuo account per continuare</p>
           </div>
 
-          <!-- Demo Credentials Box -->
-          <div class="demo-credentials">
+          <!-- Demo Credentials Box - Only shown in demo mode -->
+          <div v-if="isDemoMode" class="demo-credentials">
             <div class="demo-icon">
               <i class="pi pi-info-circle"></i>
             </div>
             <div class="demo-content">
               <strong>Credenziali Demo</strong>
               <div class="credentials-list">
-                <span><i class="pi pi-envelope"></i> admin@fabbricami.pro</span>
-                <span><i class="pi pi-lock"></i> admin123</span>
+                <span><i class="pi pi-envelope"></i> demo@fabbricami.pro</span>
+                <span><i class="pi pi-lock"></i> Demo123!</span>
               </div>
             </div>
           </div>
@@ -184,6 +184,10 @@
 
           <!-- Footer -->
           <div class="card-footer">
+            <p v-if="!isDemoMode" class="register-link">
+              Non hai un account?
+              <a :href="`${marketingSiteUrl}/auth/register`">Registrati</a>
+            </p>
             <p>Hai bisogno di aiuto? <a href="mailto:support@fabbricami.pro">Contatta il supporto</a></p>
           </div>
         </div>
@@ -193,7 +197,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import InputText from 'primevue/inputtext';
 import Password from 'primevue/password';
@@ -209,6 +213,24 @@ const email = ref('');
 const password = ref('');
 const loading = ref(false);
 const rememberMe = ref(false);
+
+// Check if we're in demo mode (accessed via demo.fabbricami.pro)
+const isDemoMode = computed(() => {
+  if (typeof window === 'undefined') return false;
+  return window.location.hostname.startsWith('demo.');
+});
+
+// Marketing site URL for registration
+const marketingSiteUrl = computed(() => {
+  if (typeof window === 'undefined') return 'https://fabbricami.pro';
+  const hostname = window.location.hostname;
+  // Extract base domain from erp.fabbricami.pro or demo.fabbricami.pro
+  const parts = hostname.split('.');
+  if (parts.length >= 2) {
+    return `https://${parts.slice(-2).join('.')}`;
+  }
+  return 'https://fabbricami.pro';
+});
 
 const handleLogin = async () => {
   loading.value = true;
@@ -716,6 +738,13 @@ const handleLogin = async () => {
   margin: 0;
   font-size: 0.875rem;
   color: #64748b;
+}
+
+.card-footer .register-link {
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid #e2e8f0;
+  font-weight: 500;
 }
 
 .card-footer a {

@@ -940,14 +940,22 @@ export interface BillingHistoryItem {
   description: string;
 }
 
-export type OnboardingStep = 'verify-email' | 'company-settings' | 'create-warehouse' | 'complete';
+export type OnboardingStep = 'verify-email' | 'company-settings' | 'wordpress-integration' | 'create-warehouse' | 'complete';
 
 export interface OnboardingStatus {
   emailVerified: boolean;
   companySettingsComplete: boolean;
+  wordpressIntegrationComplete: boolean;
   firstWarehouseCreated: boolean;
   currentStep: OnboardingStep;
   completedSteps: string[];
+}
+
+export interface WordPressIntegrationForm {
+  enabled: boolean;
+  siteUrl?: string;
+  consumerKey?: string;
+  consumerSecret?: string;
 }
 
 export interface CompanySettingsForm {
