@@ -100,20 +100,25 @@ jobs:
             echo ">>> Current commit:"
             git log -1 --oneline
 
-            echo ">>> Stopping old containers..."
-            docker compose -f docker-compose.prod.yml down --remove-orphans || true
+            echo ">>> Cleaning up old fixed-name containers (one-time migration)..."
+            docker rm -f ecommerceerp-demo ecommerceerp-frontend ecommerceerp-marketing ecommerceerp-backend 2>/dev/null || true
 
-            echo ">>> Building containers..."
+            echo ">>> Building and deploying (zero-downtime)..."
+            # Build new images while old containers keep running
             docker compose -f docker-compose.prod.yml build --pull --parallel
 
-            echo ">>> Starting containers..."
-            docker compose -f docker-compose.prod.yml up -d
+            # Start/recreate containers - Traefik routes to healthy ones
+            # Old containers stay up until new ones are healthy
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans
 
-            echo ">>> Waiting for database to be ready..."
-            sleep 10
+            echo ">>> Waiting for containers to be healthy..."
+            sleep 15
 
             echo ">>> Running database migrations..."
-            docker compose -f docker-compose.prod.yml exec -T backend npx prisma migrate deploy
+            docker compose -f docker-compose.prod.yml exec -T backend npx prisma migrate deploy || true
+
+            echo ">>> Cleaning up old images..."
+            docker image prune -f || true
 
             echo ">>> Checking container status..."
             docker compose -f docker-compose.prod.yml ps

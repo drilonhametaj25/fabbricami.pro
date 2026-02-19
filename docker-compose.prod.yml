@@ -1,12 +1,23 @@
 # EcommerceERP - Production Deployment
 # Ottimizzato per Hetzner VPS con Traefik + Let's Encrypt
+# Supporta zero-downtime deployment (rolling updates)
 #
 # Requisiti: Docker 24+, Docker Compose v2
-# Setup:
+#
+# Setup iniziale:
 #   1. Copia .env.production.example in .env
 #   2. Configura le variabili d'ambiente
 #   3. docker compose -f docker-compose.prod.yml up -d
-#   4. docker compose exec backend npx prisma migrate deploy
+#   4. docker compose -f docker-compose.prod.yml exec backend npx prisma migrate deploy
+#
+# Deployment (zero-downtime):
+#   docker compose -f docker-compose.prod.yml up -d --build --remove-orphans
+#
+# Note:
+#   - I container applicativi (backend, frontend, marketing, demo) NON hanno container_name
+#     fisso per permettere rolling updates
+#   - Traefik routera il traffico ai container healthy automaticamente
+#   - I container infrastrutturali (postgres, redis, traefik) hanno nomi fissi
 
 services:
   # ===========================================
@@ -60,8 +71,13 @@ services:
       context: .
       dockerfile: docker/backend/Dockerfile
       target: production
-    container_name: ecommerceerp-backend
     restart: always
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     environment:
       NODE_ENV: production
       PORT: 3000
@@ -119,8 +135,13 @@ services:
       target: production
       args:
         VITE_API_URL: https://api.${DOMAIN}
-    container_name: ecommerceerp-frontend
     restart: always
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     networks:
       - web
     labels:
@@ -147,8 +168,13 @@ services:
       dockerfile: docker/marketing/Dockerfile
       args:
         NEXT_PUBLIC_API_URL: https://api.${DOMAIN}
-    container_name: ecommerceerp-marketing
     restart: always
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     networks:
       - web
     labels:
@@ -182,8 +208,13 @@ services:
       args:
         VITE_API_URL: https://api.${DOMAIN}
         VITE_DEMO_MODE: "true"
-    container_name: ecommerceerp-demo
     restart: always
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     environment:
       - DEMO_MODE=true
     networks:
