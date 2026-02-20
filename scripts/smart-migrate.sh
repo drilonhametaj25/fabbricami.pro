@@ -53,30 +53,45 @@ if [ "$TENANTS_TABLE" = "0" ]; then
     exit 0
 fi
 
-# 4. Try migrate deploy, if it fails due to failed migrations, resolve and retry
+# 4. Try migrate deploy, if it fails, use db push to sync entire schema
 echo ">>> Running migrate deploy (attempt 1)..."
-if npx prisma migrate deploy; then
+MIGRATE_OUTPUT=$(npx prisma migrate deploy 2>&1) || true
+MIGRATE_EXIT=$?
+
+if [ $MIGRATE_EXIT -eq 0 ]; then
+    echo "$MIGRATE_OUTPUT"
     echo "=== Migration completed successfully ==="
     exit 0
 fi
 
-echo ">>> Migration deploy failed, attempting recovery..."
+echo "$MIGRATE_OUTPUT"
+echo ">>> Migration deploy failed (exit code: $MIGRATE_EXIT)"
 
-# Force resolve all migrations as rolled back
-echo ">>> Force resolving all migrations..."
-npx prisma migrate resolve --rolled-back 20260219174340_add_superadmin_and_expired_status 2>/dev/null || true
-npx prisma migrate resolve --rolled-back 20251023155944_init 2>/dev/null || true
+# Check if failure is due to missing table (P3018 with 42P01)
+if echo "$MIGRATE_OUTPUT" | grep -q "42P01\|does not exist"; then
+    echo ">>> Detected missing table - using db push to sync entire schema..."
 
-# Check if we need to use db push instead
-TENANTS_TABLE=$(check_table_exists "tenants")
-if [ "$TENANTS_TABLE" = "0" ]; then
-    echo ">>> Using db push to sync schema..."
+    # Resolve all migrations as rolled back first
+    npx prisma migrate resolve --rolled-back 20260219174340_add_superadmin_and_expired_status 2>/dev/null || true
+    npx prisma migrate resolve --rolled-back 20251023155944_init 2>/dev/null || true
+
+    # Use db push to create ALL tables from current schema
+    echo ">>> Running db push..."
     npx prisma db push --accept-data-loss
-    npx prisma migrate resolve --applied 20251023155944_init 2>/dev/null || true
-    npx prisma migrate resolve --applied 20260219174340_add_superadmin_and_expired_status 2>/dev/null || true
-    echo "=== Schema synchronized successfully ==="
+
+    # Mark all migrations as applied (schema is now in sync)
+    echo ">>> Marking all migrations as applied..."
+    npx prisma migrate resolve --applied 20251023155944_init
+    npx prisma migrate resolve --applied 20260219174340_add_superadmin_and_expired_status
+
+    echo "=== Schema synchronized via db push ==="
     exit 0
 fi
+
+# For other errors, try resolving and retrying once
+echo ">>> Attempting standard recovery..."
+npx prisma migrate resolve --rolled-back 20260219174340_add_superadmin_and_expired_status 2>/dev/null || true
+npx prisma migrate resolve --rolled-back 20251023155944_init 2>/dev/null || true
 
 echo ">>> Running migrate deploy (attempt 2)..."
 if npx prisma migrate deploy; then
