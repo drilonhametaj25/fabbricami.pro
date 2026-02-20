@@ -33,13 +33,18 @@ echo ">>> Pre-emptively resolving any failed migrations..."
 npx prisma migrate resolve --rolled-back 20260219174340_add_superadmin_and_expired_status 2>/dev/null || true
 npx prisma migrate resolve --rolled-back 20251023155944_init 2>/dev/null || true
 
-# 3. Check if schema is in sync (tables exist that should exist)
+# 3. Check if ALL critical tables exist (not just one)
 echo ">>> Checking schema integrity..."
 TENANTS_TABLE=$(check_table_exists "tenants")
+SUBSCRIPTION_PLANS_TABLE=$(check_table_exists "subscription_plans")
+SUPER_ADMINS_TABLE=$(check_table_exists "super_admins")
 
-if [ "$TENANTS_TABLE" = "0" ]; then
-    echo ">>> CRITICAL: Schema out of sync - core tables missing!"
-    echo ">>> Migration history exists but tables don't - syncing schema..."
+echo ">>> Table check: tenants=$TENANTS_TABLE, subscription_plans=$SUBSCRIPTION_PLANS_TABLE, super_admins=$SUPER_ADMINS_TABLE"
+
+# If ANY critical table is missing, use db push to sync entire schema
+if [ "$TENANTS_TABLE" = "0" ] || [ "$SUBSCRIPTION_PLANS_TABLE" = "0" ] || [ "$SUPER_ADMINS_TABLE" = "0" ]; then
+    echo ">>> CRITICAL: Schema out of sync - one or more tables missing!"
+    echo ">>> Using db push to sync entire schema..."
 
     # Use db push to create all tables from schema
     npx prisma db push --accept-data-loss
