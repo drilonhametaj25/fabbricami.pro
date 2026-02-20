@@ -364,9 +364,11 @@ class AdminService {
 
   /**
    * Create a new subscription plan
+   * Auto-syncs to Stripe if Stripe is configured
+   * Returns syncWarning if sync fails (plan is still created)
    */
   async createPlan(data: PlanInput) {
-    return prisma.subscriptionPlan.create({
+    const plan = await prisma.subscriptionPlan.create({
       data: {
         code: data.code.toUpperCase(),
         name: data.name,
@@ -379,12 +381,48 @@ class AdminService {
         isActive: data.isActive ?? true,
       },
     });
+
+    // Auto-sync to Stripe if configured
+    let syncWarning: string | null = null;
+
+    if (stripe) {
+      try {
+        const syncResult = await this.syncPlanToStripe(plan.id);
+        if (syncResult.success) {
+          console.log(`Plan ${plan.code} auto-synced to Stripe`);
+        } else {
+          syncWarning = syncResult.error || 'Stripe sync failed';
+          console.warn(`Auto-sync to Stripe failed for plan ${plan.code}:`, syncResult.error);
+        }
+      } catch (error: any) {
+        syncWarning = error.message || 'Stripe sync failed';
+        console.error(`Auto-sync to Stripe failed for plan ${plan.code}:`, error);
+      }
+    }
+
+    // Return fresh plan with Stripe IDs and sync warning
+    const freshPlan = await prisma.subscriptionPlan.findUniqueOrThrow({
+      where: { id: plan.id },
+    });
+
+    return { ...freshPlan, syncWarning };
   }
 
   /**
    * Update an existing subscription plan
+   * Re-syncs to Stripe if prices or name change
+   * Returns syncWarning if re-sync fails (plan is still updated)
    */
   async updatePlan(planId: string, data: Partial<PlanInput>) {
+    // Get existing plan to check if prices changed
+    const existingPlan = await prisma.subscriptionPlan.findUnique({
+      where: { id: planId },
+    });
+
+    if (!existingPlan) {
+      throw new Error('Plan not found');
+    }
+
     const updateData: Record<string, unknown> = {};
 
     if (data.name !== undefined) updateData.name = data.name;
@@ -396,10 +434,43 @@ class AdminService {
     if (data.sortOrder !== undefined) updateData.sortOrder = data.sortOrder;
     if (data.isActive !== undefined) updateData.isActive = data.isActive;
 
-    return prisma.subscriptionPlan.update({
+    const updatedPlan = await prisma.subscriptionPlan.update({
       where: { id: planId },
       data: updateData,
     });
+
+    // Check if prices changed and re-sync to Stripe if needed
+    const pricesChanged =
+      (data.priceMonthly !== undefined && Number(data.priceMonthly) !== Number(existingPlan.priceMonthly)) ||
+      (data.priceYearly !== undefined && Number(data.priceYearly) !== Number(existingPlan.priceYearly));
+
+    const nameChanged = data.name !== undefined && data.name !== existingPlan.name;
+    const activeChanged = data.isActive !== undefined && data.isActive !== existingPlan.isActive;
+
+    let syncWarning: string | null = null;
+
+    // Re-sync to Stripe if relevant fields changed and plan is already synced
+    if (stripe && existingPlan.stripeProductId && (pricesChanged || nameChanged || activeChanged)) {
+      try {
+        const syncResult = await this.syncPlanToStripe(planId);
+        if (syncResult.success) {
+          console.log(`Plan ${updatedPlan.code} re-synced to Stripe (prices/name/status changed)`);
+        } else {
+          syncWarning = syncResult.error || 'Stripe re-sync failed';
+          console.warn(`Re-sync to Stripe failed for plan ${updatedPlan.code}:`, syncResult.error);
+        }
+      } catch (error: any) {
+        syncWarning = error.message || 'Stripe re-sync failed';
+        console.error(`Re-sync to Stripe failed for plan ${updatedPlan.code}:`, error);
+      }
+    }
+
+    // Return fresh plan with updated Stripe IDs and sync warning
+    const freshPlan = await prisma.subscriptionPlan.findUniqueOrThrow({
+      where: { id: planId },
+    });
+
+    return { ...freshPlan, syncWarning };
   }
 
   /**
@@ -774,6 +845,165 @@ class AdminService {
         },
       },
     });
+  }
+
+  /**
+   * Test Stripe connection by retrieving account info
+   */
+  async testStripeConnection(): Promise<{
+    connected: boolean;
+    accountId?: string;
+    businessName?: string;
+    chargesEnabled?: boolean;
+    payoutsEnabled?: boolean;
+    country?: string;
+    defaultCurrency?: string;
+    error?: string;
+  }> {
+    if (!stripe) {
+      return {
+        connected: false,
+        error: 'Stripe not configured. Set STRIPE_SECRET_KEY environment variable.',
+      };
+    }
+
+    try {
+      const account = await stripe.accounts.retrieve();
+      return {
+        connected: true,
+        accountId: account.id,
+        businessName: account.business_profile?.name || account.settings?.dashboard?.display_name || undefined,
+        chargesEnabled: account.charges_enabled,
+        payoutsEnabled: account.payouts_enabled,
+        country: account.country || undefined,
+        defaultCurrency: account.default_currency || undefined,
+      };
+    } catch (error: any) {
+      return {
+        connected: false,
+        error: error.message || 'Failed to connect to Stripe',
+      };
+    }
+  }
+
+  /**
+   * Get sync status for all plans
+   */
+  async getPlansStripeStatus(): Promise<{
+    plans: Array<{
+      id: string;
+      code: string;
+      name: string;
+      priceMonthly: number;
+      priceYearly: number;
+      stripeProductId: string | null;
+      stripePriceMonthlyId: string | null;
+      stripePriceYearlyId: string | null;
+      isActive: boolean;
+      subscriptionCount: number;
+      syncStatus: 'synced' | 'partial' | 'not_synced';
+    }>;
+    summary: {
+      total: number;
+      synced: number;
+      partial: number;
+      notSynced: number;
+    };
+  }> {
+    const plans = await prisma.subscriptionPlan.findMany({
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        priceMonthly: true,
+        priceYearly: true,
+        stripeProductId: true,
+        stripePriceMonthlyId: true,
+        stripePriceYearlyId: true,
+        isActive: true,
+        _count: { select: { subscriptions: true } },
+      },
+      orderBy: { sortOrder: 'asc' },
+    });
+
+    const mappedPlans = plans.map((p) => {
+      let syncStatus: 'synced' | 'partial' | 'not_synced' = 'not_synced';
+      if (p.stripeProductId && p.stripePriceMonthlyId && p.stripePriceYearlyId) {
+        syncStatus = 'synced';
+      } else if (p.stripeProductId) {
+        syncStatus = 'partial';
+      }
+
+      return {
+        id: p.id,
+        code: p.code,
+        name: p.name,
+        priceMonthly: Number(p.priceMonthly),
+        priceYearly: Number(p.priceYearly),
+        stripeProductId: p.stripeProductId,
+        stripePriceMonthlyId: p.stripePriceMonthlyId,
+        stripePriceYearlyId: p.stripePriceYearlyId,
+        isActive: p.isActive,
+        subscriptionCount: p._count.subscriptions,
+        syncStatus,
+      };
+    });
+
+    const summary = {
+      total: mappedPlans.length,
+      synced: mappedPlans.filter((p) => p.syncStatus === 'synced').length,
+      partial: mappedPlans.filter((p) => p.syncStatus === 'partial').length,
+      notSynced: mappedPlans.filter((p) => p.syncStatus === 'not_synced').length,
+    };
+
+    return { plans: mappedPlans, summary };
+  }
+
+  /**
+   * Sync all plans to Stripe
+   */
+  async syncAllPlansToStripe(): Promise<{
+    success: boolean;
+    results: Array<{
+      planCode: string;
+      success: boolean;
+      error?: string;
+    }>;
+    syncedCount: number;
+    failedCount: number;
+  }> {
+    if (!stripe) {
+      return {
+        success: false,
+        results: [{ planCode: '*', success: false, error: 'Stripe not configured' }],
+        syncedCount: 0,
+        failedCount: 1,
+      };
+    }
+
+    const plans = await prisma.subscriptionPlan.findMany({
+      where: { isActive: true },
+    });
+
+    const results: Array<{ planCode: string; success: boolean; error?: string }> = [];
+    let allSuccess = true;
+
+    for (const plan of plans) {
+      const result = await this.syncPlanToStripe(plan.id);
+      results.push({
+        planCode: plan.code,
+        success: result.success,
+        error: result.error,
+      });
+      if (!result.success) {
+        allSuccess = false;
+      }
+    }
+
+    const syncedCount = results.filter((r) => r.success).length;
+    const failedCount = results.filter((r) => !r.success).length;
+
+    return { success: allSuccess, results, syncedCount, failedCount };
   }
 }
 

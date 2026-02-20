@@ -167,12 +167,30 @@ async function savePlan() {
     }
 
     if (response.success) {
-      toast.add({
-        severity: 'success',
-        summary: 'Salvato',
-        detail: editMode.value ? 'Piano aggiornato' : 'Piano creato',
-        life: 3000,
-      });
+      // Check if there was a sync warning (plan created/updated but sync failed)
+      const syncWarning = (response.data as any)?.syncWarning;
+
+      if (syncWarning) {
+        // Show warning about sync failure
+        toast.add({
+          severity: 'warn',
+          summary: editMode.value ? 'Aggiornato con avviso' : 'Creato con avviso',
+          detail: `Piano salvato, ma sync Stripe fallito: ${syncWarning}. Usa il pulsante Sync per riprovare.`,
+          life: 8000,
+        });
+      } else {
+        // Full success
+        const autoSyncMsg = editMode.value
+          ? 'Piano aggiornato e ri-sincronizzato con Stripe'
+          : 'Piano creato e sincronizzato con Stripe';
+        toast.add({
+          severity: 'success',
+          summary: 'Salvato',
+          detail: autoSyncMsg,
+          life: 4000,
+        });
+      }
+
       dialogVisible.value = false;
       await loadPlans();
     } else {
@@ -321,11 +339,28 @@ function formatLimit(value: number): string {
             {{ data._count.subscriptions }}
           </template>
         </Column>
-        <Column header="Stripe" style="width: 100px">
+        <Column header="Stripe Sync" style="width: 140px">
           <template #body="{ data }">
-            <i
-              :class="data.stripeProductId ? 'pi pi-check-circle text-success' : 'pi pi-times-circle text-muted'"
-            ></i>
+            <div class="sync-status">
+              <Tag
+                v-if="data.stripeProductId && data.stripePriceMonthlyId && data.stripePriceYearlyId"
+                value="Sincronizzato"
+                severity="success"
+                class="sync-tag"
+              />
+              <Tag
+                v-else-if="data.stripeProductId"
+                value="Parziale"
+                severity="warning"
+                class="sync-tag"
+              />
+              <Tag
+                v-else
+                value="Non sync"
+                severity="danger"
+                class="sync-tag"
+              />
+            </div>
           </template>
         </Column>
         <Column header="Azioni" style="width: 200px">
@@ -342,7 +377,7 @@ function formatLimit(value: number): string {
                 class="p-button-text p-button-sm"
                 :loading="syncing === data.id"
                 @click="syncToStripe(data)"
-                v-tooltip="'Sync Stripe'"
+                v-tooltip="data.stripeProductId ? 'Ri-sincronizza con Stripe' : 'Sincronizza con Stripe'"
               />
               <Button
                 icon="pi pi-trash"
@@ -515,6 +550,16 @@ function formatLimit(value: number): string {
 
 .text-success {
   color: #22c55e;
+}
+
+/* Sync status styling */
+.sync-status {
+  display: flex;
+  align-items: center;
+}
+
+.sync-tag {
+  font-size: 0.75rem;
 }
 
 .text-sm {

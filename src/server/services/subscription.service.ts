@@ -14,21 +14,8 @@ const stripe = STRIPE_SECRET_KEY ? new Stripe(STRIPE_SECRET_KEY, {
   apiVersion: '2024-11-20.acacia' as Stripe.LatestApiVersion,
 }) : null;
 
-// Price IDs per piano (configurare in Stripe Dashboard)
-const STRIPE_PRICES = {
-  STARTER: {
-    monthly: process.env.STRIPE_PRICE_STARTER_MONTHLY || '',
-    yearly: process.env.STRIPE_PRICE_STARTER_YEARLY || '',
-  },
-  PRO: {
-    monthly: process.env.STRIPE_PRICE_PRO_MONTHLY || '',
-    yearly: process.env.STRIPE_PRICE_PRO_YEARLY || '',
-  },
-  BUSINESS: {
-    monthly: process.env.STRIPE_PRICE_BUSINESS_MONTHLY || '',
-    yearly: process.env.STRIPE_PRICE_BUSINESS_YEARLY || '',
-  },
-};
+// Price IDs are now stored in the database and managed through the admin panel
+// No more hardcoded STRIPE_PRICES - use getStripePriceId() method instead
 
 // ============================================
 // TYPES
@@ -71,6 +58,43 @@ class SubscriptionService {
    */
   isStripeConfigured(): boolean {
     return !!stripe;
+  }
+
+  /**
+   * Get Stripe Price ID from the database
+   * This replaces the old hardcoded STRIPE_PRICES configuration
+   */
+  async getStripePriceId(planCode: string, billingPeriod: 'monthly' | 'yearly'): Promise<string> {
+    const plan = await prisma.subscriptionPlan.findUnique({
+      where: { code: planCode },
+      select: {
+        stripePriceMonthlyId: true,
+        stripePriceYearlyId: true,
+        isActive: true,
+        name: true,
+      },
+    });
+
+    if (!plan) {
+      throw new Error(`Piano "${planCode}" non trovato`);
+    }
+
+    if (!plan.isActive) {
+      throw new Error(`Piano "${plan.name}" non è attivo`);
+    }
+
+    const priceId = billingPeriod === 'monthly'
+      ? plan.stripePriceMonthlyId
+      : plan.stripePriceYearlyId;
+
+    if (!priceId) {
+      throw new Error(
+        `Piano "${plan.name}" non sincronizzato con Stripe. ` +
+        `Vai al pannello admin e sincronizza il piano con Stripe.`
+      );
+    }
+
+    return priceId;
   }
 
   /**
@@ -178,16 +202,8 @@ class SubscriptionService {
       stripeCustomerId = customer.id;
     }
 
-    // Recupera il price ID corretto
-    const priceConfig = STRIPE_PRICES[data.planCode as keyof typeof STRIPE_PRICES];
-    if (!priceConfig) {
-      throw new Error(`Piano ${data.planCode} non configurato in Stripe`);
-    }
-
-    const priceId = data.billingPeriod === 'yearly' ? priceConfig.yearly : priceConfig.monthly;
-    if (!priceId) {
-      throw new Error(`Price ID non configurato per ${data.planCode} ${data.billingPeriod}`);
-    }
+    // Recupera il price ID dal database
+    const priceId = await this.getStripePriceId(data.planCode, data.billingPeriod);
 
     // Attach payment method se fornito
     if (data.paymentMethodId) {
@@ -376,8 +392,8 @@ class SubscriptionService {
       const billingPeriod = data.billingPeriod ||
         (stripeSubscription.items.data[0].plan.interval === 'year' ? 'yearly' : 'monthly');
 
-      const priceConfig = STRIPE_PRICES[data.planCode as keyof typeof STRIPE_PRICES];
-      const priceId = billingPeriod === 'yearly' ? priceConfig.yearly : priceConfig.monthly;
+      // Recupera il price ID dal database
+      const priceId = await this.getStripePriceId(data.planCode, billingPeriod);
 
       // Aggiorna la subscription Stripe
       await stripe.subscriptions.update(subscription.stripeSubscriptionId, {
@@ -550,16 +566,8 @@ class SubscriptionService {
       throw new Error('Piano non trovato');
     }
 
-    // Recupera il price ID
-    const priceConfig = STRIPE_PRICES[planCode as keyof typeof STRIPE_PRICES];
-    if (!priceConfig) {
-      throw new Error(`Piano ${planCode} non configurato in Stripe`);
-    }
-
-    const priceId = billingPeriod === 'yearly' ? priceConfig.yearly : priceConfig.monthly;
-    if (!priceId) {
-      throw new Error(`Price ID non configurato per ${planCode} ${billingPeriod}`);
-    }
+    // Recupera il price ID dal database
+    const priceId = await this.getStripePriceId(planCode, billingPeriod);
 
     const adminEmail = tenant.members[0]?.user?.email;
 

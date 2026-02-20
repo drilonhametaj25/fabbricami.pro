@@ -39,16 +39,10 @@ const envSchema = z.object({
 
   OVERHEAD_ALLOCATION_METHOD: z.enum(['labor_hours', 'production_volume']).default('labor_hours'),
 
-  // Stripe SaaS
+  // Stripe SaaS (only API keys, Price IDs are managed in database)
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_PUBLISHABLE_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
-  STRIPE_PRICE_STARTER_MONTHLY: z.string().optional(),
-  STRIPE_PRICE_STARTER_YEARLY: z.string().optional(),
-  STRIPE_PRICE_PRO_MONTHLY: z.string().optional(),
-  STRIPE_PRICE_PRO_YEARLY: z.string().optional(),
-  STRIPE_PRICE_BUSINESS_MONTHLY: z.string().optional(),
-  STRIPE_PRICE_BUSINESS_YEARLY: z.string().optional(),
 
   // SaaS Settings
   APP_URL: z.string().default('http://localhost:5173'),
@@ -119,20 +113,7 @@ export const config = {
     secretKey: env.STRIPE_SECRET_KEY || '',
     publishableKey: env.STRIPE_PUBLISHABLE_KEY || '',
     webhookSecret: env.STRIPE_WEBHOOK_SECRET || '',
-    prices: {
-      starter: {
-        monthly: env.STRIPE_PRICE_STARTER_MONTHLY || '',
-        yearly: env.STRIPE_PRICE_STARTER_YEARLY || '',
-      },
-      pro: {
-        monthly: env.STRIPE_PRICE_PRO_MONTHLY || '',
-        yearly: env.STRIPE_PRICE_PRO_YEARLY || '',
-      },
-      business: {
-        monthly: env.STRIPE_PRICE_BUSINESS_MONTHLY || '',
-        yearly: env.STRIPE_PRICE_BUSINESS_YEARLY || '',
-      },
-    },
+    // Note: Price IDs are now managed in database, not environment variables
   },
 
   saas: {

@@ -533,6 +533,53 @@ export default async function adminRoutes(fastify: FastifyInstance) {
     }
   });
 
+  /**
+   * GET /admin/stripe/test-connection
+   * Test Stripe API connection
+   */
+    protectedFastify.get('/stripe/test-connection', async (_request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const result = await adminService.testStripeConnection();
+      return successResponse(reply, result);
+    } catch (error: any) {
+      return errorResponse(reply, error.message, 500);
+    }
+  });
+
+  /**
+   * GET /admin/stripe/plans-status
+   * Get sync status for all plans
+   */
+    protectedFastify.get('/stripe/plans-status', async (_request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const result = await adminService.getPlansStripeStatus();
+      return successResponse(reply, result);
+    } catch (error: any) {
+      return errorResponse(reply, error.message, 500);
+    }
+  });
+
+  /**
+   * POST /admin/stripe/sync-all
+   * Sync all plans to Stripe
+   */
+    protectedFastify.post('/stripe/sync-all', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const result = await adminService.syncAllPlansToStripe();
+
+      const superAdmin = (request as SuperAdminRequest).superAdmin;
+      await logSuperAdminAction(superAdmin.superAdminId, 'SYNC_ALL_PLANS_STRIPE', {
+        details: result,
+        ipAddress: getClientIp(request),
+        userAgent: getUserAgent(request),
+      });
+
+      return successResponse(reply, result);
+    } catch (error: any) {
+      return errorResponse(reply, error.message, 500);
+    }
+  });
+
   // ==========================================
   // AUDIT LOGS
   // ==========================================

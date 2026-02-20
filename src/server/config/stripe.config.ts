@@ -1,83 +1,51 @@
 /**
- * Stripe Configuration and Validation
+ * Stripe Configuration
  *
- * Validates Stripe configuration at startup to prevent runtime errors
+ * Simplified configuration - Price IDs are stored in the database
+ * and managed through the admin panel, not environment variables.
  */
 
 import { logger } from './logger';
 
-interface StripePriceConfig {
-  monthly: string;
-  yearly: string;
-}
-
 export interface StripeConfig {
   secretKey: string;
   webhookSecret: string;
-  prices: {
-    STARTER: StripePriceConfig;
-    PRO: StripePriceConfig;
-    BUSINESS: StripePriceConfig;
-  };
+  publishableKey: string;
   isConfigured: boolean;
   missingVars: string[];
 }
 
 /**
  * Get Stripe configuration from environment variables
+ * Only requires the API keys, not price IDs (those come from DB)
  */
 export function getStripeConfig(): StripeConfig {
   const missingVars: string[] = [];
 
   const secretKey = process.env.STRIPE_SECRET_KEY || '';
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET || '';
+  const publishableKey = process.env.STRIPE_PUBLISHABLE_KEY || '';
 
   // Check required keys
   if (!secretKey) missingVars.push('STRIPE_SECRET_KEY');
   if (!webhookSecret) missingVars.push('STRIPE_WEBHOOK_SECRET');
 
-  // Price IDs
-  const prices = {
-    STARTER: {
-      monthly: process.env.STRIPE_PRICE_STARTER_MONTHLY || '',
-      yearly: process.env.STRIPE_PRICE_STARTER_YEARLY || '',
-    },
-    PRO: {
-      monthly: process.env.STRIPE_PRICE_PRO_MONTHLY || '',
-      yearly: process.env.STRIPE_PRICE_PRO_YEARLY || '',
-    },
-    BUSINESS: {
-      monthly: process.env.STRIPE_PRICE_BUSINESS_MONTHLY || '',
-      yearly: process.env.STRIPE_PRICE_BUSINESS_YEARLY || '',
-    },
-  };
-
-  // Check price IDs
-  const priceVars = [
-    { key: 'STRIPE_PRICE_STARTER_MONTHLY', value: prices.STARTER.monthly },
-    { key: 'STRIPE_PRICE_STARTER_YEARLY', value: prices.STARTER.yearly },
-    { key: 'STRIPE_PRICE_PRO_MONTHLY', value: prices.PRO.monthly },
-    { key: 'STRIPE_PRICE_PRO_YEARLY', value: prices.PRO.yearly },
-    { key: 'STRIPE_PRICE_BUSINESS_MONTHLY', value: prices.BUSINESS.monthly },
-    { key: 'STRIPE_PRICE_BUSINESS_YEARLY', value: prices.BUSINESS.yearly },
-  ];
-
-  for (const { key, value } of priceVars) {
-    if (!value) missingVars.push(key);
+  // Publishable key is optional but recommended
+  if (!publishableKey) {
+    logger.warn('STRIPE_PUBLISHABLE_KEY not set - client-side Stripe features may not work');
   }
 
   return {
     secretKey,
     webhookSecret,
-    prices,
-    isConfigured: missingVars.length === 0,
+    publishableKey,
+    isConfigured: secretKey !== '' && webhookSecret !== '',
     missingVars,
   };
 }
 
 /**
  * Validate Stripe configuration at startup
- * Logs warnings if not configured, throws in production if critical
  */
 export function validateStripeConfig(): void {
   const config = getStripeConfig();
@@ -87,18 +55,20 @@ export function validateStripeConfig(): void {
     const message = `Stripe configuration incomplete. Missing: ${config.missingVars.join(', ')}`;
 
     if (isProduction) {
-      // In production, log error but don't crash - allow the app to start
-      // Subscription features will be disabled
       logger.error(`\n${'='.repeat(60)}`);
-      logger.error('STRIPE CONFIGURATION ERROR');
+      logger.error('STRIPE CONFIGURATION WARNING');
       logger.error('='.repeat(60));
       logger.error(message);
       logger.error('Subscription features will be DISABLED until configured.');
-      logger.error('To fix: Set the following environment variables:');
-      config.missingVars.forEach((v) => logger.error(`  - ${v}`));
+      logger.error('Required environment variables:');
+      logger.error('  - STRIPE_SECRET_KEY');
+      logger.error('  - STRIPE_WEBHOOK_SECRET');
+      logger.error('Optional:');
+      logger.error('  - STRIPE_PUBLISHABLE_KEY');
+      logger.error('');
+      logger.error('Price IDs are managed through the admin panel.');
       logger.error('='.repeat(60) + '\n');
     } else {
-      // In development, just warn
       logger.warn(`\n${'⚠'.repeat(30)}`);
       logger.warn('Stripe not configured (OK for development)');
       logger.warn(`Missing: ${config.missingVars.join(', ')}`);
@@ -118,29 +88,15 @@ export function isStripeReady(): boolean {
 }
 
 /**
- * Get the price ID for a specific plan and billing period
+ * Check if Stripe is configured (alias for consistency)
  */
-export function getStripePriceId(
-  planCode: 'STARTER' | 'PRO' | 'BUSINESS',
-  billingPeriod: 'monthly' | 'yearly'
-): string | null {
-  const config = getStripeConfig();
-
-  if (!config.isConfigured) {
-    return null;
-  }
-
-  const planPrices = config.prices[planCode];
-  if (!planPrices) {
-    return null;
-  }
-
-  return planPrices[billingPeriod] || null;
+export function isStripeConfigured(): boolean {
+  return isStripeReady();
 }
 
 export default {
   getStripeConfig,
   validateStripeConfig,
   isStripeReady,
-  getStripePriceId,
+  isStripeConfigured,
 };

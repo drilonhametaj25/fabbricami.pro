@@ -71,6 +71,25 @@ const server = Fastify({
   trustProxy: true,
 });
 
+// Custom content type parser to preserve rawBody for Stripe webhooks
+// This is critical for Stripe signature verification
+server.addContentTypeParser(
+  'application/json',
+  { parseAs: 'buffer' },
+  (req, body, done) => {
+    try {
+      // Store raw body for webhook signature verification
+      (req as any).rawBody = body;
+      // Parse JSON for normal use
+      const json = JSON.parse(body.toString());
+      done(null, json);
+    } catch (err: any) {
+      err.statusCode = 400;
+      done(err, undefined);
+    }
+  }
+);
+
 /**
  * Setup server
  */

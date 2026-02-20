@@ -307,6 +307,49 @@ export const adminApi = {
       webhookConfigured: boolean;
     }>('/admin/stripe/status'),
 
+  testStripeConnection: () =>
+    request<{
+      connected: boolean;
+      accountId?: string;
+      businessName?: string;
+      chargesEnabled?: boolean;
+      payoutsEnabled?: boolean;
+      country?: string;
+      defaultCurrency?: string;
+      error?: string;
+    }>('/admin/stripe/test-connection'),
+
+  getPlansStripeStatus: () =>
+    request<{
+      plans: Array<{
+        id: string;
+        code: string;
+        name: string;
+        priceMonthly: number;
+        priceYearly: number;
+        stripeProductId: string | null;
+        stripePriceMonthlyId: string | null;
+        stripePriceYearlyId: string | null;
+        isActive: boolean;
+        syncStatus: 'synced' | 'partial' | 'not_synced';
+        subscriptionCount: number;
+      }>;
+    }>('/admin/stripe/plans-status'),
+
+  syncAllPlansToStripe: () =>
+    request<{
+      results: Array<{
+        planId: string;
+        planCode: string;
+        success: boolean;
+        error?: string;
+      }>;
+      syncedCount: number;
+      failedCount: number;
+    }>('/admin/stripe/sync-all', {
+      method: 'POST',
+    }),
+
   getWebhookLogs: (limit?: number) =>
     request<{
       items: Array<{

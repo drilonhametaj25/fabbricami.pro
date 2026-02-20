@@ -201,19 +201,38 @@ const shopCheckoutRoutes: FastifyPluginAsync = async (fastify) => {
       const signature = request.headers['stripe-signature'] as string;
 
       if (!signature) {
-        return errorResponse(reply, 'Firma webhook mancante', 400);
+        console.warn('Stripe webhook: missing signature header');
+        return reply.code(400).send({ error: 'Missing stripe-signature header' });
       }
 
-      // Get raw body
-      const rawBody = (request as any).rawBody || request.body;
+      // Get raw body (preserved by custom content type parser in index.ts)
+      const rawBody = (request as any).rawBody;
+
+      if (!rawBody) {
+        console.error('Stripe webhook: rawBody not available - check server configuration');
+        return reply.code(500).send({ error: 'Server configuration error: rawBody not available' });
+      }
 
       const event = stripeService.constructWebhookEvent(rawBody, signature);
-      await stripeService.handleWebhook(event);
 
-      return reply.send({ received: true });
+      // Process webhook async to return 200 quickly
+      // This prevents Stripe from retrying due to timeout
+      stripeService.handleWebhook(event).catch((err) => {
+        console.error('Stripe webhook processing error:', err);
+      });
+
+      // Always return 200 for valid signature (Stripe best practice)
+      return reply.code(200).send({ received: true });
     } catch (error: any) {
+      // Check if it's a signature verification error
+      if (error.type === 'StripeSignatureVerificationError') {
+        console.warn('Stripe webhook: invalid signature');
+        return reply.code(400).send({ error: 'Invalid signature' });
+      }
+
+      // For other errors, log and return 500 so Stripe retries
       console.error('Stripe webhook error:', error.message);
-      return errorResponse(reply, error.message, 400);
+      return reply.code(500).send({ error: 'Internal server error' });
     }
   });
 
