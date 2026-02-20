@@ -361,106 +361,139 @@ function formatLimit(value: number): string {
     <Dialog
       v-model:visible="dialogVisible"
       :header="editMode ? 'Modifica Piano' : 'Nuovo Piano'"
-      :style="{ width: '700px' }"
+      :style="{ width: '900px', maxWidth: '95vw' }"
       modal
+      :breakpoints="{ '960px': '90vw' }"
     >
-      <div class="grid-2">
-        <div class="form-group">
-          <label class="form-label">Codice</label>
-          <InputText
-            v-model="formData.code"
-            :disabled="editMode"
-            placeholder="STARTER"
-            class="w-full"
-          />
+      <!-- Basic Info Section -->
+      <div class="form-section">
+        <div class="grid-2">
+          <div class="form-group">
+            <label class="form-label">Codice Piano</label>
+            <InputText
+              v-model="formData.code"
+              :disabled="editMode"
+              placeholder="Es: STARTER, PRO, BUSINESS"
+              class="w-full"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Nome Visualizzato</label>
+            <InputText v-model="formData.name" placeholder="Es: Piano Starter" class="w-full" />
+          </div>
         </div>
-        <div class="form-group">
-          <label class="form-label">Nome</label>
-          <InputText v-model="formData.name" placeholder="Starter" class="w-full" />
-        </div>
-      </div>
 
-      <div class="form-group">
-        <label class="form-label">Descrizione</label>
-        <Textarea
-          v-model="formData.description"
-          rows="2"
-          placeholder="Descrizione del piano..."
-          class="w-full"
-        />
-      </div>
-
-      <div class="grid-2">
         <div class="form-group">
-          <label class="form-label">Prezzo Mensile (EUR)</label>
-          <InputNumber
-            v-model="formData.priceMonthly"
-            mode="currency"
-            currency="EUR"
-            locale="it-IT"
-            class="w-full"
-          />
-        </div>
-        <div class="form-group">
-          <label class="form-label">Prezzo Annuale (EUR)</label>
-          <InputNumber
-            v-model="formData.priceYearly"
-            mode="currency"
-            currency="EUR"
-            locale="it-IT"
+          <label class="form-label">Descrizione</label>
+          <Textarea
+            v-model="formData.description"
+            rows="3"
+            placeholder="Descrivi le caratteristiche principali del piano..."
             class="w-full"
           />
         </div>
       </div>
 
-      <h4 class="section-title">Limiti</h4>
-      <div class="grid-3">
-        <div class="form-group">
-          <label class="form-label">Max Utenti (-1 = illimitato)</label>
-          <InputNumber v-model="formData.limits.maxUsers" class="w-full" />
-        </div>
-        <div class="form-group">
-          <label class="form-label">Max Magazzini</label>
-          <InputNumber v-model="formData.limits.maxWarehouses" class="w-full" />
-        </div>
-        <div class="form-group">
-          <label class="form-label">Max Prodotti</label>
-          <InputNumber v-model="formData.limits.maxProducts" class="w-full" />
-        </div>
-        <div class="form-group">
-          <label class="form-label">Max Ordini/mese</label>
-          <InputNumber v-model="formData.limits.maxOrders" class="w-full" />
-        </div>
-        <div class="form-group">
-          <label class="form-label">Max Fornitori</label>
-          <InputNumber v-model="formData.limits.maxSuppliers" class="w-full" />
-        </div>
-        <div class="form-group">
-          <label class="form-label">Ordine di visualizzazione</label>
-          <InputNumber v-model="formData.sortOrder" class="w-full" />
-        </div>
-      </div>
-
-      <h4 class="section-title">Features</h4>
-      <div class="grid-2">
-        <div class="form-group">
-          <label class="form-label">Moduli abilitati</label>
-          <Chips v-model="formData.features.modules" class="w-full" />
-        </div>
-        <div class="form-group">
-          <label class="form-label">Capabilities</label>
-          <Chips v-model="formData.features.capabilities" class="w-full" />
+      <!-- Pricing Section -->
+      <h4 class="section-title">Prezzi</h4>
+      <div class="form-section">
+        <div class="grid-2">
+          <div class="form-group">
+            <label class="form-label">Prezzo Mensile</label>
+            <InputNumber
+              v-model="formData.priceMonthly"
+              mode="currency"
+              currency="EUR"
+              locale="it-IT"
+              class="w-full"
+              placeholder="0.00"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Prezzo Annuale</label>
+            <InputNumber
+              v-model="formData.priceYearly"
+              mode="currency"
+              currency="EUR"
+              locale="it-IT"
+              class="w-full"
+              placeholder="0.00"
+            />
+            <small class="helper-text">Consiglio: sconto 15-20% rispetto al mensile × 12</small>
+          </div>
         </div>
       </div>
 
-      <div class="form-group flex items-center gap-2">
-        <InputSwitch v-model="formData.isActive" />
-        <label>Piano attivo</label>
+      <!-- Limits Section -->
+      <h4 class="section-title">Limiti Risorse</h4>
+      <div class="form-section">
+        <div class="grid-3">
+          <div class="form-group">
+            <label class="form-label">Max Utenti</label>
+            <InputNumber v-model="formData.limits.maxUsers" class="w-full" placeholder="-1 = illimitato" />
+            <small class="helper-text">-1 per illimitato</small>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Max Magazzini</label>
+            <InputNumber v-model="formData.limits.maxWarehouses" class="w-full" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Max Prodotti</label>
+            <InputNumber v-model="formData.limits.maxProducts" class="w-full" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Max Ordini / mese</label>
+            <InputNumber v-model="formData.limits.maxOrders" class="w-full" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Max Fornitori</label>
+            <InputNumber v-model="formData.limits.maxSuppliers" class="w-full" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Ordine visualizzazione</label>
+            <InputNumber v-model="formData.sortOrder" class="w-full" />
+            <small class="helper-text">Ordina i piani nella lista</small>
+          </div>
+        </div>
+      </div>
+
+      <!-- Features Section -->
+      <h4 class="section-title">Funzionalità</h4>
+      <div class="form-section">
+        <div class="grid-2">
+          <div class="form-group">
+            <label class="form-label">Moduli Abilitati</label>
+            <Chips
+              v-model="formData.features.modules"
+              class="w-full"
+              placeholder="Aggiungi modulo..."
+            />
+            <small class="helper-text">Es: inventory, orders, accounting</small>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Capabilities</label>
+            <Chips
+              v-model="formData.features.capabilities"
+              class="w-full"
+              placeholder="Aggiungi capability..."
+            />
+            <small class="helper-text">Es: export_pdf, api_access</small>
+          </div>
+        </div>
+      </div>
+
+      <!-- Status Section -->
+      <div class="form-group status-toggle">
+        <InputSwitch v-model="formData.isActive" inputId="isActive" />
+        <label for="isActive" class="status-label">
+          <span class="status-text">Piano attivo</span>
+          <span class="status-hint">{{ formData.isActive ? 'Visibile ai clienti' : 'Nascosto ai clienti' }}</span>
+        </label>
       </div>
 
       <template #footer>
         <Button label="Annulla" class="p-button-text" @click="dialogVisible = false" />
-        <Button label="Salva" icon="pi pi-check" @click="savePlan" />
+        <Button label="Salva Piano" icon="pi pi-check" @click="savePlan" />
       </template>
     </Dialog>
   </div>
@@ -480,15 +513,6 @@ function formatLimit(value: number): string {
   font-size: 0.8125rem;
 }
 
-.section-title {
-  color: #94a3b8;
-  font-size: 0.875rem;
-  font-weight: 600;
-  margin: 1.5rem 0 1rem 0;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
 .text-success {
   color: #22c55e;
 }
@@ -501,7 +525,58 @@ function formatLimit(value: number): string {
   width: 100%;
 }
 
+/* Helper text under inputs */
+.helper-text {
+  display: block;
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+/* Status toggle styling */
+.status-toggle {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  background: #0f172a;
+  border-radius: 0.75rem;
+  border: 1px solid #334155;
+  margin-top: 0.5rem;
+}
+
+.status-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  cursor: pointer;
+}
+
+.status-text {
+  font-weight: 500;
+  color: #f1f5f9;
+}
+
+.status-hint {
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+/* Deep selectors for PrimeVue components */
 :deep(.p-chips-multiple-container) {
+  width: 100%;
+  min-height: 44px;
+}
+
+:deep(.p-chips .p-inputtext) {
+  padding: 0.5rem 0.75rem;
+}
+
+:deep(.p-inputnumber) {
+  width: 100%;
+}
+
+:deep(.p-inputnumber-input) {
   width: 100%;
 }
 </style>
