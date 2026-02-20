@@ -6,7 +6,7 @@
 # 3. Schema out of sync (tables missing) - uses db push
 # 4. Normal case - runs pending migrations
 
-set -e
+# Don't use set -e as we handle errors manually
 
 echo "=== Smart Database Migration ==="
 
@@ -27,21 +27,11 @@ if [ "$MIGRATIONS_TABLE" = "0" ]; then
     exit 0
 fi
 
-# 2. Check for failed migrations and resolve them
-echo ">>> Checking for failed migrations..."
-FAILED=$(echo "SELECT migration_name FROM _prisma_migrations WHERE finished_at IS NULL;" | npx prisma db execute --stdin 2>/dev/null || echo "")
-
-if echo "$FAILED" | grep -q "20"; then
-    echo ">>> Found failed migrations, resolving..."
-    # Extract migration names and resolve each
-    echo "$FAILED" | grep "20" | while read -r migration; do
-        migration=$(echo "$migration" | tr -d ' |')
-        if [ -n "$migration" ]; then
-            echo ">>> Resolving failed: $migration"
-            npx prisma migrate resolve --rolled-back "$migration" 2>/dev/null || true
-        fi
-    done
-fi
+# 2. ALWAYS try to resolve known failed migrations (safe to run even if not failed)
+echo ">>> Pre-emptively resolving any failed migrations..."
+# Try to resolve all known migrations - this is idempotent and safe
+npx prisma migrate resolve --rolled-back 20260219174340_add_superadmin_and_expired_status 2>/dev/null || true
+npx prisma migrate resolve --rolled-back 20251023155944_init 2>/dev/null || true
 
 # 3. Check if schema is in sync (tables exist that should exist)
 echo ">>> Checking schema integrity..."
@@ -63,8 +53,36 @@ if [ "$TENANTS_TABLE" = "0" ]; then
     exit 0
 fi
 
-# 4. Normal case - run pending migrations
-echo ">>> Running migrate deploy..."
-npx prisma migrate deploy
+# 4. Try migrate deploy, if it fails due to failed migrations, resolve and retry
+echo ">>> Running migrate deploy (attempt 1)..."
+if npx prisma migrate deploy; then
+    echo "=== Migration completed successfully ==="
+    exit 0
+fi
 
-echo "=== Migration completed successfully ==="
+echo ">>> Migration deploy failed, attempting recovery..."
+
+# Force resolve all migrations as rolled back
+echo ">>> Force resolving all migrations..."
+npx prisma migrate resolve --rolled-back 20260219174340_add_superadmin_and_expired_status 2>/dev/null || true
+npx prisma migrate resolve --rolled-back 20251023155944_init 2>/dev/null || true
+
+# Check if we need to use db push instead
+TENANTS_TABLE=$(check_table_exists "tenants")
+if [ "$TENANTS_TABLE" = "0" ]; then
+    echo ">>> Using db push to sync schema..."
+    npx prisma db push --accept-data-loss
+    npx prisma migrate resolve --applied 20251023155944_init 2>/dev/null || true
+    npx prisma migrate resolve --applied 20260219174340_add_superadmin_and_expired_status 2>/dev/null || true
+    echo "=== Schema synchronized successfully ==="
+    exit 0
+fi
+
+echo ">>> Running migrate deploy (attempt 2)..."
+if npx prisma migrate deploy; then
+    echo "=== Migration completed successfully ==="
+    exit 0
+fi
+
+echo "!!! Migration failed after recovery attempts"
+exit 1
