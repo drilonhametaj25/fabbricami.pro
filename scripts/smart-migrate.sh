@@ -10,10 +10,15 @@
 
 echo "=== Smart Database Migration ==="
 
-# Helper function to execute SQL and check result
+# Helper function to check if a table exists using COUNT query (more reliable)
 check_table_exists() {
-    RESULT=$(echo "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = '$1');" | npx prisma db execute --stdin 2>/dev/null || echo "")
-    echo "$RESULT" | grep -q "t" && echo "1" || echo "0"
+    # Use COUNT which returns a clear number, not boolean
+    COUNT=$(echo "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = '$1';" | npx prisma db execute --stdin 2>/dev/null | grep -o '[0-9]*' | head -1 || echo "0")
+    if [ "$COUNT" = "1" ]; then
+        echo "1"
+    else
+        echo "0"
+    fi
 }
 
 # 1. Check if _prisma_migrations table exists (fresh database)
@@ -60,16 +65,16 @@ fi
 
 # 4. Try migrate deploy, if it fails, use db push to sync entire schema
 echo ">>> Running migrate deploy (attempt 1)..."
-MIGRATE_OUTPUT=$(npx prisma migrate deploy 2>&1) || true
+MIGRATE_OUTPUT=$(npx prisma migrate deploy 2>&1)
 MIGRATE_EXIT=$?
 
+echo "$MIGRATE_OUTPUT"
+
 if [ $MIGRATE_EXIT -eq 0 ]; then
-    echo "$MIGRATE_OUTPUT"
     echo "=== Migration completed successfully ==="
     exit 0
 fi
 
-echo "$MIGRATE_OUTPUT"
 echo ">>> Migration deploy failed (exit code: $MIGRATE_EXIT)"
 
 # Check if failure is due to missing table (P3018 with 42P01)
