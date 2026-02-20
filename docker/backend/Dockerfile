@@ -43,6 +43,10 @@ COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
 # Copia src per il seed (usa import da src/server/utils)
 COPY --from=build /app/src ./src
 
+# Copy migration scripts
+COPY scripts/smart-migrate.sh /app/scripts/smart-migrate.sh
+RUN chmod +x /app/scripts/smart-migrate.sh
+
 RUN npx prisma generate
 
 EXPOSE 3000 3001
