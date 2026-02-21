@@ -457,6 +457,8 @@ describe('PurchaseOrderService', () => {
 
       mockPurchaseOrderRepository.findById.mockResolvedValue(order);
       mockPurchaseOrderRepository.receiveItems.mockResolvedValue(updatedOrder);
+      // Mock material validation (Fix HIGH #5)
+      prismaMock.material.findUnique.mockResolvedValue({ id: 'mat-1', sku: 'MAT-001', name: 'Test Material' } as any);
       prismaMock.materialMovement.create.mockResolvedValue({} as any);
       prismaMock.material.update.mockResolvedValue({} as any);
 

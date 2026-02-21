@@ -275,17 +275,18 @@ class PurchaseOrderService {
             warehouseId_productId_variantId_location_lotNumber: {
               warehouseId,
               productId,
-              variantId: '',
+              variantId: null,
               location: warehouseLocation,
-              lotNumber: lotNum,
+              lotNumber: lotNum || null,
             },
-          },
+          } as any,
           create: {
             warehouseId,
             productId,
+            variantId: null,
             location: warehouseLocation,
             quantity: item.receivedQuantity,
-            lotNumber: item.lotNumber,
+            lotNumber: item.lotNumber || null,
           },
           update: {
             quantity: {
@@ -297,6 +298,19 @@ class PurchaseOrderService {
 
       // GESTIONE MATERIALI
       if (orderItem.materialId) {
+        // Valida esistenza materiale prima di aggiornare
+        const material = await prisma.material.findUnique({
+          where: { id: orderItem.materialId },
+          select: { id: true, sku: true, name: true },
+        });
+
+        if (!material) {
+          throw new Error(
+            `Materiale non trovato (ID: ${orderItem.materialId}). ` +
+            `Impossibile ricevere merce per ordine ${order.orderNumber}`
+          );
+        }
+
         // Crea movimento materiale IN
         await prisma.materialMovement.create({
           data: {

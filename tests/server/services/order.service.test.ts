@@ -1737,22 +1737,27 @@ describe('OrderService', () => {
 
       // getOrderById uses findUnique
       prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
-      // count for paymentDue check
+      // count for paymentDue check (called after transaction commits)
       prismaMock.paymentDue.count.mockResolvedValue(0);
-      // Transaction for allocateInventoryForOrder
-      prismaMock.$transaction.mockResolvedValue(undefined);
-      // order.update returns the updated order
-      prismaMock.order.update.mockResolvedValue({ ...mockOrder, status: 'CONFIRMED' } as any);
+      // Transaction now handles BOTH inventory allocation AND status update (Fix HIGH #8)
+      const confirmedOrder = { ...mockOrder, status: 'CONFIRMED' };
+      prismaMock.$transaction.mockImplementation(async (fn: any) => {
+        const tx = {
+          inventoryItem: {
+            findFirst: jest.fn().mockResolvedValue({ id: 'inv-1', quantity: 100, product: { name: 'Test' } }),
+            update: jest.fn().mockResolvedValue({}),
+          },
+          inventoryMovement: { create: jest.fn().mockResolvedValue({}) },
+          orderItem: { update: jest.fn().mockResolvedValue({}) },
+          productMaterial: { findMany: jest.fn().mockResolvedValue([]) },
+          order: { update: jest.fn().mockResolvedValue(confirmedOrder) },
+        };
+        return fn(tx);
+      });
 
       const result = await orderService.updateOrderStatus('ord-1', { status: 'CONFIRMED' }, 'user-1');
 
       expect(result.status).toBe('CONFIRMED');
-      expect(prismaMock.order.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: 'ord-1' },
-          data: expect.objectContaining({ status: 'CONFIRMED' }),
-        })
-      );
     });
 
     it('should release inventory when cancelling order', async () => {

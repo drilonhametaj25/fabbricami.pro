@@ -918,12 +918,27 @@ class ManufacturingService {
         laborCost = hours * hourlyRate;
       }
 
-      // Consuma materiali
-      const primaryWarehouse = await tx.warehouse.findFirst({ where: { isPrimary: true } });
+      // Consuma materiali (solo se ci sono materiali da consumare)
+      const hasMaterials = phase.manufacturingPhase.materials.length > 0;
+      let primaryWarehouse: { id: string } | null = null;
+
+      if (hasMaterials) {
+        primaryWarehouse = await tx.warehouse.findFirst({ where: { isPrimary: true } });
+
+        if (!primaryWarehouse) {
+          throw new Error('Nessun magazzino primario configurato. Impossibile registrare i consumi materiali.');
+        }
+      }
 
       for (const pm of phase.manufacturingPhase.materials) {
         const qtyToConsume = Number(pm.quantity) * phase.productionOrder.quantity * (1 + Number(pm.scrapPercentage) / 100);
-        const roundedQty = Math.ceil(qtyToConsume);
+
+        // Usa Math.ceil solo per unità discrete (pz, pezzi, etc.)
+        // Per unità continue (kg, m, ml) mantieni precisione decimale
+        const discreteUnits = ['pz', 'pezzo', 'pezzi', 'bottiglia', 'scatola', 'unita', 'unità'];
+        const actualQty = discreteUnits.includes(pm.unit?.toLowerCase() || '')
+          ? Math.ceil(qtyToConsume)
+          : parseFloat(qtyToConsume.toFixed(2));
 
         // Registra consumo
         await tx.materialConsumption.create({
@@ -931,9 +946,9 @@ class ManufacturingService {
             productionPhaseId: phaseId,
             materialId: pm.materialId,
             plannedQuantity: Number(pm.quantity) * phase.productionOrder.quantity,
-            actualQuantity: roundedQty,
+            actualQuantity: actualQty,
             unit: pm.unit,
-            warehouseId: primaryWarehouse?.id || '',
+            warehouseId: primaryWarehouse!.id,
             location: 'WEB',
           },
         });
@@ -942,7 +957,7 @@ class ManufacturingService {
         await tx.material.update({
           where: { id: pm.materialId },
           data: {
-            currentStock: { decrement: roundedQty },
+            currentStock: { decrement: actualQty },
           },
         });
 
@@ -951,14 +966,14 @@ class ManufacturingService {
           data: {
             materialId: pm.materialId,
             type: 'PRODUCTION',
-            quantity: roundedQty,
+            quantity: actualQty,
             fromLocation: 'WEB',
             reference: phase.productionOrder.orderNumber,
             notes: `Produzione ${phase.productionOrder.orderNumber} - Fase ${phase.sequence}`,
           },
         });
 
-        materialCost += Number(pm.material.cost) * roundedQty;
+        materialCost += Number(pm.material.cost) * actualQty;
       }
 
       // Aggiorna fase
@@ -1030,7 +1045,7 @@ class ManufacturingService {
         const existingInventory = await tx.inventoryItem.findFirst({
           where: {
             productId: order.productId,
-            warehouseId: primaryWarehouse.id,
+            warehouseId: primaryWarehouse!.id,
             location: 'WEB',
           },
         });
@@ -1044,7 +1059,7 @@ class ManufacturingService {
           await tx.inventoryItem.create({
             data: {
               productId: order.productId,
-              warehouseId: primaryWarehouse.id,
+              warehouseId: primaryWarehouse!.id,
               location: 'WEB',
               quantity: order.quantity,
             },

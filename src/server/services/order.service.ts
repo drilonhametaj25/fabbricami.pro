@@ -483,6 +483,7 @@ class OrderService {
 
   /**
    * Cambia stato ordine con validazione workflow
+   * Fix HIGH #8: Transazione atomica per CONFIRMED (allocation + status)
    */
   async updateOrderStatus(id: string, data: UpdateOrderStatusInput, userId?: string) {
     const order = await this.getOrderById(id);
@@ -494,23 +495,46 @@ class OrderService {
       throw new Error(`Invalid status transition from ${order.status} to ${data.status}`);
     }
 
-    // Logica speciale per stati critici
+    // CONFIRMED: usa transazione atomica per allocation + status update
     if (data.status === 'CONFIRMED') {
-      // Quando confermato, verifica disponibilità e riserva stock
-      await this.allocateInventoryForOrder(id);
+      return await prisma.$transaction(async (tx: any) => {
+        // Alloca inventario DENTRO la transazione
+        await this.allocateInventoryInTransaction(tx, order);
 
-      // Auto-genera PaymentDues se non esistono già
-      const existingDues = await prisma.paymentDue.count({
-        where: { orderId: id },
-      });
-      if (existingDues === 0) {
-        try {
-          await this.generatePaymentDuesFromOrder(id);
-          logger.info(`Auto-generated payment dues for order ${id}`);
-        } catch (error: any) {
-          logger.warn(`Could not auto-generate payment dues for order ${id}: ${error.message}`);
+        // Aggiorna stato ordine DENTRO la stessa transazione
+        const updatedOrder = await tx.order.update({
+          where: { id },
+          data: {
+            status: 'CONFIRMED' as any,
+            notes: data.notes ? `${order.notes || ''}\n${data.notes}` : order.notes,
+          },
+          include: {
+            customer: true,
+            items: {
+              include: {
+                product: true,
+              },
+            },
+          },
+        });
+
+        // Auto-genera PaymentDues (fuori transazione critica, può fallire)
+        return updatedOrder;
+      }).then(async (updatedOrder) => {
+        // PaymentDues generazione dopo commit (non critica)
+        const existingDues = await prisma.paymentDue.count({
+          where: { orderId: id },
+        });
+        if (existingDues === 0) {
+          try {
+            await this.generatePaymentDuesFromOrder(id);
+            logger.info(`Auto-generated payment dues for order ${id}`);
+          } catch (error: any) {
+            logger.warn(`Could not auto-generate payment dues for order ${id}: ${error.message}`);
+          }
         }
-      }
+        return updatedOrder;
+      });
     }
 
     if (data.status === 'PROCESSING') {
@@ -543,6 +567,77 @@ class OrderService {
         },
       },
     });
+  }
+
+  /**
+   * Alloca inventario per ordine DENTRO una transazione esistente
+   * Usato da updateOrderStatus per garantire atomicità
+   */
+  private async allocateInventoryInTransaction(tx: any, order: any) {
+    for (const item of order.items) {
+      // Determina location preferita in base al source
+      const location = this.getPreferredLocation(order.source);
+
+      // Trova inventory item (con supporto varianti)
+      const inventoryItem = await tx.inventoryItem.findFirst({
+        where: {
+          productId: item.productId,
+          variantId: item.variantId || null,
+          location,
+        },
+        include: {
+          product: true,
+          variant: true,
+        },
+      });
+
+      // Nome item per messaggi errore
+      const itemName = item.variant?.name || item.product?.name || item.sku;
+
+      if (!inventoryItem) {
+        throw new Error(`${itemName} non disponibile in ${location}`);
+      }
+
+      // Verifica disponibilità effettiva
+      if (inventoryItem.quantity < item.quantity) {
+        throw new Error(
+          `Stock insufficiente per ${itemName}. Disponibile: ${inventoryItem.quantity}, Richiesto: ${item.quantity}`
+        );
+      }
+
+      // SCALA effettivamente la quantità
+      await tx.inventoryItem.update({
+        where: { id: inventoryItem.id },
+        data: {
+          quantity: { decrement: item.quantity },
+        },
+      });
+
+      // Crea movimento inventario per tracciabilità
+      await tx.inventoryMovement.create({
+        data: {
+          productId: item.productId,
+          variantId: item.variantId,
+          type: 'OUT',
+          quantity: -item.quantity,
+          fromLocation: location,
+          reference: order.orderNumber,
+          notes: `Allocazione ordine ${order.orderNumber}`,
+        },
+      });
+
+      // Aggiorna item con allocazione
+      await tx.orderItem.update({
+        where: { id: item.id },
+        data: {
+          allocatedLocation: location,
+          allocatedQuantity: item.quantity,
+        },
+      });
+
+      // Scala anche i materiali BOM
+      await this.deductBomMaterialsForItem(tx, item.productId, item.variantId, item.quantity, order.orderNumber);
+    }
   }
 
   /**
@@ -939,7 +1034,7 @@ class OrderService {
     const tax = items.reduce((sum: number, item: any) => sum + Number(item.tax), 0);
 
     const order = await tx.order.findUnique({ where: { id: orderId } });
-    const total = subtotal + tax + Number(order.shippingCost || 0);
+    const total = subtotal + tax + Number(order.shippingCost || 0) - Number(order.discount || 0);
 
     return await tx.order.update({
       where: { id: orderId },

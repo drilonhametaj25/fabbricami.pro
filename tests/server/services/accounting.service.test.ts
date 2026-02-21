@@ -246,19 +246,18 @@ describe('AccountingService', () => {
 
   describe('recordPayment', () => {
     it('should record payment and update invoice status', async () => {
-      const mockInvoice = createMockInvoice();
+      const mockInvoice = createMockInvoice({ paidAmount: createDecimal(0) });
       const mockPayment = { id: 'pay-1', amount: createDecimal(500) };
-      prismaMock.invoice.findUnique.mockResolvedValue(mockInvoice as any);
 
-      // Mock the transaction to simulate the internal operations
+      // Mock the transaction - invoice lookup now inside transaction
       prismaMock.$transaction.mockImplementation(async (fn: any) => {
         const tx = {
+          invoice: {
+            findUnique: jest.fn().mockResolvedValue(mockInvoice),
+            update: jest.fn().mockResolvedValue({ ...mockInvoice, status: 'PARTIALLY_PAID' }),
+          },
           payment: {
             create: jest.fn().mockResolvedValue(mockPayment),
-            findMany: jest.fn().mockResolvedValue([{ amount: createDecimal(500) }]),
-          },
-          invoice: {
-            update: jest.fn().mockResolvedValue({ ...mockInvoice, status: 'PARTIALLY_PAID' }),
           },
         };
         return fn(tx);
@@ -276,7 +275,15 @@ describe('AccountingService', () => {
     });
 
     it('should throw error for non-existent invoice', async () => {
-      prismaMock.invoice.findUnique.mockResolvedValue(null);
+      // Invoice lookup is now inside transaction
+      prismaMock.$transaction.mockImplementation(async (fn: any) => {
+        const tx = {
+          invoice: {
+            findUnique: jest.fn().mockResolvedValue(null),
+          },
+        };
+        return fn(tx);
+      });
 
       await expect(accountingService.recordPayment({
         invoiceId: 'non-existent',
@@ -286,23 +293,22 @@ describe('AccountingService', () => {
     });
 
     it('should mark invoice as PAID when fully paid', async () => {
-      const mockInvoice = createMockInvoice({ total: createDecimal(1000) });
-      prismaMock.invoice.findUnique.mockResolvedValue(mockInvoice as any);
+      const mockInvoice = createMockInvoice({ total: createDecimal(1000), paidAmount: createDecimal(0) });
 
       let updateCalledWithPaid = false;
       prismaMock.$transaction.mockImplementation(async (fn: any) => {
         const tx = {
-          payment: {
-            create: jest.fn().mockResolvedValue({ id: 'pay-1', amount: createDecimal(1000) }),
-            findMany: jest.fn().mockResolvedValue([{ amount: createDecimal(1000) }]),
-          },
           invoice: {
+            findUnique: jest.fn().mockResolvedValue(mockInvoice),
             update: jest.fn().mockImplementation((args: any) => {
               if (args.data.status === 'PAID') {
                 updateCalledWithPaid = true;
               }
               return { ...mockInvoice, status: 'PAID' };
             }),
+          },
+          payment: {
+            create: jest.fn().mockResolvedValue({ id: 'pay-1', amount: createDecimal(1000) }),
           },
         };
         return fn(tx);

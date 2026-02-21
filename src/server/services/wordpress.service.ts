@@ -513,9 +513,16 @@ class WordPressService {
    * Valida firma webhook WooCommerce
    */
   validateWebhookSignature(payload: string, signature: string): boolean {
+    // Reject if no webhook secret configured (security requirement)
     if (!this.webhookSecret) {
-      logger.warn('Webhook secret non configurato, skip validazione');
-      return true; // In dev mode, accetta tutto
+      logger.error('Webhook secret non configurato - RIFIUTATO per sicurezza');
+      return false;
+    }
+
+    // Reject if no signature provided
+    if (!signature) {
+      logger.warn('Webhook signature header mancante');
+      return false;
     }
 
     const expectedSignature = crypto
@@ -523,10 +530,15 @@ class WordPressService {
       .update(payload)
       .digest('base64');
 
-    return crypto.timingSafeEqual(
-      Buffer.from(signature),
-      Buffer.from(expectedSignature)
-    );
+    try {
+      return crypto.timingSafeEqual(
+        Buffer.from(signature),
+        Buffer.from(expectedSignature)
+      );
+    } catch (error) {
+      logger.warn('Errore validazione signature webhook:', error);
+      return false;
+    }
   }
 
   // =============================================
@@ -959,6 +971,13 @@ class WordPressService {
       // Mappa stato ordine
       const status = this.mapWooCommerceStatus(wooOrder.status);
 
+      // Calcola subtotal dai line_items (più affidabile di wooOrder.subtotal)
+      const calculatedSubtotal = (wooOrder.line_items || []).reduce((sum: number, item: any) =>
+        sum + (parseFloat(item.subtotal || '0') || 0), 0);
+      const orderSubtotal = calculatedSubtotal > 0
+        ? calculatedSubtotal
+        : parseFloat(wooOrder.subtotal || '0') || 0;
+
       // Crea ordine
       const order = await prisma.$transaction(async (tx) => {
         // 1. Crea ordine
@@ -968,7 +987,7 @@ class WordPressService {
             customerId: customer.id,
             source: 'WORDPRESS',
             status,
-            subtotal: parseFloat(wooOrder.subtotal || '0') || 0,
+            subtotal: orderSubtotal,
             discount: parseFloat(wooOrder.discount_total || '0') || 0,
             tax: parseFloat(wooOrder.total_tax || '0') || 0,
             shipping: parseFloat(wooOrder.shipping_total || '0') || 0,
@@ -1022,6 +1041,10 @@ class WordPressService {
             continue;
           }
 
+          // Calcola subtotal con fallback
+          const calculatedSubtotal = Number(item.price || 0) * Number(item.quantity || 0);
+          const itemSubtotal = item.subtotal ? String(item.subtotal) : String(calculatedSubtotal);
+
           await tx.orderItem.create({
             data: {
               orderId: newOrder.id,
@@ -1030,6 +1053,7 @@ class WordPressService {
               sku: item.sku || product.sku,
               quantity: item.quantity,
               unitPrice: item.price,
+              subtotal: itemSubtotal,
               tax: parseFloat(item.total_tax) || 0,
               total: parseFloat(item.total) || 0,
             },

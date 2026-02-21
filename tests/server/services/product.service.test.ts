@@ -391,6 +391,14 @@ describe('ProductService', () => {
         _min: {},
         _max: {},
       });
+      // Mock TimeEntry aggregate for overhead calculation
+      prismaMock.timeEntry.aggregate.mockResolvedValue({
+        _sum: { duration: 9600 }, // 160 hours in minutes
+        _count: {},
+        _avg: {},
+        _min: {},
+        _max: {},
+      });
       prismaMock.product.findUnique.mockResolvedValue(
         createMockProduct({ operations: [] }) as any
       );
@@ -409,6 +417,14 @@ describe('ProductService', () => {
       });
       prismaMock.overheadCost.aggregate.mockResolvedValue({
         _sum: { amount: createDecimal(1600) },
+        _count: {},
+        _avg: {},
+        _min: {},
+        _max: {},
+      });
+      // Mock TimeEntry aggregate for overhead calculation
+      prismaMock.timeEntry.aggregate.mockResolvedValue({
+        _sum: { duration: 9600 }, // 160 hours in minutes
         _count: {},
         _avg: {},
         _min: {},
@@ -435,6 +451,14 @@ describe('ProductService', () => {
       });
       prismaMock.overheadCost.aggregate.mockResolvedValue({
         _sum: { amount: createDecimal(1600) },
+        _count: {},
+        _avg: {},
+        _min: {},
+        _max: {},
+      });
+      // Mock TimeEntry aggregate for overhead calculation
+      prismaMock.timeEntry.aggregate.mockResolvedValue({
+        _sum: { duration: 9600 },
         _count: {},
         _avg: {},
         _min: {},
@@ -497,6 +521,14 @@ describe('ProductService', () => {
         _min: {},
         _max: {},
       });
+      // Mock TimeEntry aggregate for overhead calculation
+      prismaMock.timeEntry.aggregate.mockResolvedValue({
+        _sum: { duration: 9600 },
+        _count: {},
+        _avg: {},
+        _min: {},
+        _max: {},
+      });
       prismaMock.product.findUnique.mockResolvedValue(
         createMockProduct({ operations: [] }) as any
       );
@@ -529,6 +561,14 @@ describe('ProductService', () => {
       });
       prismaMock.overheadCost.aggregate.mockResolvedValue({
         _sum: { amount: createDecimal(0) },
+        _count: {},
+        _avg: {},
+        _min: {},
+        _max: {},
+      });
+      // Mock TimeEntry aggregate for overhead calculation
+      prismaMock.timeEntry.aggregate.mockResolvedValue({
+        _sum: { duration: 9600 },
         _count: {},
         _avg: {},
         _min: {},
@@ -707,6 +747,14 @@ describe('ProductService', () => {
       });
       prismaMock.overheadCost.aggregate.mockResolvedValue({
         _sum: { amount: createDecimal(0) },
+        _count: {},
+        _avg: {},
+        _min: {},
+        _max: {},
+      });
+      // Mock TimeEntry aggregate for overhead calculation
+      prismaMock.timeEntry.aggregate.mockResolvedValue({
+        _sum: { duration: 9600 },
         _count: {},
         _avg: {},
         _min: {},

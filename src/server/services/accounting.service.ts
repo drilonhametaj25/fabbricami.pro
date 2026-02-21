@@ -256,16 +256,17 @@ class AccountingService {
    * Registra pagamento fattura
    */
   async recordPayment(data: CreatePaymentInput) {
-    const invoice = await prisma.invoice.findUnique({
-      where: { id: data.invoiceId },
-    });
-
-    if (!invoice) {
-      throw new Error('Invoice not found');
-    }
-
     return await prisma.$transaction(async (tx: any) => {
-      // 1. Crea pagamento
+      // 1. Ottieni fattura DENTRO la transazione per evitare race condition
+      const invoice = await tx.invoice.findUnique({
+        where: { id: data.invoiceId },
+      });
+
+      if (!invoice) {
+        throw new Error('Invoice not found');
+      }
+
+      // 2. Crea pagamento
       const payment = await tx.payment.create({
         data: {
           invoiceId: data.invoiceId,
@@ -277,27 +278,27 @@ class AccountingService {
         },
       });
 
-      // 2. Calcola totale pagato
-      const payments = await tx.payment.findMany({
-        where: { invoiceId: data.invoiceId },
-      });
+      // 3. Calcola nuovo totale pagato ATOMICAMENTE
+      // Invece di ri-query di tutti i pagamenti (race condition),
+      // usiamo paidAmount corrente + nuovo pagamento
+      const currentPaidAmount = Number(invoice.paidAmount || 0);
+      const newPaidAmount = currentPaidAmount + Number(data.amount);
+      const invoiceTotal = Number(invoice.total);
 
-      const totalPaid = payments.reduce((sum: number, p: any) => sum + Number(p.amount), 0);
-      const remaining = Number(invoice.total) - totalPaid;
-
-      // 3. Aggiorna stato fattura
-      let status = invoice.status;
-      if (remaining <= 0) {
-        status = 'PAID';
-      } else if (totalPaid > 0) {
-        status = 'PARTIALLY_PAID';
+      // 4. Determina nuovo stato
+      let newStatus = invoice.status;
+      if (newPaidAmount >= invoiceTotal) {
+        newStatus = 'PAID';
+      } else if (newPaidAmount > 0) {
+        newStatus = 'PARTIALLY_PAID';
       }
 
+      // 5. Aggiorna fattura con nuovo totale pagato
       await tx.invoice.update({
         where: { id: data.invoiceId },
         data: {
-          status,
-          paidAmount: totalPaid,
+          status: newStatus,
+          paidAmount: newPaidAmount,
         },
       });
 

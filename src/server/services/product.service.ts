@@ -175,9 +175,16 @@ class ProductService {
 
       const monthlyOverhead = Number(totalOverhead._sum.amount) || 0;
 
-      // TODO: Implement TaskTime model for tracking actual labor hours
-      // For now use a placeholder calculation
-      const totalHours = 160; // Standard monthly hours placeholder
+      // Calcola ore effettivamente lavorate da TimeEntry
+      const timeEntries = await prisma.timeEntry.aggregate({
+        where: {
+          clockIn: { gte: startOfMonth, lte: endOfMonth },
+          type: 'WORK',
+        },
+        _sum: { duration: true },
+      });
+      const totalMinutes = Number(timeEntries._sum.duration) || 0;
+      const totalHours = totalMinutes > 0 ? totalMinutes / 60 : 160; // fallback 160 se nessun dato
 
       // Calcola ore per questo prodotto
       const product = await prisma.product.findUnique({
@@ -278,8 +285,12 @@ class ProductService {
 
         const shortage = Math.max(0, component.totalQuantity - totalAvailable);
 
-        // Lead time placeholder (TODO: add leadTime field to Product model)
-        const leadTimeDays = 7;
+        // Ottieni lead time dal prodotto componente
+        const componentProduct = await prisma.product.findUnique({
+          where: { id: component.componentId },
+          select: { leadTimeDays: true },
+        });
+        const leadTimeDays = componentProduct?.leadTimeDays || 7;
         const orderDate = new Date(requiredDate);
         orderDate.setDate(orderDate.getDate() - leadTimeDays);
 
