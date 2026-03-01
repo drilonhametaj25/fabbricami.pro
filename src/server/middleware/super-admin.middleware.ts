@@ -128,7 +128,7 @@ export async function authenticateSuperAdmin(
         error: 'Invalid token',
       });
     }
-  } catch (error) {
+  } catch (_error) {
     return reply.status(500).send({
       success: false,
       error: 'Authentication error',

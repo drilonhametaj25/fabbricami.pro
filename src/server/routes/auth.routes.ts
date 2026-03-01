@@ -165,7 +165,7 @@ const authRoutes: FastifyPluginAsync = async (server) => {
         success: true,
         data: { token },
       });
-    } catch (error) {
+    } catch (_error) {
       return reply.status(401).send({
         success: false,
         error: 'Invalid refresh token',

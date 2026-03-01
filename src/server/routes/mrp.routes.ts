@@ -218,7 +218,7 @@ const mrpRoutes: FastifyPluginAsync = async (server: any) => {
             supplierName: suggestedOrder.supplierName,
             purchaseOrderId,
           });
-        } catch (err) {
+        } catch (_err) {
           // Log ma continua con altri fornitori
         }
       }

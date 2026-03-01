@@ -359,7 +359,7 @@ import Dropdown from 'primevue/dropdown';
 import Dialog from 'primevue/dialog';
 import Tag from 'primevue/tag';
 import Checkbox from 'primevue/checkbox';
-import Divider from 'primevue/divider';
+// import Divider from 'primevue/divider'; // Removed - not used
 import TabView from 'primevue/tabview';
 import TabPanel from 'primevue/tabpanel';
 import { useToast } from 'primevue/usetoast';
@@ -442,7 +442,7 @@ const statusOptions = [
   { label: 'Inattivi', value: false },
 ];
 
-const formatCurrency = (value: number) => {
+const _formatCurrency = (value: number) => {
   return new Intl.NumberFormat('it-IT', {
     style: 'currency',
     currency: 'EUR',

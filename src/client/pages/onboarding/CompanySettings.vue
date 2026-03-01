@@ -190,7 +190,7 @@ import { useToast } from 'primevue/usetoast';
 import { useOnboarding } from '../../composables/useOnboarding';
 import type { CompanySettingsForm } from '../../types';
 
-const router = useRouter();
+const _router = useRouter();
 const toast = useToast();
 const { fetchCompanySettings, saveCompanySettings, goToNextStep } = useOnboarding();
 

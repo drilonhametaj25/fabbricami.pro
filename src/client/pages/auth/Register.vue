@@ -174,7 +174,7 @@ import Button from 'primevue/button';
 import { useToast } from 'primevue/usetoast';
 import api from '../../services/api.service';
 import { useAuthStore } from '../../stores/auth.store';
-import type { RegisterForm } from '../../types';
+// import type { RegisterForm } from '../../types'; // Removed - not used
 
 const router = useRouter();
 const toast = useToast();

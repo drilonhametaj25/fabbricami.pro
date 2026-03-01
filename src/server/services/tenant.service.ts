@@ -214,7 +214,7 @@ class TenantService {
     planCode: string = 'PRO'
   ): Promise<TenantWithSubscription> {
     // Generate unique slug from tenant name
-    let baseSlug = this.sanitizeSlug(tenantName);
+    const baseSlug = this.sanitizeSlug(tenantName);
     let slug = baseSlug;
     let attempt = 0;
 

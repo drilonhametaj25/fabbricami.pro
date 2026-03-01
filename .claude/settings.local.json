@@ -101,7 +101,13 @@
       "Bash(git reset:*)",
       "Bash(docker rm:*)",
       "Bash(git rm:*)",
-      "Bash(tee:*)"
+      "Bash(tee:*)",
+      "Bash(ESLINT_USE_FLAT_CONFIG=false npx eslint:*)",
+      "Bash(set ESLINT_USE_FLAT_CONFIG=false)",
+      "Bash(npx eslint:*)",
+      "Bash(cmd /c \"set ESLINT_USE_FLAT_CONFIG=false && npx eslint src/client --ext .ts,.vue 2>&1\")",
+      "Bash(npx cross-env:*)",
+      "Bash(Select-String -Pattern \"workspace|error\")"
     ]
   }
 }

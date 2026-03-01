@@ -349,11 +349,12 @@ class AlertService {
       case 'REORDER_POINT':
         return `${entityLabel} "${alert.entityName}" (${alert.sku}) ha raggiunto il punto di riordino: ${alert.currentValue} unita' (soglia: ${alert.thresholdValue})`;
 
-      case 'EXPIRING_SOON':
+      case 'EXPIRING_SOON': {
         const expiryDateStr = alert.expiryDate
           ? alert.expiryDate.toLocaleDateString('it-IT')
           : 'N/D';
         return `Lotto ${alert.lotNumber || 'N/A'} di "${alert.entityName}" (${alert.sku}) in scadenza il ${expiryDateStr}. Quantita': ${alert.quantity}`;
+      }
 
       default:
         return `Alert per ${alert.entityName}`;

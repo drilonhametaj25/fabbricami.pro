@@ -598,7 +598,7 @@ class SupplierService {
     }
 
     // Calcola se ci sono problemi di qualità
-    let hasQualityIssues = receipt.inspectionStatus === 'FAILED';
+    const hasQualityIssues = receipt.inspectionStatus === 'FAILED';
 
     // Aggiorna contatori
     const newTotalDeliveries = supplier.totalDeliveries + 1;
@@ -1268,7 +1268,7 @@ class SupplierService {
           // Se non esiste, calcola al volo
           const calculated = await this.calculateScorecard(supplierId, period, periodType);
           return this.formatScorecard(calculated);
-        } catch (error) {
+        } catch (_error) {
           // Ritorna null per fornitori non trovati
           return null;
         }

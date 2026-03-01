@@ -128,7 +128,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import InputText from 'primevue/inputtext';
 import Password from 'primevue/password';
@@ -173,7 +173,7 @@ async function requestReset() {
 
   requesting.value = true;
   try {
-    const response = await api.post('/auth/forgot-password', {
+    await api.post('/auth/forgot-password', {
       email: email.value,
     });
 

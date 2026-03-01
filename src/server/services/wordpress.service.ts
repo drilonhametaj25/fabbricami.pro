@@ -809,7 +809,7 @@ class WordPressService {
    * Import singolo prodotto da WooCommerce
    * @deprecated Use importProductComplete instead
    */
-  // @ts-ignore - deprecated method kept for reference
+  // @ts-expect-error - deprecated method kept for reference
   private async _importSingleProduct(wooProduct: WooCommerceProduct, results: { imported: number; updated: number; errors: number }) {
     const existing = await prisma.product.findFirst({
       where: {
@@ -2183,7 +2183,7 @@ class WordPressService {
    * Costruisce array attributi per WooCommerce prodotto variabile
    * @deprecated Reserved for future use
    */
-  // @ts-ignore - reserved method for future use
+  // @ts-expect-error - reserved method for future use
   private _buildWooAttributes(webAttributes: { name: string; options: string[] }[] | null): any[] {
     if (!webAttributes || !Array.isArray(webAttributes)) return [];
 
@@ -2200,7 +2200,7 @@ class WordPressService {
    * Costruisce attributi per variazione WooCommerce
    * @deprecated Reserved for future use
    */
-  // @ts-ignore - reserved method for future use
+  // @ts-expect-error - reserved method for future use
   private _buildVariationAttributes(attributes: Record<string, string> | null): any[] {
     if (!attributes) return [];
 
@@ -4374,7 +4374,7 @@ class WordPressService {
         );
         const created = await this.createCustomerFromWooCommerce(wooCustomer);
         return { customerId: created.id, created: true };
-      } catch (error) {
+      } catch (_error) {
         logger.warn(`Impossibile fetch cliente ${wooOrder.customer_id}, uso dati ordine`);
       }
     }
@@ -4555,7 +4555,7 @@ class WordPressService {
         if (result.success && result.productId) {
           return { productId: result.productId, created: true, categoriesCreated };
         }
-      } catch (error) {
+      } catch (_error) {
         logger.warn(`Impossibile fetch prodotto ${item.product_id}, creo placeholder`);
       }
     }
@@ -4667,7 +4667,7 @@ class WordPressService {
 
       return { categoryId: created.id, created: true };
 
-    } catch (error) {
+    } catch (_error) {
       // Fallback: crea categoria minima
       logger.warn(`Impossibile fetch categoria ${wooCat.id}, creo versione minima`);
 

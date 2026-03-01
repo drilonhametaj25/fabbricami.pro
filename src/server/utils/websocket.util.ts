@@ -1,6 +1,5 @@
 // Imports
 import { FastifyInstance, FastifyRequest } from 'fastify';
-// @ts-ignore - ws module types
 import { WebSocket } from 'ws';
 import logger from '../config/logger';
 import { prisma } from '../config/database';

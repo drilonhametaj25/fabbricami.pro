@@ -194,7 +194,8 @@ class FatturaPaValidatorService {
       this.addError(`Tag non chiusi: ${openTags.join(', ')}`);
     }
 
-    // Verifica caratteri non validi
+    // Verifica caratteri non validi (control characters except tab, newline, carriage return)
+    // eslint-disable-next-line no-control-regex
     const invalidChars = xml.match(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g);
     if (invalidChars) {
       this.addError('XML contiene caratteri di controllo non validi');

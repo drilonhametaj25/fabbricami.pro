@@ -67,7 +67,7 @@ import { useOnboarding } from '../../composables/useOnboarding';
 import { useAuthStore } from '../../stores/auth.store';
 
 const router = useRouter();
-const route = useRoute();
+const _route = useRoute();
 const authStore = useAuthStore();
 const {
   status,

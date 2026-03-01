@@ -385,8 +385,8 @@ const calculateItemAmount = (item: any) => {
   item.amount = item.quantity * item.unitPriceWithTax;
 };
 
-// Get max refundable for an item based on quantity
-const getMaxRefundableForItem = (item: any) => {
+// Get max refundable for an item based on quantity (kept for potential future use)
+const _getMaxRefundableForItem = (item: any) => {
   return item.quantity * item.unitPriceWithTax;
 };
 

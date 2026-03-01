@@ -675,7 +675,7 @@ class BomService {
           limitingComponent: bottleneck ? `${bottleneck.sku} (${bottleneck.name})` : null,
           hasBom: result.hasBom,
         });
-      } catch (error) {
+      } catch (_error) {
         results.set(productId, {
           productId,
           producibleQuantity: 0,

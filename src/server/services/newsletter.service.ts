@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import { randomBytes } from 'crypto';
+import { randomBytes, createHash } from 'crypto';
 
 const prisma = new PrismaClient();
 
@@ -485,8 +485,7 @@ class NewsletterService {
    * MD5 hash for Mailchimp API
    */
   private md5Hash(str: string): string {
-    const crypto = require('crypto');
-    return crypto.createHash('md5').update(str).digest('hex');
+    return createHash('md5').update(str).digest('hex');
   }
 }
 

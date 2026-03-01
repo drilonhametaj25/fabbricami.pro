@@ -247,7 +247,7 @@ class OrderService {
         unitPrice = priceCalculation.finalPrice;
         appliedDiscount = priceCalculation.discount;
         priceSource = priceCalculation.discountSource;
-      } catch (error) {
+      } catch (_error) {
         // Se il calcolo fallisce, usa il prezzo base del prodotto
         unitPrice = Number(product.price);
         priceSource = 'product_base';
@@ -259,7 +259,8 @@ class OrderService {
     }
 
     // Determina l'aliquota IVA: usa quella specificata, altrimenti dal prodotto, default 22%
-    const effectiveTaxRate = data.taxRate ?? Number(product.taxRate) ?? 22;
+    const productTaxRate = product.taxRate != null ? Number(product.taxRate) : 22;
+    const effectiveTaxRate = data.taxRate ?? productTaxRate;
 
     const subtotalAmount = unitPrice * data.quantity;
     const taxAmount = subtotalAmount * effectiveTaxRate / 100;
@@ -1253,7 +1254,8 @@ class OrderService {
         }
 
         // Usa l'aliquota IVA specificata nell'item, altrimenti dal prodotto, default 22%
-        const itemTaxRate = (item as any).taxRate ?? Number(product.taxRate) ?? 22;
+        const prodTaxRate = product.taxRate != null ? Number(product.taxRate) : 22;
+        const itemTaxRate = (item as any).taxRate ?? prodTaxRate;
 
         const lineSubtotal = unitPrice! * item.quantity;
         const lineTax = lineSubtotal * itemTaxRate / 100;
@@ -1459,7 +1461,8 @@ class OrderService {
           }
 
           // Usa l'aliquota IVA specificata nell'item, altrimenti dal prodotto, default 22%
-          const itemTaxRate = (item as any).taxRate ?? Number(product.taxRate) ?? 22;
+          const prodTaxRate = product.taxRate != null ? Number(product.taxRate) : 22;
+          const itemTaxRate = (item as any).taxRate ?? prodTaxRate;
 
           const lineSubtotal = unitPrice! * item.quantity;
           const lineTax = lineSubtotal * itemTaxRate / 100;

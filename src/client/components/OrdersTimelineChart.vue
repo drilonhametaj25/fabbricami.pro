@@ -84,7 +84,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import Chart from 'primevue/chart';
 import Button from 'primevue/button';
 import { useToast } from 'primevue/usetoast';

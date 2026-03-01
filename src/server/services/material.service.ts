@@ -86,7 +86,7 @@ class MaterialService {
       orderBy.name = 'asc';
     }
 
-    let result = await materialRepository.findAll({ skip, take: limit, where, orderBy });
+    const result = await materialRepository.findAll({ skip, take: limit, where, orderBy });
 
     // Filtra per low stock se richiesto
     if (params.lowStock) {

@@ -277,8 +277,8 @@ const productImages = ref<any[]>([]);
 const productCategories = ref<any[]>([]);
 const productInventory = ref<any[]>([]);
 
-// Definizione location inventario
-const inventoryLocations = [
+// Definizione location inventario (kept for potential future use)
+const _inventoryLocations = [
   { code: 'WEB', label: 'Web/E-commerce', icon: 'pi pi-globe' },
   { code: 'B2B', label: 'B2B/Ingrosso', icon: 'pi pi-briefcase' },
   { code: 'EVENTI', label: 'Eventi/Fiere', icon: 'pi pi-calendar' },

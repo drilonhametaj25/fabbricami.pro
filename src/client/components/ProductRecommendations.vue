@@ -199,8 +199,8 @@ import ProgressSpinner from 'primevue/progressspinner';
 import { useToast } from 'primevue/usetoast';
 import api from '../services/api.service';
 
-// Emits
-const emit = defineEmits<{
+// Emits (kept for potential future use)
+const _emit = defineEmits<{
   (e: 'analyze', productId: string): void;
   (e: 'view', productId: string): void;
 }>();

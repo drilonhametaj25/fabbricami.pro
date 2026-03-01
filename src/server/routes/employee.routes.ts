@@ -14,11 +14,11 @@ function filterHourlyRate(data: any, canSeeCost: boolean): any {
   if (!canSeeCost) {
     if (Array.isArray(data)) {
       return data.map((item) => {
-        const { hourlyRate, ...rest } = item;
+        const { hourlyRate: _hourlyRate, ...rest } = item;
         return rest;
       });
     } else if (data) {
-      const { hourlyRate, ...rest } = data;
+      const { hourlyRate: _hourlyRate, ...rest } = data;
       return rest;
     }
   }

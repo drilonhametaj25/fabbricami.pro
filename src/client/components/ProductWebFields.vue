@@ -235,7 +235,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { ref, watch } from 'vue';
 import InputSwitch from 'primevue/inputswitch';
 import InputText from 'primevue/inputtext';
 import InputNumber from 'primevue/inputnumber';

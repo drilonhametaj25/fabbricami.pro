@@ -1209,7 +1209,7 @@ const getTrendClass = (direction: string) => {
   return 'trend-badge--stable';
 };
 
-const formatShortDate = (dateStr: string) => {
+const _formatShortDate = (dateStr: string) => {
   if (!dateStr) return 'N/D';
   return new Date(dateStr).toLocaleDateString('it-IT', { day: '2-digit', month: 'short' });
 };

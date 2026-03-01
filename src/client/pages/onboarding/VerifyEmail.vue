@@ -107,7 +107,7 @@ import { useOnboarding } from '../../composables/useOnboarding';
 import { useAuthStore } from '../../stores/auth.store';
 import api from '../../services/api.service';
 
-const router = useRouter();
+const _router = useRouter();
 const toast = useToast();
 const authStore = useAuthStore();
 const { status, fetchStatus, resendVerificationEmail, goToNextStep } = useOnboarding();

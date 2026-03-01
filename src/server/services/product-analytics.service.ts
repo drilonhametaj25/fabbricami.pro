@@ -486,13 +486,13 @@ class ProductAnalyticsService {
     for (const [pid, data] of Object.entries(productMonthlyData)) {
       const monthlyPattern = [];
       let totalQuantity = 0;
-      let totalRevenue = 0;
+      let _totalRevenue = 0;
 
       // Build monthly pattern
       for (let m = 1; m <= 12; m++) {
         const monthData = data.months[m] || { quantity: 0, revenue: 0, count: 0 };
         totalQuantity += monthData.quantity;
-        totalRevenue += monthData.revenue;
+        _totalRevenue += monthData.revenue;
         monthlyPattern.push({
           month: m,
           monthName: monthNames[m - 1],

@@ -280,22 +280,11 @@ class PurchaseOrderRepository {
       }),
     };
 
-    const [totalOrders, totalSpent, _avgDeliveryTime] = await Promise.all([
+    const [totalOrders, totalSpent] = await Promise.all([
       prisma.purchaseOrder.count({ where }),
       prisma.purchaseOrder.aggregate({
         where: { ...where, status: { in: ['RECEIVED', 'CONFIRMED'] } },
         _sum: { total: true },
-      }),
-      // Calcola tempo medio di consegna
-      prisma.purchaseOrder.aggregate({
-        where: {
-          ...where,
-          status: 'RECEIVED',
-          receivedDate: { not: null },
-        },
-        _avg: {
-          // Nota: questo è semplificato, dovrebbe calcolare la differenza tra expectedDate e receivedDate
-        },
       }),
     ]);
 

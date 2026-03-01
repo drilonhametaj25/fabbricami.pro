@@ -141,7 +141,7 @@ import { useToast } from 'primevue/usetoast';
 import { useOnboarding } from '../../composables/useOnboarding';
 import type { WordPressIntegrationForm } from '../../types';
 
-const router = useRouter();
+const _router = useRouter();
 const toast = useToast();
 const {
   loading,

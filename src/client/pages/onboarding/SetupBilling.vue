@@ -83,7 +83,7 @@ import RadioButton from 'primevue/radiobutton';
 import { useToast } from 'primevue/usetoast';
 import { useOnboarding } from '../../composables/useOnboarding';
 
-const router = useRouter();
+const _router = useRouter();
 const route = useRoute();
 const toast = useToast();
 const { setupBilling, skipBilling, goToNextStep } = useOnboarding();

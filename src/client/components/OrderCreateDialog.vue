@@ -23,7 +23,7 @@ import { useToast } from 'primevue/usetoast';
 import api from '../services/api.service';
 
 // Debounce utility
-const debounce = (fn: Function, delay: number) => {
+const debounce = (fn: (...args: unknown[]) => void, delay: number) => {
   let timeoutId: ReturnType<typeof setTimeout>;
   return (...args: any[]) => {
     clearTimeout(timeoutId);

@@ -122,7 +122,7 @@ class PickingListService {
     }
 
     // Se richiesto, aggiungi anche componenti BOM
-    let bomItems: PickingListItem[] = [];
+    const bomItems: PickingListItem[] = [];
     if (options?.includeSubProducts) {
       try {
         const leafComponents = await bomService.getLeafComponents(order.productId, order.quantity);

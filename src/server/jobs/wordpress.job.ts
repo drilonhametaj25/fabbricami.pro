@@ -140,7 +140,7 @@ async function importCustomersJob(job: Job<WordPressJobData>) {
   }
 
   // Recupera stato precedente o inizializza
-  let state = job.data.importCustomers || {
+  const state = job.data.importCustomers || {
     currentPage: 1,
     totalCustomers: 0,
     imported: 0,
@@ -151,7 +151,7 @@ async function importCustomersJob(job: Job<WordPressJobData>) {
   };
 
   // Cerca o crea record ImportJob nel database
-  let dbJob = await importJobService.getByBullmqJobId(job.id!);
+  const dbJob = await importJobService.getByBullmqJobId(job.id!);
 
   // Se è la prima pagina, ottieni il conteggio totale
   if (state.currentPage === 1 && state.totalCustomers === 0) {

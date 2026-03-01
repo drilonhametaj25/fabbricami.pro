@@ -17,7 +17,7 @@ function filterEmployeeHourlyRate(data: any[], canSeeCost: boolean): any[] {
   if (canSeeCost) return data;
   return data.map((item) => {
     if (item.employee) {
-      const { hourlyRate, ...employeeRest } = item.employee;
+      const { hourlyRate: _hourlyRate, ...employeeRest } = item.employee;
       return { ...item, employee: employeeRest };
     }
     return item;

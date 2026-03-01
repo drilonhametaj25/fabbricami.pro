@@ -684,7 +684,7 @@ const handleSave = async (productData: any) => {
   }
 };
 
-const handleWizardCreated = (product: any) => {
+const handleWizardCreated = (_product: any) => {
   // Ricarica i prodotti dopo la creazione
   loadProducts();
   loadStats();

@@ -281,7 +281,7 @@ import InputSwitch from 'primevue/inputswitch';
 import ProgressBar from 'primevue/progressbar';
 import { useToast } from 'primevue/usetoast';
 import { useSubscriptionStore } from '../stores/subscription.store';
-import type { SubscriptionPlan, UsageStats } from '../types';
+import type { SubscriptionPlan } from '../types';
 
 const toast = useToast();
 const subscriptionStore = useSubscriptionStore();

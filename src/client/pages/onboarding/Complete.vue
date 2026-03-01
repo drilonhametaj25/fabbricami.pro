@@ -86,7 +86,7 @@ import { useToast } from 'primevue/usetoast';
 import { useOnboarding } from '../../composables/useOnboarding';
 
 const router = useRouter();
-const toast = useToast();
+const _toast = useToast();
 const { completeOnboarding } = useOnboarding();
 
 function goTo(path: string) {

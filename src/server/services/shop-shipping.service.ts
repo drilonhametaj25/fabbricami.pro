@@ -187,7 +187,7 @@ class ShopShippingService {
       // (non abbiamo itemCount qui, va passato come parametro se necessario)
 
       // Verifica soglia spedizione gratuita
-      let isFreeShipping = cost === 0;
+      const isFreeShipping = cost === 0;
       let amountForFreeShipping: number | undefined;
 
       if (method.freeAboveAmount && orderTotal < Number(method.freeAboveAmount)) {

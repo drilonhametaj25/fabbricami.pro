@@ -1,4 +1,4 @@
-import { ref, computed, watch } from 'vue';
+import { ref, computed } from 'vue';
 
 interface PaginationOptions {
   initialPage?: number;
@@ -7,7 +7,8 @@ interface PaginationOptions {
   initialSortOrder?: 'asc' | 'desc';
 }
 
-interface PaginationState {
+// Exported for potential external use
+export interface PaginationState {
   page: number;
   limit: number;
   sortField: string;

@@ -304,7 +304,7 @@ let channelChart: Chart | null = null;
 let productsChart: Chart | null = null;
 let customersChart: Chart | null = null;
 
-const formatNumber = (value: number | undefined | null) => {
+const _formatNumber = (value: number | undefined | null) => {
   return new Intl.NumberFormat('it-IT', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,

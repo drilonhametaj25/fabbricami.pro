@@ -2123,7 +2123,7 @@ const productRoutes: FastifyPluginAsync = async (server) => {
           success: true,
           data: bomItem,
         });
-      } catch (error: any) {
+      } catch (_error: any) {
         return reply.status(404).send({
           success: false,
           error: 'Componente BOM non trovato',
@@ -2155,7 +2155,7 @@ const productRoutes: FastifyPluginAsync = async (server) => {
           success: true,
           data: { message: 'Componente rimosso dal BOM' },
         });
-      } catch (error: any) {
+      } catch (_error: any) {
         return reply.status(404).send({
           success: false,
           error: 'Componente BOM non trovato',

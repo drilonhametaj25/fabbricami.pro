@@ -178,7 +178,7 @@ class EmployeeService {
     }
 
     // Separa i campi User dai campi Employee
-    const { firstName, lastName, email, password, ...employeeData } = data;
+    const { firstName, lastName, email, password: _password, ...employeeData } = data;
 
     // Prepara i dati Employee
     const employeeUpdateData: any = {};

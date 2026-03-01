@@ -236,7 +236,7 @@ export async function checkPlanLimit(
       currentCount = await prisma.supplier.count({ where: { tenantId } });
       limit = limits.maxSuppliers;
       break;
-    case 'orders':
+    case 'orders': {
       // Conta ordini del mese corrente
       const startOfMonth = new Date();
       startOfMonth.setDate(1);
@@ -249,6 +249,7 @@ export async function checkPlanLimit(
       });
       limit = limits.maxOrders;
       break;
+    }
   }
 
   // -1 significa illimitato

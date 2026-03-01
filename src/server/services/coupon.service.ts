@@ -27,7 +27,7 @@ export interface CreateCouponInput {
 /**
  * Coupon update input
  */
-export interface UpdateCouponInput extends Partial<CreateCouponInput> {}
+export type UpdateCouponInput = Partial<CreateCouponInput>;
 
 /**
  * Coupon validation result
@@ -428,7 +428,7 @@ class CouponService {
           code,
         });
         coupons.push(coupon);
-      } catch (error) {
+      } catch (_error) {
         // Skip duplicati
         logger.warn(`Skipping duplicate coupon code: ${code}`);
       }

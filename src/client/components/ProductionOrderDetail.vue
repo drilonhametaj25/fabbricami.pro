@@ -289,7 +289,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { ref, computed } from 'vue';
 import { useAuthStore } from '../stores/auth.store';
 import { useToast } from 'primevue/usetoast';
 import api from '../services/api.service';

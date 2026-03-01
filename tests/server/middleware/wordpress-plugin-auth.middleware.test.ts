@@ -1,3 +1,13 @@
+// Mock environment config FIRST (before importing middleware)
+jest.mock('@server/config/environment', () => ({
+  config: {
+    wordpress: {
+      url: 'https://example-wordpress.com',
+    },
+    isDevelopment: false,
+  },
+}));
+
 // Mock WordPress plugin service
 const mockWordpressPluginService = {
   validateCredentials: jest.fn(),

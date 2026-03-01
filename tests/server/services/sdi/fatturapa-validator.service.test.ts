@@ -358,7 +358,7 @@ describe('FatturaPaValidatorService', () => {
     });
 
     it('should validate Natura codes', () => {
-      let xml = createValidXml().replace(
+      const xml = createValidXml().replace(
         '<AliquotaIVA>22.00</AliquotaIVA>',
         '<AliquotaIVA>0.00</AliquotaIVA><Natura>N99</Natura>'
       );
