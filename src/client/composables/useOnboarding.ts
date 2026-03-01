@@ -35,6 +35,10 @@ export function useOnboarding() {
     () => status.value?.firstWarehouseCreated || false
   );
 
+  const billingSetupComplete = computed(
+    () => status.value?.billingSetupComplete || false
+  );
+
   const wordpressIntegrationComplete = computed(
     () => status.value?.wordpressIntegrationComplete || false
   );
@@ -44,6 +48,7 @@ export function useOnboarding() {
     const steps: OnboardingStep[] = [
       'verify-email',
       'company-settings',
+      'setup-billing',
       'wordpress-integration',
       'create-warehouse',
       'complete',
@@ -65,6 +70,12 @@ export function useOnboarding() {
       label: 'Dati Azienda',
       icon: 'pi pi-building',
       completed: companySettingsComplete.value,
+    },
+    {
+      id: 'setup-billing' as OnboardingStep,
+      label: 'Fatturazione',
+      icon: 'pi pi-credit-card',
+      completed: billingSetupComplete.value,
     },
     {
       id: 'wordpress-integration' as OnboardingStep,
@@ -277,6 +288,71 @@ export function useOnboarding() {
     }
   }
 
+  // Inizia setup billing - apre Stripe Checkout o porta a trial
+  async function setupBilling(
+    startTrial: boolean = false,
+    planCode: string = 'PRO',
+    billingPeriod: 'monthly' | 'yearly' = 'monthly'
+  ): Promise<{ success: boolean; checkoutUrl?: string; fallbackToTrial?: boolean }> {
+    loading.value = true;
+    error.value = null;
+
+    try {
+      const response = await api.post<{
+        success: boolean;
+        checkoutUrl?: string;
+        fallbackToTrial?: boolean;
+      }>('/onboarding/setup-billing', {
+        startTrial,
+        planCode,
+        billingPeriod,
+        successUrl: `${window.location.origin}/onboarding/wordpress-integration`,
+        cancelUrl: `${window.location.origin}/onboarding/setup-billing?canceled=true`,
+      });
+      if (response.success) {
+        // Se Stripe checkout con fallback a trial, aggiorna status e vai avanti
+        if (response.data?.fallbackToTrial) {
+          await fetchStatus();
+        }
+        return {
+          success: true,
+          checkoutUrl: response.data?.checkoutUrl,
+          fallbackToTrial: response.data?.fallbackToTrial,
+        };
+      } else {
+        error.value = response.error || 'Errore setup billing';
+        return { success: false };
+      }
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : 'Errore setup billing';
+      return { success: false };
+    } finally {
+      loading.value = false;
+    }
+  }
+
+  // Salta setup billing - usa trial gratuito
+  async function skipBilling(): Promise<boolean> {
+    loading.value = true;
+    error.value = null;
+
+    try {
+      const response = await api.post('/onboarding/skip-billing');
+      if (response.success) {
+        await fetchStatus();
+        return true;
+      } else {
+        error.value = response.error || 'Errore skip billing';
+        return false;
+      }
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : 'Errore skip billing';
+      return false;
+    } finally {
+      loading.value = false;
+    }
+  }
+
   // Marca l'onboarding come completo
   async function completeOnboarding(): Promise<boolean> {
     loading.value = true;
@@ -338,6 +414,7 @@ export function useOnboarding() {
     const stepOrder: OnboardingStep[] = [
       'verify-email',
       'company-settings',
+      'setup-billing',
       'wordpress-integration',
       'create-warehouse',
       'complete',
@@ -372,6 +449,7 @@ export function useOnboarding() {
     completedSteps,
     emailVerified,
     companySettingsComplete,
+    billingSetupComplete,
     wordpressIntegrationComplete,
     firstWarehouseCreated,
     progress,
@@ -382,6 +460,8 @@ export function useOnboarding() {
     fetchStatus,
     fetchCompanySettings,
     saveCompanySettings,
+    setupBilling,
+    skipBilling,
     createWarehouse,
     skipWarehouse,
     saveWordPressIntegration,

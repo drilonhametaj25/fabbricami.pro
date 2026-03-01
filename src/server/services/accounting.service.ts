@@ -493,6 +493,9 @@ class AccountingService {
 
     for (const order of orders) {
       for (const item of order.items) {
+        // Skip items without productId (e.g., WooCommerce orders with unknown products)
+        if (!item.productId || !item.product) continue;
+
         const productId = item.productId;
 
         if (!productData[productId]) {

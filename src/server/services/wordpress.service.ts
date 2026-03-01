@@ -1,10 +1,14 @@
 import { prisma } from '../config/database';
 import { config } from '../config/environment';
 import { logger } from '../config/logger';
+import redisClient from '../config/redis';
 import notificationService from './notification.service';
 // inventoryService import removed - unused
 import wordpressSettingsService from './wordpress-settings.service';
 import crypto from 'crypto';
+
+// Webhook idempotency TTL (24 hours in seconds)
+const WEBHOOK_IDEMPOTENCY_TTL = 24 * 60 * 60;
 import {
   mapProductToWooCommerce,
   mapVariantToWooCommerce,
@@ -386,6 +390,37 @@ class WordPressService {
     this.settingsLoaded = false;
     this.settingsLoadPromise = this.loadSettingsFromDB();
     await this.settingsLoadPromise;
+  }
+
+  // =============================================
+  // WEBHOOK IDEMPOTENCY (prevent duplicate processing)
+  // =============================================
+
+  /**
+   * Mark an order webhook as being processed (with atomic lock)
+   * Returns true if successfully acquired lock, false if already locked
+   */
+  private async acquireOrderLock(orderId: number): Promise<boolean> {
+    const key = `wordpress:order:${orderId}`;
+    // SET NX returns true if key was set, false if already exists
+    const result = await redisClient.set(key, 'processing', 'EX', WEBHOOK_IDEMPOTENCY_TTL, 'NX');
+    return result === 'OK';
+  }
+
+  /**
+   * Mark an order webhook as successfully processed
+   */
+  private async markOrderProcessed(orderId: number, erpOrderId: string): Promise<void> {
+    const key = `wordpress:order:${orderId}`;
+    await redisClient.setex(key, WEBHOOK_IDEMPOTENCY_TTL, erpOrderId);
+  }
+
+  /**
+   * Get ERP order ID for a processed WordPress order
+   */
+  private async getProcessedOrderId(orderId: number): Promise<string | null> {
+    const key = `wordpress:order:${orderId}`;
+    return await redisClient.get(key);
   }
 
   /**
@@ -945,22 +980,179 @@ class WordPressService {
   }
 
   // =============================================
+  // STOCK UPDATE FROM WOOCOMMERCE
+  // =============================================
+
+  /**
+   * Process stock update webhook from WooCommerce
+   * Updates ERP inventory when stock changes in WC
+   */
+  async processStockUpdateWebhook(productData: {
+    id: number;
+    sku?: string;
+    stock_quantity?: number | null;
+    stock_status?: string;
+    manage_stock?: boolean;
+  }): Promise<{ success: boolean; productId?: string; newStock?: number; error?: string }> {
+    try {
+      logger.info(`Ricevuto stock update da WooCommerce: prodotto WC #${productData.id}`);
+
+      // Find product by WooCommerce ID or SKU
+      let product = await prisma.product.findFirst({
+        where: { woocommerceId: productData.id },
+      });
+
+      if (!product && productData.sku) {
+        product = await prisma.product.findFirst({
+          where: { sku: productData.sku },
+        });
+      }
+
+      if (!product) {
+        logger.warn(`Prodotto non trovato in ERP per WC ID ${productData.id} / SKU ${productData.sku}`);
+        return { success: false, error: 'Prodotto non trovato in ERP' };
+      }
+
+      // Get new stock quantity (null means stock not managed)
+      const newStockQuantity = productData.stock_quantity ?? 0;
+
+      // Update ERP inventory for WEB location
+      const existingInventory = await prisma.inventoryItem.findFirst({
+        where: {
+          productId: product.id,
+          location: 'WEB',
+        },
+      });
+
+      if (existingInventory) {
+        // Calculate the difference and update
+        const quantityDiff = newStockQuantity - existingInventory.quantity;
+
+        await prisma.inventoryItem.update({
+          where: { id: existingInventory.id },
+          data: {
+            quantity: newStockQuantity,
+            // updatedAt is auto-managed by Prisma @updatedAt
+          },
+        });
+
+        // Create inventory movement record for traceability
+        if (quantityDiff !== 0) {
+          await prisma.inventoryMovement.create({
+            data: {
+              productId: product.id,
+              type: 'ADJUSTMENT',
+              quantity: quantityDiff,
+              fromLocation: 'WEB',
+              toLocation: 'WEB',
+              notes: `Sync automatico da WooCommerce (WC #${productData.id})`,
+            },
+          });
+        }
+      } else {
+        // Create new inventory record for WEB location
+        // Find default warehouse or use null
+        const defaultWarehouse = await prisma.warehouse.findFirst({
+          where: { isPrimary: true },
+        });
+
+        await prisma.inventoryItem.create({
+          data: {
+            productId: product.id,
+            warehouseId: defaultWarehouse?.id || null as any,
+            location: 'WEB',
+            quantity: newStockQuantity,
+            reservedQuantity: 0,
+          },
+        });
+
+        // Create movement for initial stock
+        if (newStockQuantity > 0) {
+          await prisma.inventoryMovement.create({
+            data: {
+              productId: product.id,
+              type: 'ADJUSTMENT',
+              quantity: newStockQuantity,
+              fromLocation: 'WEB',
+              toLocation: 'WEB',
+              notes: `Stock iniziale da WooCommerce (WC #${productData.id})`,
+            },
+          });
+        }
+      }
+
+      logger.info(`Stock ERP aggiornato per ${product.sku}: ${newStockQuantity} pz (da WooCommerce)`);
+
+      return {
+        success: true,
+        productId: product.id,
+        newStock: newStockQuantity,
+      };
+
+    } catch (error: any) {
+      logger.error('Errore processamento stock update webhook:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Process stock update from plugin
+   */
+  async processPluginStockUpdate(stockData: {
+    woocommerceId: number;
+    sku?: string;
+    stockQuantity: number;
+    stockStatus?: string;
+  }): Promise<{ success: boolean; productId?: string; newStock?: number; error?: string }> {
+    // Delegate to webhook handler (same logic)
+    return this.processStockUpdateWebhook({
+      id: stockData.woocommerceId,
+      sku: stockData.sku,
+      stock_quantity: stockData.stockQuantity,
+      stock_status: stockData.stockStatus,
+    });
+  }
+
+  // =============================================
   // WEBHOOK ORDINI
   // =============================================
 
   /**
    * Processa webhook ordine da WooCommerce
+   * Utilizza idempotenza Redis per prevenire duplicati da webhook multipli
    */
   async processOrderWebhook(wooOrder: WooCommerceOrder): Promise<{ success: boolean; orderId?: string; error?: string }> {
     try {
       logger.info(`Ricevuto ordine WooCommerce #${wooOrder.number}`);
 
-      // Verifica se ordine già esiste
+      // Check idempotency - return cached result if already processed
+      const cachedOrderId = await this.getProcessedOrderId(wooOrder.id);
+      if (cachedOrderId && cachedOrderId !== 'processing') {
+        logger.info(`Ordine WooCommerce #${wooOrder.id} già processato, ritorno ordine esistente ${cachedOrderId}`);
+        return { success: true, orderId: cachedOrderId };
+      }
+
+      // Try to acquire lock to prevent race conditions
+      const lockAcquired = await this.acquireOrderLock(wooOrder.id);
+      if (!lockAcquired) {
+        // Another process is handling this order, wait a bit and check again
+        logger.info(`Ordine WooCommerce #${wooOrder.id} in elaborazione da altro processo, attendo...`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        const processedOrderId = await this.getProcessedOrderId(wooOrder.id);
+        if (processedOrderId && processedOrderId !== 'processing') {
+          return { success: true, orderId: processedOrderId };
+        }
+        return { success: false, error: 'Ordine in elaborazione, riprova più tardi' };
+      }
+
+      // Verifica se ordine già esiste nel database
       const existingOrder = await prisma.order.findFirst({
         where: { wordpressId: wooOrder.id },
       });
 
       if (existingOrder) {
+        // Mark as processed and return
+        await this.markOrderProcessed(wooOrder.id, existingOrder.id);
         // Aggiorna ordine esistente
         return await this.updateExistingOrder(existingOrder.id, wooOrder);
       }
@@ -1070,6 +1262,9 @@ class WordPressService {
 
       // Notifica nuovo ordine
       await this.notifyNewOrder(order);
+
+      // Mark order as processed in Redis for idempotency
+      await this.markOrderProcessed(wooOrder.id, order.id);
 
       logger.info(`Ordine WooCommerce #${wooOrder.number} importato con ID ${order.id}`);
       return { success: true, orderId: order.id };
@@ -2337,14 +2532,35 @@ class WordPressService {
    */
   async processPluginOrder(orderData: any): Promise<{ success: boolean; orderId?: string; error?: string }> {
     try {
+      const wpOrderId = orderData.wordpressOrderId;
       logger.info(`Ricevuto ordine da plugin WP #${orderData.orderNumber}`);
+
+      // Check idempotency - return cached result if already processed
+      const cachedOrderId = await this.getProcessedOrderId(wpOrderId);
+      if (cachedOrderId && cachedOrderId !== 'processing') {
+        logger.info(`Ordine plugin WP #${wpOrderId} già processato, ritorno ordine esistente ${cachedOrderId}`);
+        return { success: true, orderId: cachedOrderId };
+      }
+
+      // Try to acquire lock to prevent race conditions
+      const lockAcquired = await this.acquireOrderLock(wpOrderId);
+      if (!lockAcquired) {
+        logger.info(`Ordine plugin WP #${wpOrderId} in elaborazione da altro processo, attendo...`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        const processedOrderId = await this.getProcessedOrderId(wpOrderId);
+        if (processedOrderId && processedOrderId !== 'processing') {
+          return { success: true, orderId: processedOrderId };
+        }
+        return { success: false, error: 'Ordine in elaborazione, riprova più tardi' };
+      }
 
       // Verifica se ordine già esiste
       const existingOrder = await prisma.order.findFirst({
-        where: { wordpressId: orderData.wordpressOrderId },
+        where: { wordpressId: wpOrderId },
       });
 
       if (existingOrder) {
+        await this.markOrderProcessed(wpOrderId, existingOrder.id);
         return { success: true, orderId: existingOrder.id };
       }
 
@@ -2394,10 +2610,15 @@ class WordPressService {
             });
           }
 
+          // Log warning se prodotto non trovato in ERP
+          if (!product) {
+            logger.warn(`Prodotto WooCommerce non trovato in ERP: SKU=${item.sku}, productId=${item.productId}, name=${item.name}`);
+          }
+
           await tx.orderItem.create({
             data: {
               orderId: newOrder.id,
-              productId: product?.id || '',
+              productId: product?.id || null, // Null se prodotto non presente in ERP
               productName: item.name,
               sku: item.sku || product?.sku || '',
               quantity: item.quantity,
@@ -2418,6 +2639,9 @@ class WordPressService {
 
       // Notifica
       await this.notifyNewOrder(order);
+
+      // Mark order as processed in Redis for idempotency
+      await this.markOrderProcessed(wpOrderId, order.id);
 
       return { success: true, orderId: order.id };
 

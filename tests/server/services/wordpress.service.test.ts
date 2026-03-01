@@ -54,6 +54,18 @@ jest.mock('@server/services/wordpress-settings.service', () => {
   };
 });
 
+// Mock Redis for order idempotency
+const mockRedisClient = {
+  get: jest.fn().mockResolvedValue(null), // Order not processed yet
+  set: jest.fn().mockResolvedValue('OK'), // Lock acquired
+  setex: jest.fn().mockResolvedValue('OK'), // Mark as processed
+};
+
+jest.mock('@server/config/redis', () => ({
+  __esModule: true,
+  default: mockRedisClient,
+}));
+
 // Import the mock function for test manipulation
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { __mockGetSettings: mockGetSettings } = jest.requireMock('@server/services/wordpress-settings.service');

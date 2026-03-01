@@ -9,6 +9,7 @@ import {
 import { priceListService } from './pricelist.service';
 import { inventoryService } from './inventory.service';
 import { triggerPostShipmentCheck } from '../jobs/stock-alert.job';
+import { queueOrderStatusUpdate } from '../jobs/wordpress.job';
 import logger from '../config/logger';
 
 // Import lazy per evitare dipendenze circolari
@@ -533,6 +534,17 @@ class OrderService {
             logger.warn(`Could not auto-generate payment dues for order ${id}: ${error.message}`);
           }
         }
+
+        // Auto-sync CONFIRMED status to WooCommerce
+        if (order.wordpressId) {
+          try {
+            await queueOrderStatusUpdate(id, 'CONFIRMED');
+            logger.info(`Queued WooCommerce status sync for order ${id} -> CONFIRMED`);
+          } catch (error: any) {
+            logger.warn(`Could not queue WooCommerce status sync for order ${id}: ${error.message}`);
+          }
+        }
+
         return updatedOrder;
       });
     }
@@ -552,7 +564,7 @@ class OrderService {
       await this.releaseInventoryForOrder(id);
     }
 
-    return await prisma.order.update({
+    const updatedOrder = await prisma.order.update({
       where: { id },
       data: {
         status: data.status as any,
@@ -567,6 +579,18 @@ class OrderService {
         },
       },
     });
+
+    // Auto-sync status to WooCommerce if order has wordpressId
+    if (order.wordpressId) {
+      try {
+        await queueOrderStatusUpdate(id, data.status);
+        logger.info(`Queued WooCommerce status sync for order ${id} -> ${data.status}`);
+      } catch (error: any) {
+        logger.warn(`Could not queue WooCommerce status sync for order ${id}: ${error.message}`);
+      }
+    }
+
+    return updatedOrder;
   }
 
   /**
@@ -652,6 +676,9 @@ class OrderService {
 
     return await prisma.$transaction(async (tx: any) => {
       for (const item of order.items) {
+        // Skip items without productId (e.g., WooCommerce orders with unknown products)
+        if (!item.productId) continue;
+
         // Determina location preferita in base al source
         const location = this.getPreferredLocation(order.source);
 
@@ -929,6 +956,9 @@ class OrderService {
     const inventoryErrors: string[] = [];
 
     for (const item of order.items) {
+      // Skip items without productId (e.g., WooCommerce orders with unknown products)
+      if (!item.productId) continue;
+
       try {
         const result = await inventoryService.deductInventoryRecursive(
           item.productId,
@@ -1921,6 +1951,9 @@ class OrderService {
     const createdOrders = [];
 
     for (const item of order.items) {
+      // Skip items without productId (e.g., WooCommerce orders with unknown products)
+      if (!item.productId || !item.product) continue;
+
       try {
         // Verifica se esiste già un ordine di produzione per questo item
         const existingPO = await prisma.productionOrder.findFirst({

@@ -98,23 +98,25 @@ function goToDashboard() {
 }
 
 function openHelp() {
-  // TODO: Implement help center
-  toast.add({
-    severity: 'info',
-    summary: 'Centro Assistenza',
-    detail: 'Il centro assistenza sarà disponibile a breve',
-    life: 3000,
-  });
+  // Open help documentation in new tab
+  window.open('/docs', '_blank');
 }
 
 function openSupport() {
-  // TODO: Implement support chat/contact
-  toast.add({
-    severity: 'info',
-    summary: 'Supporto',
-    detail: 'Contattaci a support@example.com',
-    life: 5000,
-  });
+  // Open support email
+  const supportEmail = 'support@ecommerceerp.com';
+  const subject = encodeURIComponent('Richiesta di supporto - EcommerceERP');
+  const body = encodeURIComponent(`Ciao,
+
+Ho bisogno di assistenza con EcommerceERP.
+
+Descrizione del problema:
+
+
+
+Grazie!`);
+
+  window.location.href = `mailto:${supportEmail}?subject=${subject}&body=${body}`;
 }
 
 onMounted(async () => {

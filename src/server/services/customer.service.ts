@@ -646,6 +646,9 @@ class CustomerService {
     }>();
 
     for (const item of orderItems) {
+      // Skip items without productId (e.g., WooCommerce orders with unknown products)
+      if (!item.productId) continue;
+
       const existing = productMap.get(item.productId);
       if (existing) {
         existing.totalQuantity += item.quantity;

@@ -456,6 +456,82 @@ const authRoutes: FastifyPluginAsync = async (server) => {
     }
   });
 
+  /**
+   * POST /change-email
+   * Change user email (during onboarding)
+   */
+  server.post('/change-email', { preHandler: [authenticate] }, async (request, reply) => {
+    try {
+      const currentUser = (request as any).user;
+      const { newEmail } = z.object({ newEmail: z.string().email() }).parse(request.body);
+
+      // Check if user exists
+      const user = await prisma.user.findUnique({
+        where: { id: currentUser.userId },
+      });
+
+      if (!user) {
+        return reply.status(404).send({
+          success: false,
+          error: 'Utente non trovato',
+        });
+      }
+
+      // Check if email is already verified
+      if (user.emailVerified) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Non puoi cambiare l\'email dopo averla verificata. Contatta il supporto.',
+        });
+      }
+
+      // Check if new email is already in use
+      const existingUser = await prisma.user.findUnique({
+        where: { email: newEmail.toLowerCase() },
+      });
+
+      if (existingUser && existingUser.id !== user.id) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Questo indirizzo email e già in uso',
+        });
+      }
+
+      // Generate new verification token
+      const emailVerifyToken = generateRandomToken(64);
+      const emailVerifyTokenExpires = new Date();
+      emailVerifyTokenExpires.setHours(emailVerifyTokenExpires.getHours() + 24);
+
+      // Update user with new email and verification token
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          email: newEmail.toLowerCase(),
+          emailVerifyToken,
+          emailVerifyTokenExpires,
+          emailVerified: false, // Reset verification status
+        },
+      });
+
+      // Send verification email to new address
+      await emailService.sendSaasVerificationEmail(
+        newEmail,
+        emailVerifyToken,
+        user.firstName
+      );
+
+      return reply.send({
+        success: true,
+        data: { message: 'Email aggiornata. Controlla la nuova casella per verificare il tuo account.' },
+      });
+    } catch (error) {
+      return reply.status(400).send({
+        success: false,
+        error: error instanceof Error ? error.message : 'Errore cambio email',
+      });
+    }
+  });
+
   // ============================================
   // PASSWORD RESET ENDPOINTS
   // ============================================

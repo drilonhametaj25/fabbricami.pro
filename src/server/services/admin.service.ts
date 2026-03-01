@@ -544,6 +544,22 @@ class AdminService {
         });
       }
 
+      // Deactivate old prices before creating new ones (prices are immutable in Stripe)
+      if (plan.stripePriceMonthlyId) {
+        try {
+          await stripe.prices.update(plan.stripePriceMonthlyId, { active: false });
+        } catch (error) {
+          console.warn('Failed to deactivate old monthly price:', error);
+        }
+      }
+      if (plan.stripePriceYearlyId) {
+        try {
+          await stripe.prices.update(plan.stripePriceYearlyId, { active: false });
+        } catch (error) {
+          console.warn('Failed to deactivate old yearly price:', error);
+        }
+      }
+
       // Create prices (prices are immutable in Stripe, so we always create new ones)
       const priceMonthly = await stripe.prices.create({
         product: product.id,

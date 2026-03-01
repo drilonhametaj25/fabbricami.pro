@@ -274,7 +274,7 @@ describe('ShopCheckoutService', () => {
       expect(prismaMock.customer.create).not.toHaveBeenCalled();
     });
 
-    it('should award loyalty points when account exists', async () => {
+    it('should NOT award loyalty points during createOrder (BUG-002 fix: points awarded after payment)', async () => {
       prismaMock.shoppingCart.findUnique.mockResolvedValue(createMockCart() as any);
       prismaMock.shopShippingMethod.findUnique.mockResolvedValue(createMockShippingMethod() as any);
       prismaMock.customer.findFirst.mockResolvedValue({ id: 'cust-loyal' } as any);
@@ -283,21 +283,14 @@ describe('ShopCheckoutService', () => {
         return callback(prismaMock as any);
       });
       prismaMock.order.create.mockResolvedValue(createMockOrder() as any);
-      prismaMock.product.update.mockResolvedValue({} as any);
-      prismaMock.loyaltyAccount.findUnique.mockResolvedValue({
-        id: 'loyalty-1',
-        customerId: 'cust-loyal',
-        points: 100,
-      } as any);
-      prismaMock.loyaltyAccount.update.mockResolvedValue({} as any);
-      prismaMock.loyaltyTransaction.create.mockResolvedValue({} as any);
-      prismaMock.cartItem.deleteMany.mockResolvedValue({ count: 1 } as any);
-      prismaMock.shoppingCart.delete.mockResolvedValue({} as any);
+      prismaMock.order.update.mockResolvedValue(createMockOrder() as any);
 
       await shopCheckoutService.createOrder(checkoutData);
 
-      expect(prismaMock.loyaltyAccount.update).toHaveBeenCalled();
-      expect(prismaMock.loyaltyTransaction.create).toHaveBeenCalled();
+      // Loyalty points should NOT be awarded during order creation anymore (BUG-002 fix)
+      // They will be awarded in updatePaymentStatus when payment is captured
+      expect(prismaMock.loyaltyAccount.update).not.toHaveBeenCalled();
+      expect(prismaMock.loyaltyTransaction.create).not.toHaveBeenCalled();
     });
 
     it('should subscribe to newsletter when opted in', async () => {
@@ -327,7 +320,7 @@ describe('ShopCheckoutService', () => {
       });
     });
 
-    it('should delete cart after order creation', async () => {
+    it('should store cart reference in order notes (BUG-007 fix: cart deleted after payment)', async () => {
       prismaMock.shoppingCart.findUnique.mockResolvedValue(createMockCart() as any);
       prismaMock.shopShippingMethod.findUnique.mockResolvedValue(createMockShippingMethod() as any);
       prismaMock.customer.findFirst.mockResolvedValue({ id: 'cust-1' } as any);
@@ -336,19 +329,22 @@ describe('ShopCheckoutService', () => {
         return callback(prismaMock as any);
       });
       prismaMock.order.create.mockResolvedValue(createMockOrder() as any);
-      prismaMock.product.update.mockResolvedValue({} as any);
-      prismaMock.loyaltyAccount.findUnique.mockResolvedValue(null);
-      prismaMock.cartItem.deleteMany.mockResolvedValue({ count: 1 } as any);
-      prismaMock.shoppingCart.delete.mockResolvedValue({} as any);
+      prismaMock.order.update.mockResolvedValue(createMockOrder() as any);
 
       await shopCheckoutService.createOrder(checkoutData);
 
-      expect(prismaMock.cartItem.deleteMany).toHaveBeenCalledWith({
-        where: { cartId: 'cart-123' },
-      });
-      expect(prismaMock.shoppingCart.delete).toHaveBeenCalledWith({
-        where: { id: 'cart-123' },
-      });
+      // Cart should NOT be deleted during createOrder anymore (BUG-007 fix)
+      expect(prismaMock.cartItem.deleteMany).not.toHaveBeenCalled();
+      expect(prismaMock.shoppingCart.delete).not.toHaveBeenCalled();
+
+      // Cart reference should be stored in order notes for later cleanup
+      expect(prismaMock.order.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            notes: expect.stringContaining('[CART:cart-123]'),
+          }),
+        })
+      );
     });
   });
 
@@ -418,28 +414,47 @@ describe('ShopCheckoutService', () => {
   // ============================================================================
   describe('updatePaymentStatus', () => {
     it('should mark order as confirmed on payment capture', async () => {
-      prismaMock.order.update.mockResolvedValue(createMockOrder() as any);
-      prismaMock.paymentTransaction.create.mockResolvedValue({} as any);
+      const mockOrder = createMockOrder({
+        status: 'PENDING',
+        items: [{ productId: 'prod-1', variantId: null, quantity: 2 }],
+        notes: '[CART:cart-123]',
+      });
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+      prismaMock.$transaction.mockImplementation(async (callback) => {
+        return callback(prismaMock as any);
+      });
+      prismaMock.order.update.mockResolvedValue(createMockOrder({ status: 'CONFIRMED' }) as any);
+      prismaMock.product.update.mockResolvedValue({} as any);
+      prismaMock.loyaltyAccount.findUnique.mockResolvedValue(null);
+      prismaMock.cartItem.deleteMany.mockResolvedValue({ count: 1 });
+      prismaMock.shoppingCart.delete.mockResolvedValue({} as any);
 
-      const result = await shopCheckoutService.updatePaymentStatus(
+      await shopCheckoutService.updatePaymentStatus(
         'order-123',
         PaymentStatus.CAPTURED,
         'txn-123'
       );
 
-      expect(prismaMock.order.update).toHaveBeenCalledWith({
-        where: { id: 'order-123' },
-        data: {
-          status: OrderStatus.CONFIRMED,
-          paidAt: expect.any(Date),
-        },
-      });
-      expect(prismaMock.paymentTransaction.create).toHaveBeenCalled();
+      // Should update order status to CONFIRMED
+      expect(prismaMock.order.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'order-123' },
+          data: expect.objectContaining({
+            status: OrderStatus.CONFIRMED,
+          }),
+        })
+      );
     });
 
     it('should mark order as cancelled on payment failure', async () => {
-      prismaMock.order.update.mockResolvedValue(createMockOrder() as any);
-      prismaMock.paymentTransaction.create.mockResolvedValue({} as any);
+      const mockOrder = createMockOrder({
+        status: 'PENDING',
+        notes: '[CART:cart-123]',
+      });
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+      prismaMock.order.update.mockResolvedValue(createMockOrder({ status: 'CANCELLED' }) as any);
+      prismaMock.cartItem.deleteMany.mockResolvedValue({ count: 1 });
+      prismaMock.shoppingCart.delete.mockResolvedValue({} as any);
 
       await shopCheckoutService.updatePaymentStatus(
         'order-123',
@@ -454,10 +469,22 @@ describe('ShopCheckoutService', () => {
       });
     });
 
-    it('should create payment transaction record', async () => {
-      const mockOrder = createMockOrder();
-      prismaMock.order.update.mockResolvedValue(mockOrder as any);
-      prismaMock.paymentTransaction.create.mockResolvedValue({} as any);
+    it('should decrement stock on payment capture (BUG-001 fix)', async () => {
+      const mockOrder = createMockOrder({
+        status: 'PENDING',
+        items: [
+          { productId: 'prod-1', variantId: null, quantity: 2 },
+          { productId: 'prod-2', variantId: 'var-1', quantity: 3 },
+        ],
+      });
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+      prismaMock.$transaction.mockImplementation(async (callback) => {
+        return callback(prismaMock as any);
+      });
+      prismaMock.order.update.mockResolvedValue(createMockOrder({ status: 'CONFIRMED' }) as any);
+      prismaMock.product.update.mockResolvedValue({} as any);
+      prismaMock.productVariant.update.mockResolvedValue({} as any);
+      prismaMock.loyaltyAccount.findUnique.mockResolvedValue(null);
 
       await shopCheckoutService.updatePaymentStatus(
         'order-123',
@@ -465,13 +492,78 @@ describe('ShopCheckoutService', () => {
         'pi_stripe_123'
       );
 
-      expect(prismaMock.paymentTransaction.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          orderId: 'order-123',
-          transactionId: 'pi_stripe_123',
-          status: PaymentStatus.CAPTURED,
-        }),
+      // Stock should be decremented for products
+      expect(prismaMock.product.update).toHaveBeenCalledWith({
+        where: { id: 'prod-1' },
+        data: { wcStockQuantity: { decrement: 2 } },
       });
+
+      // Stock should be decremented for variants
+      expect(prismaMock.productVariant.update).toHaveBeenCalledWith({
+        where: { id: 'var-1' },
+        data: { wcStockQuantity: { decrement: 3 } },
+      });
+    });
+
+    it('should award loyalty points on payment capture (BUG-002 fix)', async () => {
+      const mockOrder = createMockOrder({
+        status: 'PENDING',
+        customerId: 'cust-1',
+        total: 150,
+        orderNumber: 'ORD-123',
+        items: [],
+      });
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+      prismaMock.$transaction.mockImplementation(async (callback) => {
+        return callback(prismaMock as any);
+      });
+      prismaMock.order.update.mockResolvedValue(createMockOrder({ status: 'CONFIRMED' }) as any);
+      prismaMock.loyaltyAccount.findUnique.mockResolvedValue({
+        id: 'acc-1',
+        customerId: 'cust-1',
+        points: 100,
+      } as any);
+      prismaMock.loyaltyAccount.update.mockResolvedValue({} as any);
+      prismaMock.loyaltyTransaction.create.mockResolvedValue({} as any);
+
+      await shopCheckoutService.updatePaymentStatus(
+        'order-123',
+        PaymentStatus.CAPTURED,
+        'pi_stripe_123'
+      );
+
+      // Loyalty points should be awarded
+      expect(prismaMock.loyaltyAccount.update).toHaveBeenCalledWith({
+        where: { customerId: 'cust-1' },
+        data: {
+          points: { increment: 150 },
+          totalEarned: { increment: 150 },
+        },
+      });
+    });
+
+    it('should throw when order not found', async () => {
+      prismaMock.order.findUnique.mockResolvedValue(null);
+
+      await expect(
+        shopCheckoutService.updatePaymentStatus('nonexistent', PaymentStatus.CAPTURED)
+      ).rejects.toThrow('Ordine non trovato');
+    });
+
+    it('should skip processing for orders already in final state', async () => {
+      const mockOrder = createMockOrder({
+        status: 'CONFIRMED',
+      });
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+
+      const result = await shopCheckoutService.updatePaymentStatus(
+        'order-123',
+        PaymentStatus.CAPTURED
+      );
+
+      // Should return the order without processing
+      expect(result).toEqual(mockOrder);
+      expect(prismaMock.$transaction).not.toHaveBeenCalled();
     });
   });
 
@@ -479,9 +571,33 @@ describe('ShopCheckoutService', () => {
   // cancelOrder
   // ============================================================================
   describe('cancelOrder', () => {
-    it('should cancel pending order and restore stock', async () => {
+    it('should cancel pending order WITHOUT restoring stock (BUG-001 fix: stock not decremented for unpaid orders)', async () => {
       const mockOrder = createMockOrder({
         status: 'PENDING',
+        items: [
+          { productId: 'prod-1', variantId: null, quantity: 2 },
+        ],
+      });
+      prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
+      prismaMock.$transaction.mockImplementation(async (callback) => {
+        return callback(prismaMock as any);
+      });
+      prismaMock.order.update.mockResolvedValue({} as any);
+      prismaMock.order.findUnique.mockResolvedValueOnce(mockOrder as any);
+      prismaMock.order.findUnique.mockResolvedValueOnce(
+        createMockOrder({ status: 'CANCELLED' }) as any
+      );
+
+      await shopCheckoutService.cancelOrder('order-123', 'Customer request');
+
+      // Stock should NOT be restored for PENDING orders (stock was never decremented)
+      expect(prismaMock.product.update).not.toHaveBeenCalled();
+      expect(prismaMock.productVariant.update).not.toHaveBeenCalled();
+    });
+
+    it('should cancel confirmed order and restore stock', async () => {
+      const mockOrder = createMockOrder({
+        status: 'CONFIRMED',
         items: [
           { productId: 'prod-1', variantId: null, quantity: 2 },
         ],
@@ -498,8 +614,9 @@ describe('ShopCheckoutService', () => {
         createMockOrder({ status: 'CANCELLED' }) as any
       );
 
-      const result = await shopCheckoutService.cancelOrder('order-123', 'Customer request');
+      await shopCheckoutService.cancelOrder('order-123', 'Customer request');
 
+      // Stock SHOULD be restored for CONFIRMED orders
       expect(prismaMock.product.update).toHaveBeenCalledWith({
         where: { id: 'prod-1' },
         data: { wcStockQuantity: { increment: 2 } },
@@ -563,9 +680,9 @@ describe('ShopCheckoutService', () => {
       });
     });
 
-    it('should restore variant stock when variant exists', async () => {
+    it('should restore variant stock when variant exists (for CONFIRMED orders)', async () => {
       const mockOrder = createMockOrder({
-        status: 'PENDING',
+        status: 'CONFIRMED', // Only CONFIRMED orders have stock to restore
         items: [
           { productId: 'prod-1', variantId: 'var-1', quantity: 3 },
         ],

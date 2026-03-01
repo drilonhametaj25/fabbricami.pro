@@ -141,7 +141,7 @@ async function processOrderConfirmation(orderId: string) {
     customerName: `${order.customer.firstName || ''} ${order.customer.lastName || ''}`.trim() || order.customer.businessName || 'Cliente',
     customerEmail: order.customer.email,
     items: order.items.map(item => ({
-      name: item.productName || item.product.name,
+      name: item.productName || item.product?.name || 'N/A',
       quantity: item.quantity,
       unitPrice: Number(item.unitPrice),
       total: Number(item.total),
@@ -187,7 +187,7 @@ async function processOrderShipped(orderId: string, trackingNumber?: string, car
     customerName: `${order.customer.firstName || ''} ${order.customer.lastName || ''}`.trim() || order.customer.businessName || 'Cliente',
     customerEmail: order.customer.email,
     items: order.items.map(item => ({
-      name: item.productName || item.product.name,
+      name: item.productName || item.product?.name || 'N/A',
       quantity: item.quantity,
       unitPrice: Number(item.unitPrice),
       total: Number(item.total),
@@ -235,7 +235,7 @@ async function processOrderDelivered(orderId: string) {
     customerName: `${order.customer.firstName || ''} ${order.customer.lastName || ''}`.trim() || order.customer.businessName || 'Cliente',
     customerEmail: order.customer.email,
     items: order.items.map(item => ({
-      name: item.productName || item.product.name,
+      name: item.productName || item.product?.name || 'N/A',
       quantity: item.quantity,
       unitPrice: Number(item.unitPrice),
       total: Number(item.total),
@@ -413,7 +413,7 @@ async function processNewOrderNotification(orderId: string) {
       customerName: order.customer.businessName || `${order.customer.firstName || ''} ${order.customer.lastName || ''}`.trim(),
       customerEmail: order.customer.email || '',
       items: order.items.map(item => ({
-        name: item.productName || item.product.name,
+        name: item.productName || item.product?.name || 'N/A',
         quantity: item.quantity,
         unitPrice: Number(item.unitPrice),
         total: Number(item.total),

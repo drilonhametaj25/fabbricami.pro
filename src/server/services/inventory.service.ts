@@ -1916,6 +1916,8 @@ class InventoryService {
     if (orderItems.length > 0) {
       // Usa ordini reali (SHIPPED/DELIVERED)
       for (const item of orderItems) {
+        // Skip items without productId (e.g., WooCommerce orders with unknown products)
+        if (!item.productId) continue;
         const current = productSalesMap.get(item.productId) || 0;
         productSalesMap.set(item.productId, current + item.quantity);
       }

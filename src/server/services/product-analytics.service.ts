@@ -123,7 +123,7 @@ class ProductAnalyticsService {
       }
 
       const itemRevenue = Number(item.total);
-      const itemCost = Number(item.product.cost) * item.quantity;
+      const itemCost = item.product ? Number(item.product.cost) * item.quantity : 0;
 
       dataMap[key].quantity += item.quantity;
       dataMap[key].revenue += itemRevenue;
@@ -454,6 +454,9 @@ class ProductAnalyticsService {
     > = {};
 
     orderItems.forEach((item) => {
+      // Skip items without product (e.g., WooCommerce orders with unknown products)
+      if (!item.productId || !item.product) return;
+
       const pid = item.productId;
       const month = item.order.orderDate.getMonth() + 1;
 
@@ -679,6 +682,9 @@ class ProductAnalyticsService {
     const productStats: Record<string, any> = {};
 
     orderItems.forEach((item) => {
+      // Skip items without product (e.g., WooCommerce orders with unknown products)
+      if (!item.productId || !item.product) return;
+
       const pid = item.productId;
       if (!productStats[pid]) {
         productStats[pid] = {

@@ -1,5 +1,4 @@
 import { PrismaClient, OrderStatus, PaymentStatus, Prisma } from '@prisma/client';
-import { v4 as uuidv4 } from 'uuid';
 
 const prisma = new PrismaClient();
 
@@ -211,24 +210,9 @@ class ShopCheckoutService {
         },
       });
 
-      // Decrease stock for each item (using wcStockQuantity or similar field)
-      for (const item of cart.items) {
-        if (item.variantId) {
-          await tx.productVariant.update({
-            where: { id: item.variantId },
-            data: {
-              wcStockQuantity: { decrement: item.quantity },
-            } as any,
-          });
-        } else {
-          await tx.product.update({
-            where: { id: item.productId },
-            data: {
-              wcStockQuantity: { decrement: item.quantity },
-            } as any,
-          });
-        }
-      }
+      // NOTE: Stock is NOT decremented here anymore (BUG-001 fix)
+      // Stock will be decremented when payment is confirmed in updatePaymentStatus()
+      // This prevents stock being held for unpaid orders
 
       // Record coupon usage
       if (cart.coupon) {
@@ -247,36 +231,19 @@ class ShopCheckoutService {
         });
       }
 
-      // Award loyalty points (1 point per EUR)
-      const pointsEarned = Math.floor(total.toNumber());
-      const loyaltyAccount = await tx.loyaltyAccount.findUnique({
-        where: { customerId },
+      // NOTE: Loyalty points are NOT awarded here anymore (BUG-002 fix)
+      // Points will be awarded when payment is confirmed in updatePaymentStatus()
+      // This prevents awarding points for unpaid orders
+
+      // NOTE: Cart is NOT deleted here anymore (BUG-007 fix)
+      // Cart will be deleted when payment is confirmed
+      // Store cartId in order notes for later cleanup
+      await tx.order.update({
+        where: { id: newOrder.id },
+        data: {
+          notes: `[CART:${cart.id}]${data.notes ? ` ${data.notes}` : ''}`,
+        },
       });
-
-      if (loyaltyAccount) {
-        await tx.loyaltyAccount.update({
-          where: { customerId },
-          data: {
-            points: { increment: pointsEarned },
-            totalEarned: { increment: pointsEarned },
-          },
-        });
-
-        await tx.loyaltyTransaction.create({
-          data: {
-            accountId: loyaltyAccount.id,
-            orderId: newOrder.id,
-            type: 'EARN',
-            points: pointsEarned,
-            balanceAfter: loyaltyAccount.points + pointsEarned,
-            description: `Punti guadagnati per ordine ${newOrder.orderNumber}`,
-          } as any,
-        });
-      }
-
-      // Delete cart
-      await tx.cartItem.deleteMany({ where: { cartId: cart.id } });
-      await tx.shoppingCart.delete({ where: { id: cart.id } });
 
       return newOrder;
     });
@@ -350,40 +317,145 @@ class ShopCheckoutService {
 
   /**
    * Update order payment status
+   * When payment is CAPTURED: decrement stock, award loyalty points, delete cart
+   * When payment FAILED: just mark order as cancelled (stock was never decremented)
    */
-  async updatePaymentStatus(orderId: string, paymentStatus: PaymentStatus, transactionId?: string): Promise<any> {
-    const updateData: any = {};
-
-    if (paymentStatus === 'CAPTURED') {
-      updateData.status = OrderStatus.CONFIRMED;
-      updateData.paidAt = new Date();
-    } else if (paymentStatus === 'FAILED') {
-      updateData.status = OrderStatus.CANCELLED;
-    }
-
-    // Update order
-    const order = await prisma.order.update({
+  async updatePaymentStatus(orderId: string, paymentStatus: PaymentStatus, _transactionId?: string): Promise<any> {
+    // Get order with items and customer for stock/loyalty operations
+    const order = await prisma.order.findUnique({
       where: { id: orderId },
-      data: updateData,
-    });
-
-    // Create payment transaction record
-    await prisma.paymentTransaction.create({
-      data: {
-        orderId,
-        provider: 'STRIPE', // or PAYPAL based on context
-        transactionId: transactionId || uuidv4(),
-        status: paymentStatus,
-        amount: order.total,
-        currency: (order as any).wcCurrency || 'EUR',
+      include: {
+        items: true,
+        customer: true,
       },
     });
 
-    return order;
+    if (!order) {
+      throw new Error('Ordine non trovato');
+    }
+
+    // Don't process if already in a final state
+    if (['CONFIRMED', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'REFUNDED'].includes(order.status)) {
+      return order;
+    }
+
+    if (paymentStatus === PaymentStatus.CAPTURED) {
+      // Payment successful - process the order
+      await prisma.$transaction(async (tx) => {
+        // 1. Update order status
+        await tx.order.update({
+          where: { id: orderId },
+          data: {
+            status: OrderStatus.CONFIRMED,
+            wcDatePaid: new Date(),
+          },
+        });
+
+        // 2. Decrement stock for each item (BUG-001 fix: now happens after payment)
+        for (const item of order.items) {
+          if (item.variantId) {
+            await tx.productVariant.update({
+              where: { id: item.variantId },
+              data: {
+                wcStockQuantity: { decrement: item.quantity },
+              } as any,
+            });
+          } else if (item.productId) {
+            await tx.product.update({
+              where: { id: item.productId },
+              data: {
+                wcStockQuantity: { decrement: item.quantity },
+              } as any,
+            });
+          }
+        }
+
+        // 3. Award loyalty points (BUG-002 fix: now happens after payment)
+        if (order.customerId) {
+          const pointsEarned = Math.floor(Number(order.total));
+          const loyaltyAccount = await tx.loyaltyAccount.findUnique({
+            where: { customerId: order.customerId },
+          });
+
+          if (loyaltyAccount) {
+            await tx.loyaltyAccount.update({
+              where: { customerId: order.customerId },
+              data: {
+                points: { increment: pointsEarned },
+                totalEarned: { increment: pointsEarned },
+              },
+            });
+
+            await tx.loyaltyTransaction.create({
+              data: {
+                accountId: loyaltyAccount.id,
+                orderId: order.id,
+                type: 'EARN',
+                points: pointsEarned,
+                balanceAfter: loyaltyAccount.points + pointsEarned,
+                description: `Punti guadagnati per ordine ${order.orderNumber}`,
+              } as any,
+            });
+          }
+        }
+
+        // 4. Delete cart if stored in order notes (BUG-007 fix)
+        const cartIdMatch = order.notes?.match(/\[CART:([^\]]+)\]/);
+        if (cartIdMatch) {
+          const cartId = cartIdMatch[1];
+          try {
+            await tx.cartItem.deleteMany({ where: { cartId } });
+            await tx.shoppingCart.delete({ where: { id: cartId } });
+          } catch {
+            // Cart may already be deleted or not exist, ignore
+          }
+
+          // Clean up the cart reference from notes
+          await tx.order.update({
+            where: { id: orderId },
+            data: {
+              notes: order.notes?.replace(/\[CART:[^\]]+\]\s*/, '') || null,
+            },
+          });
+        }
+      });
+
+    } else if (paymentStatus === PaymentStatus.FAILED) {
+      // Payment failed - cancel order (no stock to restore since we didn't decrement)
+      await prisma.order.update({
+        where: { id: orderId },
+        data: {
+          status: OrderStatus.CANCELLED,
+        },
+      });
+
+      // Delete cart if stored (customer can start fresh)
+      const cartIdMatch = order.notes?.match(/\[CART:([^\]]+)\]/);
+      if (cartIdMatch) {
+        const cartId = cartIdMatch[1];
+        try {
+          await prisma.cartItem.deleteMany({ where: { cartId } });
+          await prisma.shoppingCart.delete({ where: { id: cartId } });
+        } catch {
+          // Ignore cart deletion errors
+        }
+      }
+    }
+
+    // Return updated order
+    return prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        items: true,
+        customer: true,
+      },
+    });
   }
 
   /**
    * Cancel order
+   * Only restores stock and reverses loyalty if order was CONFIRMED (paid)
+   * PENDING orders don't have stock/points to reverse since payment wasn't captured
    */
   async cancelOrder(orderId: string, reason?: string): Promise<any> {
     const order = await prisma.order.findUnique({
@@ -399,18 +471,47 @@ class ShopCheckoutService {
       throw new Error('Impossibile annullare questo ordine');
     }
 
-    // Restore stock
+    // Only restore stock/points if order was CONFIRMED (payment was captured)
+    const shouldRestoreStock = order.status === OrderStatus.CONFIRMED;
+
     await prisma.$transaction(async (tx) => {
-      for (const item of order.items) {
-        if (item.variantId) {
-          await tx.productVariant.update({
-            where: { id: item.variantId },
-            data: { wcStockQuantity: { increment: item.quantity } } as any,
+      if (shouldRestoreStock) {
+        // Restore stock only for paid orders (stock was decremented)
+        for (const item of order.items) {
+          if (item.variantId) {
+            await tx.productVariant.update({
+              where: { id: item.variantId },
+              data: { wcStockQuantity: { increment: item.quantity } } as any,
+            });
+          } else if (item.productId) {
+            await tx.product.update({
+              where: { id: item.productId },
+              data: { wcStockQuantity: { increment: item.quantity } } as any,
+            });
+          }
+        }
+
+        // Reverse loyalty points only for paid orders
+        const loyaltyTx = await tx.loyaltyTransaction.findFirst({
+          where: { orderId, type: 'EARN' },
+          include: { account: true },
+        });
+
+        if (loyaltyTx && loyaltyTx.account) {
+          await tx.loyaltyAccount.update({
+            where: { id: loyaltyTx.account.id },
+            data: { points: { decrement: loyaltyTx.points } },
           });
-        } else if (item.productId) {
-          await tx.product.update({
-            where: { id: item.productId },
-            data: { wcStockQuantity: { increment: item.quantity } } as any,
+
+          await tx.loyaltyTransaction.create({
+            data: {
+              accountId: loyaltyTx.account.id,
+              orderId,
+              type: 'EXPIRE',
+              points: -loyaltyTx.points,
+              balanceAfter: loyaltyTx.account.points - loyaltyTx.points,
+              description: `Punti annullati per ordine cancellato ${order.orderNumber}`,
+            } as any,
           });
         }
       }
@@ -424,28 +525,16 @@ class ShopCheckoutService {
         } as any,
       });
 
-      // Reverse loyalty points if earned
-      const loyaltyTx = await tx.loyaltyTransaction.findFirst({
-        where: { orderId, type: 'EARN' },
-        include: { account: true },
-      });
-
-      if (loyaltyTx && loyaltyTx.account) {
-        await tx.loyaltyAccount.update({
-          where: { id: loyaltyTx.account.id },
-          data: { points: { decrement: loyaltyTx.points } },
-        });
-
-        await tx.loyaltyTransaction.create({
-          data: {
-            accountId: loyaltyTx.account.id,
-            orderId,
-            type: 'EXPIRE',
-            points: -loyaltyTx.points,
-            balanceAfter: loyaltyTx.account.points - loyaltyTx.points,
-            description: `Punti annullati per ordine cancellato ${order.orderNumber}`,
-          } as any,
-        });
+      // Delete cart if it was stored and still exists
+      const cartIdMatch = order.notes?.match(/\[CART:([^\]]+)\]/);
+      if (cartIdMatch) {
+        const cartId = cartIdMatch[1];
+        try {
+          await tx.cartItem.deleteMany({ where: { cartId } });
+          await tx.shoppingCart.delete({ where: { id: cartId } });
+        } catch {
+          // Cart may already be deleted, ignore
+        }
       }
     });
 

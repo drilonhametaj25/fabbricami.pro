@@ -246,13 +246,18 @@ describe('WordPress Plugin Auth Middleware', () => {
   // ADD WORDPRESS PLUGIN CORS HEADERS
   // =============================================
   describe('addWordPressPluginCorsHeaders', () => {
-    it('should set Access-Control-Allow-Origin header', async () => {
+    it('should set Access-Control-Allow-Origin header using configured WordPress URL', async () => {
+      // Security fix: No longer uses wildcard '*', instead uses configured WordPress URL
       const request = createMockRequest() as any;
       const reply = createMockReply();
 
       await addWordPressPluginCorsHeaders(request, reply);
 
-      expect(reply.header).toHaveBeenCalledWith('Access-Control-Allow-Origin', '*');
+      // Expects the configured WordPress URL from config.wordpress.url
+      expect(reply.header).toHaveBeenCalledWith(
+        'Access-Control-Allow-Origin',
+        expect.stringMatching(/^https?:\/\//)
+      );
     });
 
     it('should set Access-Control-Allow-Methods header', async () => {

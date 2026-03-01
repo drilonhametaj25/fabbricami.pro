@@ -2,13 +2,14 @@ import { prisma } from '../config/database';
 import { SaasSubscriptionStatus } from '@prisma/client';
 import Stripe from 'stripe';
 import { emailService } from './email.service';
+import { config } from '../config/environment';
 
 // ============================================
-// STRIPE CONFIGURATION
+// STRIPE CONFIGURATION (BUG-003 fix: use centralized config)
 // ============================================
 
-const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
-const APP_URL = process.env.APP_URL || 'http://localhost:5173';
+const STRIPE_SECRET_KEY = config.stripe.secretKey;
+const APP_URL = config.frontend.appUrl;
 
 const stripe = STRIPE_SECRET_KEY ? new Stripe(STRIPE_SECRET_KEY, {
   apiVersion: '2024-11-20.acacia' as Stripe.LatestApiVersion,

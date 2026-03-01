@@ -18,8 +18,8 @@ const envSchema = z.object({
   
   JWT_SECRET: z.string(),
   JWT_REFRESH_SECRET: z.string(),
-  JWT_EXPIRES_IN: z.string().default('100y'),
-  JWT_REFRESH_EXPIRES_IN: z.string().default('100y'),
+  JWT_EXPIRES_IN: z.string().default('15m'),         // Access token: 15 minuti
+  JWT_REFRESH_EXPIRES_IN: z.string().default('7d'),   // Refresh token: 7 giorni
   
   WORDPRESS_URL: z.string().optional(),
   WORDPRESS_API_KEY: z.string().optional(),
@@ -44,9 +44,23 @@ const envSchema = z.object({
   STRIPE_PUBLISHABLE_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
 
-  // SaaS Settings
+  // PayPal (BUG-004 fix: add validation)
+  PAYPAL_MODE: z.enum(['sandbox', 'live']).default('sandbox'),
+  PAYPAL_CLIENT_ID: z.string().optional(),
+  PAYPAL_CLIENT_SECRET: z.string().optional(),
+  PAYPAL_WEBHOOK_ID: z.string().optional(),
+
+  // Frontend URLs (BUG-003 fix: no more hardcoded localhost fallbacks)
+  // FRONTEND_URL is the e-commerce frontend (Nuxt 3)
+  // APP_URL is the ERP admin frontend (Vue 3)
+  FRONTEND_URL: z.string().default('http://localhost:3001'),
   APP_URL: z.string().default('http://localhost:5173'),
+
+  // SaaS Settings
   DEFAULT_TRIAL_DAYS: z.string().default('14'),
+
+  // CORS
+  ALLOWED_ORIGINS: z.string().optional(),
 });
 
 // Parse and validate
@@ -116,9 +130,28 @@ export const config = {
     // Note: Price IDs are now managed in database, not environment variables
   },
 
+  paypal: {
+    mode: env.PAYPAL_MODE,
+    clientId: env.PAYPAL_CLIENT_ID || '',
+    clientSecret: env.PAYPAL_CLIENT_SECRET || '',
+    webhookId: env.PAYPAL_WEBHOOK_ID || '',
+    apiBase: env.PAYPAL_MODE === 'live'
+      ? 'https://api-m.paypal.com'
+      : 'https://api-m.sandbox.paypal.com',
+  },
+
+  frontend: {
+    url: env.FRONTEND_URL,  // E-commerce frontend (Nuxt 3)
+    appUrl: env.APP_URL,    // ERP admin frontend (Vue 3)
+  },
+
   saas: {
     appUrl: env.APP_URL,
     defaultTrialDays: parseInt(env.DEFAULT_TRIAL_DAYS),
+  },
+
+  cors: {
+    allowedOrigins: env.ALLOWED_ORIGINS?.split(',').map(s => s.trim()).filter(Boolean) || [],
   },
 
   isDevelopment: env.NODE_ENV === 'development',

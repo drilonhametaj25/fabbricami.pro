@@ -2,13 +2,19 @@ import { PrismaClient, PaymentStatus } from '@prisma/client';
 import Stripe from 'stripe';
 import { shopCheckoutService } from './shop-checkout.service';
 import { subscriptionService } from './subscription.service';
+import { config } from '../config/environment';
+import { logger } from '../config/logger';
+import redisClient from '../config/redis';
 
 const prisma = new PrismaClient();
 
-// Stripe configuration
-const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
-const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3001';
+// Webhook idempotency TTL (7 days in seconds)
+const WEBHOOK_IDEMPOTENCY_TTL = 7 * 24 * 60 * 60;
+
+// Stripe configuration from centralized config (BUG-003 fix)
+const STRIPE_SECRET_KEY = config.stripe.secretKey;
+const STRIPE_WEBHOOK_SECRET = config.stripe.webhookSecret;
+const FRONTEND_URL = config.frontend.url;
 
 // Initialize Stripe
 const stripe = STRIPE_SECRET_KEY ? new Stripe(STRIPE_SECRET_KEY, {
@@ -188,9 +194,33 @@ class StripeService {
   }
 
   /**
+   * Check if webhook event was already processed (BUG-005 fix: idempotency)
+   */
+  private async isEventProcessed(eventId: string): Promise<boolean> {
+    const key = `stripe:webhook:${eventId}`;
+    const exists = await redisClient.exists(key);
+    return exists === 1;
+  }
+
+  /**
+   * Mark webhook event as processed (BUG-005 fix: idempotency)
+   */
+  private async markEventProcessed(eventId: string): Promise<void> {
+    const key = `stripe:webhook:${eventId}`;
+    await redisClient.setex(key, WEBHOOK_IDEMPOTENCY_TTL, 'processed');
+  }
+
+  /**
    * Handle Stripe webhook events
+   * BUG-005 fix: Implements idempotency using Redis
    */
   async handleWebhook(event: Stripe.Event): Promise<void> {
+    // Check idempotency - skip if already processed
+    if (await this.isEventProcessed(event.id)) {
+      logger.info(`Stripe webhook event ${event.id} already processed, skipping`);
+      return;
+    }
+
     // Subscription events - delegate to subscription service
     const subscriptionEvents = [
       'customer.subscription.created',
@@ -246,8 +276,11 @@ class StripeService {
       }
 
       default:
-        console.log(`Unhandled Stripe event: ${event.type}`);
+        logger.debug(`Unhandled Stripe event: ${event.type}`);
     }
+
+    // Mark event as processed for idempotency
+    await this.markEventProcessed(event.id);
   }
 
   /**
@@ -256,7 +289,7 @@ class StripeService {
   private async handleCheckoutCompleted(session: Stripe.Checkout.Session): Promise<void> {
     const orderId = session.metadata?.orderId;
     if (!orderId) {
-      console.error('No orderId in checkout session metadata');
+      logger.error('No orderId in checkout session metadata');
       return;
     }
 
@@ -276,7 +309,7 @@ class StripeService {
       session.payment_intent as string
     );
 
-    console.log(`Checkout completed for order ${orderId}`);
+    logger.info(`Checkout completed for order ${orderId}`);
   }
 
   /**
@@ -298,7 +331,7 @@ class StripeService {
     // Cancel the order
     await shopCheckoutService.cancelOrder(orderId, 'Sessione di pagamento scaduta');
 
-    console.log(`Checkout expired for order ${orderId}`);
+    logger.info(`Checkout expired for order ${orderId}`);
   }
 
   /**
@@ -318,7 +351,7 @@ class StripeService {
 
     await shopCheckoutService.updatePaymentStatus(orderId, PaymentStatus.CAPTURED, paymentIntent.id);
 
-    console.log(`Payment succeeded for order ${orderId}`);
+    logger.info(`Payment succeeded for order ${orderId}`);
   }
 
   /**
@@ -336,16 +369,17 @@ class StripeService {
       },
     });
 
-    console.log(`Payment failed for order ${orderId}`);
+    logger.warn(`Payment failed for order ${orderId}`);
   }
 
   /**
    * Handle refund
+   * BUG-006 fix: Restore stock and reverse loyalty points when refund is processed
    */
   private async handleRefund(charge: Stripe.Charge): Promise<void> {
     const paymentIntentId = charge.payment_intent as string;
 
-    // Find the transaction and order
+    // Find the transaction
     const transaction = await prisma.paymentTransaction.findFirst({
       where: {
         OR: [
@@ -355,16 +389,79 @@ class StripeService {
       },
     });
 
-    if (transaction) {
-      await prisma.paymentTransaction.update({
-        where: { id: transaction.id },
-        data: {
-          status: PaymentStatus.REFUNDED,
-          webhookData: charge as any,
-        },
+    if (!transaction) {
+      logger.warn(`No transaction found for refund payment intent: ${paymentIntentId}`);
+      return;
+    }
+
+    // Update transaction status
+    await prisma.paymentTransaction.update({
+      where: { id: transaction.id },
+      data: {
+        status: PaymentStatus.REFUNDED,
+        webhookData: charge as any,
+      },
+    });
+
+    // Find the order for stock/loyalty restoration
+    const order = await prisma.order.findUnique({
+      where: { id: transaction.orderId },
+      include: { items: true },
+    });
+
+    // If full refund and order exists, restore stock and reverse loyalty
+    if (order && charge.refunded && !charge.amount_refunded) {
+      // Full refund - restore all stock
+      await prisma.$transaction(async (tx) => {
+        // Restore stock for each item
+        for (const item of order.items) {
+          if (item.variantId) {
+            await tx.productVariant.update({
+              where: { id: item.variantId },
+              data: { wcStockQuantity: { increment: item.quantity } } as any,
+            });
+          } else if (item.productId) {
+            await tx.product.update({
+              where: { id: item.productId },
+              data: { wcStockQuantity: { increment: item.quantity } } as any,
+            });
+          }
+        }
+
+        // Reverse loyalty points
+        const loyaltyTx = await tx.loyaltyTransaction.findFirst({
+          where: { orderId: order.id, type: 'EARN' },
+          include: { account: true },
+        });
+
+        if (loyaltyTx && loyaltyTx.account) {
+          await tx.loyaltyAccount.update({
+            where: { id: loyaltyTx.account.id },
+            data: { points: { decrement: loyaltyTx.points } },
+          });
+
+          await tx.loyaltyTransaction.create({
+            data: {
+              accountId: loyaltyTx.account.id,
+              orderId: order.id,
+              type: 'EXPIRE',
+              points: -loyaltyTx.points,
+              balanceAfter: loyaltyTx.account.points - loyaltyTx.points,
+              description: `Punti annullati per rimborso ordine ${order.orderNumber}`,
+            } as any,
+          });
+        }
+
+        // Update order status
+        await tx.order.update({
+          where: { id: order.id },
+          data: { status: 'REFUNDED' },
+        });
       });
 
-      console.log(`Refund processed for transaction ${transaction.id}`);
+      logger.info(`Full refund processed for order ${order.orderNumber}, stock restored`);
+    } else {
+      logger.info(`Refund processed for transaction ${transaction.id}`);
     }
   }
 
@@ -425,7 +522,7 @@ class StripeService {
    * Get publishable key for frontend
    */
   getPublishableKey(): string {
-    return process.env.STRIPE_PUBLISHABLE_KEY || '';
+    return config.stripe.publishableKey;
   }
 }
 

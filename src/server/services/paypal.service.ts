@@ -1,17 +1,19 @@
 import { PrismaClient, PaymentStatus } from '@prisma/client';
 import { shopCheckoutService } from './shop-checkout.service';
+import { config } from '../config/environment';
+import { logger } from '../config/logger';
+import redisClient from '../config/redis';
 
 const prisma = new PrismaClient();
 
-// PayPal configuration
-const PAYPAL_CLIENT_ID = process.env.PAYPAL_CLIENT_ID || '';
-const PAYPAL_CLIENT_SECRET = process.env.PAYPAL_CLIENT_SECRET || '';
-const PAYPAL_MODE = process.env.PAYPAL_MODE || 'sandbox'; // 'sandbox' or 'live'
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3001';
+// Webhook idempotency TTL (7 days in seconds)
+const WEBHOOK_IDEMPOTENCY_TTL = 7 * 24 * 60 * 60;
 
-const PAYPAL_API_BASE = PAYPAL_MODE === 'live'
-  ? 'https://api-m.paypal.com'
-  : 'https://api-m.sandbox.paypal.com';
+// PayPal configuration from centralized config (BUG-003 fix)
+const PAYPAL_CLIENT_ID = config.paypal.clientId;
+const PAYPAL_CLIENT_SECRET = config.paypal.clientSecret;
+const PAYPAL_API_BASE = config.paypal.apiBase;
+const FRONTEND_URL = config.frontend.url;
 
 export interface CreateOrderData {
   orderId: string;
@@ -104,7 +106,7 @@ class PayPalService {
     const responseData = await response.json();
 
     if (!response.ok) {
-      console.error('PayPal API Error:', responseData);
+      logger.error('PayPal API Error:', responseData);
       throw new Error(responseData.message || 'Errore PayPal API');
     }
 
@@ -311,16 +313,42 @@ class PayPalService {
   }
 
   /**
+   * Check if webhook event was already processed (BUG-005 fix: idempotency)
+   */
+  private async isEventProcessed(eventId: string): Promise<boolean> {
+    const key = `paypal:webhook:${eventId}`;
+    const exists = await redisClient.exists(key);
+    return exists === 1;
+  }
+
+  /**
+   * Mark webhook event as processed (BUG-005 fix: idempotency)
+   */
+  private async markEventProcessed(eventId: string): Promise<void> {
+    const key = `paypal:webhook:${eventId}`;
+    await redisClient.setex(key, WEBHOOK_IDEMPOTENCY_TTL, 'processed');
+  }
+
+  /**
    * Handle PayPal webhook events
+   * BUG-005 fix: Implements idempotency using Redis
    */
   async handleWebhook(event: any): Promise<void> {
+    const eventId = event.id;
+
+    // Check idempotency - skip if already processed
+    if (eventId && await this.isEventProcessed(eventId)) {
+      logger.info(`PayPal webhook event ${eventId} already processed, skipping`);
+      return;
+    }
+
     const eventType = event.event_type;
     const resource = event.resource;
 
     switch (eventType) {
       case 'CHECKOUT.ORDER.APPROVED': {
         // Order was approved by buyer, ready to capture
-        console.log(`PayPal order approved: ${resource.id}`);
+        logger.info(`PayPal order approved: ${resource.id}`);
         break;
       }
 
@@ -341,7 +369,7 @@ class PayPalService {
             },
           });
         }
-        console.log(`PayPal payment captured: ${resource.id}`);
+        logger.info(`PayPal payment captured: ${resource.id}`);
         break;
       }
 
@@ -355,23 +383,29 @@ class PayPalService {
             webhookData: resource,
           },
         });
-        console.log(`PayPal payment denied: ${resource.id}`);
+        logger.warn(`PayPal payment denied: ${resource.id}`);
         break;
       }
 
       case 'PAYMENT.CAPTURE.REFUNDED': {
         // Refund completed
-        console.log(`PayPal refund completed: ${resource.id}`);
+        logger.info(`PayPal refund completed: ${resource.id}`);
         break;
       }
 
       default:
-        console.log(`Unhandled PayPal event: ${eventType}`);
+        logger.debug(`Unhandled PayPal event: ${eventType}`);
+    }
+
+    // Mark event as processed for idempotency
+    if (eventId) {
+      await this.markEventProcessed(eventId);
     }
   }
 
   /**
    * Verify webhook signature
+   * BUG-008 fix: In production, fail if PAYPAL_WEBHOOK_ID is not configured
    */
   async verifyWebhookSignature(
     body: string,
@@ -381,10 +415,15 @@ class PayPalService {
       return false;
     }
 
-    const webhookId = process.env.PAYPAL_WEBHOOK_ID;
+    const webhookId = config.paypal.webhookId;
     if (!webhookId) {
-      console.warn('PAYPAL_WEBHOOK_ID non configurato');
-      return true; // Skip verification in development
+      // BUG-008 fix: In production, webhook verification is mandatory
+      if (config.isProduction) {
+        logger.error('PAYPAL_WEBHOOK_ID non configurato in produzione - webhook rifiutato');
+        return false;
+      }
+      logger.warn('PAYPAL_WEBHOOK_ID non configurato - verifica saltata in development');
+      return true; // Skip verification only in development
     }
 
     try {
@@ -402,7 +441,7 @@ class PayPalService {
 
       return response.verification_status === 'SUCCESS';
     } catch (error) {
-      console.error('Webhook verification failed:', error);
+      logger.error('Webhook verification failed:', error);
       return false;
     }
   }

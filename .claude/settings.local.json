@@ -100,7 +100,8 @@
       "Bash(nslookup:*)",
       "Bash(git reset:*)",
       "Bash(docker rm:*)",
-      "Bash(git rm:*)"
+      "Bash(git rm:*)",
+      "Bash(tee:*)"
     ]
   }
 }

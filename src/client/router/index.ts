@@ -58,6 +58,11 @@ const router = createRouter({
           component: () => import('../pages/onboarding/CompanySettings.vue'),
         },
         {
+          path: 'setup-billing',
+          name: 'OnboardingSetupBilling',
+          component: () => import('../pages/onboarding/SetupBilling.vue'),
+        },
+        {
           path: 'wordpress-integration',
           name: 'OnboardingWordPressIntegration',
           component: () => import('../pages/onboarding/WordPressIntegration.vue'),

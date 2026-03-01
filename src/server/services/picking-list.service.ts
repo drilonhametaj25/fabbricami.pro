@@ -229,6 +229,20 @@ class PickingListService {
     const items: PickingListItem[] = [];
 
     for (const item of order.items) {
+      // Skip items without product (e.g., WooCommerce orders with unknown products)
+      if (!item.product || !item.productId) {
+        items.push({
+          sku: item.sku || 'N/A',
+          name: item.productName,
+          location,
+          quantity: item.quantity,
+          unit: 'PZ',
+          isMaterial: false,
+          notes: '⚠️ Prodotto non presente in ERP',
+        });
+        continue;
+      }
+
       // Verifica stock disponibile
       const inventory = await prisma.inventoryItem.findFirst({
         where: {

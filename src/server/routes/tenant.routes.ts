@@ -1,6 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { authenticate, authorize } from '../middleware/auth.middleware';
 import { tenantMiddleware, TenantRequest } from '../middleware/tenant.middleware';
+import { requirePlanLimit } from '../middleware/subscription.middleware';
 import { tenantService } from '../services/tenant.service';
 import { tenantInviteService } from '../services/tenant-invite.service';
 import {
@@ -214,7 +215,7 @@ const tenantRoutes: FastifyPluginAsync = async (server) => {
    */
   server.post(
     '/invites',
-    { preHandler: [authenticate, tenantMiddleware, authorize('ADMIN')] },
+    { preHandler: [authenticate, tenantMiddleware, authorize('ADMIN'), requirePlanLimit('users')] },
     async (request, reply) => {
       try {
         const tenantRequest = request as TenantRequest;

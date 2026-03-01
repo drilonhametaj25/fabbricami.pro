@@ -326,7 +326,7 @@ class DdtService {
 
     // Prepara items
     const items = order.items.map((item) => ({
-      productId: item.productId,
+      productId: item.productId || undefined, // Convert null to undefined
       variantId: item.variantId || undefined,
       sku: item.sku,
       description: item.productName,

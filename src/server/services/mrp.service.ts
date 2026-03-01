@@ -97,6 +97,9 @@ class MRPService {
 
     for (const order of pendingOrders) {
       for (const item of order.items) {
+        // Skip items without productId (e.g., WooCommerce orders with unknown products)
+        if (!item.productId) continue;
+
         // Esplodi BOM per questo prodotto
         const bomItems = await this.explodeBomRecursive(item.productId, item.quantity);
 

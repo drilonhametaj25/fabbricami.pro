@@ -169,7 +169,7 @@ describe('SubscriptionService - Missing Price IDs', () => {
         planCode: 'STARTER',
         billingPeriod: 'monthly',
       })
-    ).rejects.toThrow('Price ID non configurato per STARTER monthly');
+    ).rejects.toThrow('non sincronizzato con Stripe');
   });
 
   it('should throw when yearly price ID not configured for createSubscription', async () => {
@@ -203,7 +203,7 @@ describe('SubscriptionService - Missing Price IDs', () => {
         planCode: 'STARTER',
         billingPeriod: 'yearly',
       })
-    ).rejects.toThrow('Price ID non configurato per STARTER yearly');
+    ).rejects.toThrow('non sincronizzato con Stripe');
   });
 
   it('should throw when price ID not configured for createCheckoutSession', async () => {
@@ -233,7 +233,7 @@ describe('SubscriptionService - Missing Price IDs', () => {
 
     await expect(
       subscriptionServiceMissingPrice.createCheckoutSession('tenant-123', 'STARTER', 'monthly')
-    ).rejects.toThrow('Price ID non configurato per STARTER monthly');
+    ).rejects.toThrow('non sincronizzato con Stripe');
   });
 });
 
@@ -354,6 +354,9 @@ describe('SubscriptionService', () => {
     maxProducts: 1000,
     maxOrders: 5000,
     features: ['feature1', 'feature2'],
+    stripeProductId: 'prod_mock',
+    stripePriceMonthlyId: 'price_mock_monthly',
+    stripePriceYearlyId: 'price_mock_yearly',
     createdAt: new Date(),
     updatedAt: new Date(),
     ...overrides,
@@ -480,10 +483,16 @@ describe('SubscriptionService', () => {
       },
     };
 
-    it('should throw when plan code not configured in Stripe', async () => {
+    it('should throw when plan not synced with Stripe', async () => {
       prismaMock.tenant.findUnique.mockResolvedValue(createMockTenant() as any);
       prismaMock.saasSubscription.findUnique.mockResolvedValue(null);
-      prismaMock.subscriptionPlan.findUnique.mockResolvedValue(createMockPlan({ code: 'UNKNOWN_PLAN' }));
+      // Plan without Stripe price IDs (not synced)
+      prismaMock.subscriptionPlan.findUnique.mockResolvedValue(createMockPlan({
+        code: 'UNKNOWN_PLAN',
+        name: 'Unknown Plan',
+        stripePriceMonthlyId: null,
+        stripePriceYearlyId: null,
+      }));
       mockStripe.customers.create.mockResolvedValue({ id: 'cus_new' });
 
       await expect(
@@ -492,7 +501,7 @@ describe('SubscriptionService', () => {
           planCode: 'UNKNOWN_PLAN',
           billingPeriod: 'monthly',
         })
-      ).rejects.toThrow('Piano UNKNOWN_PLAN non configurato in Stripe');
+      ).rejects.toThrow('non sincronizzato con Stripe');
     });
 
     it('should throw when price ID not configured for billing period', async () => {
@@ -661,7 +670,7 @@ describe('SubscriptionService', () => {
 
       expect(mockStripe.subscriptions.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          items: [{ price: 'price_pro_yearly' }],
+          items: [{ price: 'price_mock_yearly' }],
         })
       );
     });
@@ -778,7 +787,7 @@ describe('SubscriptionService', () => {
       expect(mockStripe.subscriptions.update).toHaveBeenCalledWith(
         'sub_stripe_123',
         expect.objectContaining({
-          items: [{ id: 'si_123', price: 'price_business_monthly' }],
+          items: [{ id: 'si_123', price: 'price_mock_monthly' }],
           proration_behavior: 'create_prorations',
         })
       );
@@ -837,7 +846,7 @@ describe('SubscriptionService', () => {
       expect(mockStripe.subscriptions.update).toHaveBeenCalledWith(
         'sub_stripe_123',
         expect.objectContaining({
-          items: [{ id: 'si_123', price: 'price_business_yearly' }],
+          items: [{ id: 'si_123', price: 'price_mock_yearly' }],
         })
       );
     });
@@ -866,7 +875,7 @@ describe('SubscriptionService', () => {
       expect(mockStripe.subscriptions.update).toHaveBeenCalledWith(
         'sub_stripe_123',
         expect.objectContaining({
-          items: [{ id: 'si_123', price: 'price_business_yearly' }],
+          items: [{ id: 'si_123', price: 'price_mock_yearly' }],
         })
       );
     });
@@ -1088,7 +1097,7 @@ describe('SubscriptionService', () => {
       expect(mockStripe.checkout.sessions.create).toHaveBeenCalledWith(
         expect.objectContaining({
           mode: 'subscription',
-          line_items: [{ price: 'price_pro_monthly', quantity: 1 }],
+          line_items: [{ price: 'price_mock_monthly', quantity: 1 }],
           locale: 'it',
         })
       );
@@ -1135,13 +1144,19 @@ describe('SubscriptionService', () => {
       );
     });
 
-    it('should throw when plan code not configured in Stripe for checkout', async () => {
+    it('should throw when plan not synced with Stripe for checkout', async () => {
       prismaMock.tenant.findUnique.mockResolvedValue({
         ...createMockTenant(),
         subscription: null,
       } as any);
+      // Plan without Stripe price IDs (not synced)
       prismaMock.subscriptionPlan.findUnique.mockResolvedValue(
-        createMockPlan({ code: 'UNKNOWN_CHECKOUT' })
+        createMockPlan({
+          code: 'UNKNOWN_CHECKOUT',
+          name: 'Unknown Checkout Plan',
+          stripePriceMonthlyId: null,
+          stripePriceYearlyId: null,
+        })
       );
 
       await expect(
@@ -1150,7 +1165,7 @@ describe('SubscriptionService', () => {
           'UNKNOWN_CHECKOUT',
           'monthly'
         )
-      ).rejects.toThrow('Piano UNKNOWN_CHECKOUT non configurato in Stripe');
+      ).rejects.toThrow('non sincronizzato con Stripe');
     });
 
     it('should use yearly price ID for checkout session', async () => {
@@ -1172,7 +1187,7 @@ describe('SubscriptionService', () => {
 
       expect(mockStripe.checkout.sessions.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          line_items: [{ price: 'price_pro_yearly', quantity: 1 }],
+          line_items: [{ price: 'price_mock_yearly', quantity: 1 }],
         })
       );
     });

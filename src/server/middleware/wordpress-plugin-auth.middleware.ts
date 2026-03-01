@@ -1,5 +1,6 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import wordpressPluginService from '../services/wordpress-plugin.service';
+import { config } from '../config/environment';
 
 /**
  * Middleware per autenticazione Basic Auth dal plugin WordPress
@@ -90,13 +91,31 @@ export const logWordPressPluginRequest = async (
 
 /**
  * Hook per aggiungere header CORS per il plugin WordPress
+ * Usa l'URL WordPress configurato invece di wildcard '*' per sicurezza
  */
 export const addWordPressPluginCorsHeaders = async (
-  _request: FastifyRequest,
+  request: FastifyRequest,
   reply: FastifyReply
 ): Promise<void> => {
-  // Permetti richieste da qualsiasi origine WordPress
-  reply.header('Access-Control-Allow-Origin', '*');
+  // Usa l'URL WordPress configurato o l'origin della richiesta se valido
+  const requestOrigin = request.headers.origin;
+  const configuredWordPressUrl = config.wordpress.url;
+
+  // Permetti solo origine WordPress configurata o in development qualsiasi localhost
+  let allowedOrigin = '';
+  if (configuredWordPressUrl && requestOrigin?.startsWith(configuredWordPressUrl)) {
+    allowedOrigin = requestOrigin;
+  } else if (config.isDevelopment && requestOrigin && (
+    requestOrigin.includes('localhost') || requestOrigin.includes('127.0.0.1')
+  )) {
+    allowedOrigin = requestOrigin;
+  } else if (configuredWordPressUrl) {
+    allowedOrigin = configuredWordPressUrl;
+  }
+
+  if (allowedOrigin) {
+    reply.header('Access-Control-Allow-Origin', allowedOrigin);
+  }
   reply.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   reply.header('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-EcommerceERP-API-Key');
   reply.header('Access-Control-Allow-Credentials', 'true');

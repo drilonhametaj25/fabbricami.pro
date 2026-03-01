@@ -383,7 +383,7 @@ class ReportsService {
       categoryStats[category].units += item.quantity;
       categoryStats[category].orders.add(item.order.id);
 
-      const productId = item.productId;
+      const productId = item.productId || 'unknown';
       if (!categoryStats[category].products[productId]) {
         categoryStats[category].products[productId] = {
           sku: item.sku,

@@ -1,6 +1,7 @@
 import { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import { newsletterService } from '../services/newsletter.service';
 import { successResponse, errorResponse } from '../utils/response.util';
+import { authenticate } from '../middleware/auth.middleware';
 
 const newsletterRoutes: FastifyPluginAsync = async (fastify) => {
   // Subscribe to newsletter
@@ -168,9 +169,8 @@ const newsletterRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // Get newsletter stats (admin only)
-  fastify.get('/stats', async (_request: FastifyRequest, reply: FastifyReply) => {
+  fastify.get('/stats', { preHandler: authenticate }, async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
-      // TODO: Add admin auth check here
       const stats = await newsletterService.getStats();
       return successResponse(reply, stats);
     } catch (error: any) {
@@ -179,18 +179,14 @@ const newsletterRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // Export subscribers (admin only)
-  fastify.get('/export', async (
-    request: FastifyRequest<{
-      Querystring: {
-        status?: 'CONFIRMED' | 'PENDING' | 'UNSUBSCRIBED';
-        tags?: string;
-        fromDate?: string;
-      };
-    }>,
-    reply: FastifyReply
-  ) => {
+  fastify.get<{
+    Querystring: {
+      status?: 'CONFIRMED' | 'PENDING' | 'UNSUBSCRIBED';
+      tags?: string;
+      fromDate?: string;
+    };
+  }>('/export', { preHandler: authenticate }, async (request, reply) => {
     try {
-      // TODO: Add admin auth check here
       const { status, tags, fromDate } = request.query;
 
       const subscribers = await newsletterService.exportSubscribers({

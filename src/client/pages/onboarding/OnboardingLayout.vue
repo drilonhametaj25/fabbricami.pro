@@ -76,20 +76,24 @@ const {
   steps,
   isStepCompleted,
   fetchStatus,
+  skipBilling,
   skipWarehouse,
   skipWordPressIntegration,
 } = useOnboarding();
 
 // Computed
 const showSkipButton = computed(() => {
-  return currentStep.value === 'create-warehouse' || currentStep.value === 'wordpress-integration';
+  return currentStep.value === 'setup-billing' || currentStep.value === 'create-warehouse' || currentStep.value === 'wordpress-integration';
 });
 
 const showLogoutButton = computed(() => true);
 
 // Methods
 async function skipStep() {
-  if (currentStep.value === 'create-warehouse') {
+  if (currentStep.value === 'setup-billing') {
+    await skipBilling();
+    router.push('/onboarding/wordpress-integration');
+  } else if (currentStep.value === 'create-warehouse') {
     await skipWarehouse();
     router.push('/');
   } else if (currentStep.value === 'wordpress-integration') {

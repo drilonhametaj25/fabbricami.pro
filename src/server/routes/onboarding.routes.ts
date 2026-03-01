@@ -6,16 +6,19 @@ import {
   companySettingsSchema,
   createWarehouseSchema,
 } from '../schemas/onboarding.schema';
+import { subscriptionService } from '../services/subscription.service';
+import { encryptSecret } from '../utils/crypto.util';
 
 // ============================================
 // ONBOARDING STATUS TYPES
 // ============================================
 
-type OnboardingStep = 'verify-email' | 'company-settings' | 'wordpress-integration' | 'create-warehouse' | 'complete';
+type OnboardingStep = 'verify-email' | 'company-settings' | 'setup-billing' | 'wordpress-integration' | 'create-warehouse' | 'complete';
 
 interface OnboardingStatus {
   emailVerified: boolean;
   companySettingsComplete: boolean;
+  billingSetupComplete: boolean;
   wordpressIntegrationComplete: boolean;
   firstWarehouseCreated: boolean;
   currentStep: OnboardingStep;
@@ -60,6 +63,7 @@ const onboardingRoutes: FastifyPluginAsync = async (server) => {
       });
       const tenantSettings = (tenant?.settings as Record<string, unknown>) || {};
       const wordpressIntegrationComplete = !!tenantSettings.wordpressConfigured || !!tenantSettings.wordpressSkipped;
+      const billingSetupComplete = !!tenantSettings.billingConfigured || !!tenantSettings.billingSkipped;
 
       const emailVerified = user?.emailVerified ?? false;
       const companySettingsComplete = !!companySettings;
@@ -79,16 +83,22 @@ const onboardingRoutes: FastifyPluginAsync = async (server) => {
         } else {
           completedSteps.push('company-settings');
 
-          if (!wordpressIntegrationComplete) {
-            currentStep = 'wordpress-integration';
+          if (!billingSetupComplete) {
+            currentStep = 'setup-billing';
           } else {
-            completedSteps.push('wordpress-integration');
+            completedSteps.push('setup-billing');
 
-            if (!firstWarehouseCreated) {
-              currentStep = 'create-warehouse';
+            if (!wordpressIntegrationComplete) {
+              currentStep = 'wordpress-integration';
             } else {
-              completedSteps.push('create-warehouse');
-              currentStep = 'complete';
+              completedSteps.push('wordpress-integration');
+
+              if (!firstWarehouseCreated) {
+                currentStep = 'create-warehouse';
+              } else {
+                completedSteps.push('create-warehouse');
+                currentStep = 'complete';
+              }
             }
           }
         }
@@ -97,6 +107,7 @@ const onboardingRoutes: FastifyPluginAsync = async (server) => {
       const status: OnboardingStatus = {
         emailVerified,
         companySettingsComplete,
+        billingSetupComplete,
         wordpressIntegrationComplete,
         firstWarehouseCreated,
         currentStep,
@@ -221,6 +232,163 @@ const onboardingRoutes: FastifyPluginAsync = async (server) => {
   );
 
   /**
+   * POST /onboarding/setup-billing
+   * Setup billing during onboarding (starts trial or redirects to Stripe checkout)
+   */
+  server.post(
+    '/setup-billing',
+    { preHandler: [authenticate, tenantMiddleware] },
+    async (request, reply) => {
+      try {
+        const tenantRequest = request as TenantRequest;
+        const body = request.body as {
+          startTrial?: boolean;
+          planCode?: string;
+          billingPeriod?: 'monthly' | 'yearly';
+          successUrl?: string;
+          cancelUrl?: string;
+        };
+
+        // Get current tenant settings
+        const tenant = await prisma.tenant.findUnique({
+          where: { id: tenantRequest.tenant.tenantId },
+        });
+
+        const currentSettings = (tenant?.settings as Record<string, unknown>) || {};
+        const planCode = body.planCode || 'PRO';
+        const billingPeriod = body.billingPeriod || 'monthly';
+
+        if (body.startTrial) {
+          // Start trial using subscription service
+          try {
+            await subscriptionService.createTrialSubscription(
+              tenantRequest.tenant.tenantId,
+              planCode
+            );
+          } catch (subError) {
+            // Se fallisce per subscription esistente, aggiorna solo i settings
+            console.log('Trial subscription creation note:', subError);
+          }
+
+          // Mark billing as configured with trial
+          const newSettings = {
+            ...currentSettings,
+            billingConfigured: true,
+            billingSkipped: false,
+            billing: {
+              trialStarted: true,
+              trialStartedAt: new Date().toISOString(),
+              trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+              planCode,
+            },
+          };
+
+          await prisma.tenant.update({
+            where: { id: tenantRequest.tenant.tenantId },
+            data: { settings: newSettings },
+          });
+
+          return reply.send({
+            success: true,
+            data: { message: 'Prova gratuita attivata' },
+          });
+        } else {
+          // Create Stripe Checkout session
+          if (!subscriptionService.isStripeConfigured()) {
+            // Stripe non configurato - fallback a trial
+            console.warn('Stripe not configured - falling back to trial');
+            const newSettings = {
+              ...currentSettings,
+              billingConfigured: true,
+              billingSkipped: false,
+              billing: {
+                trialStarted: true,
+                trialStartedAt: new Date().toISOString(),
+                trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+                planCode,
+                stripeNotConfigured: true,
+              },
+            };
+
+            await prisma.tenant.update({
+              where: { id: tenantRequest.tenant.tenantId },
+              data: { settings: newSettings },
+            });
+
+            return reply.send({
+              success: true,
+              data: {
+                message: 'Stripe non configurato - prova gratuita attivata',
+                fallbackToTrial: true,
+              },
+            });
+          }
+
+          // Create Stripe Checkout session
+          const checkoutSession = await subscriptionService.createCheckoutSession(
+            tenantRequest.tenant.tenantId,
+            planCode,
+            billingPeriod,
+            body.successUrl,
+            body.cancelUrl
+          );
+
+          return reply.send({
+            success: true,
+            data: {
+              checkoutUrl: checkoutSession.url,
+              sessionId: checkoutSession.sessionId,
+            },
+          });
+        }
+      } catch (error) {
+        console.error('Setup billing error:', error);
+        return reply.status(400).send({
+          success: false,
+          error: error instanceof Error ? error.message : 'Errore setup billing',
+        });
+      }
+    }
+  );
+
+  /**
+   * POST /onboarding/skip-billing
+   * Skip billing setup (use free trial)
+   */
+  server.post(
+    '/skip-billing',
+    { preHandler: [authenticate, tenantMiddleware] },
+    async (request, reply) => {
+      const tenantRequest = request as TenantRequest;
+
+      // Get current tenant settings
+      const tenant = await prisma.tenant.findUnique({
+        where: { id: tenantRequest.tenant.tenantId },
+      });
+
+      const currentSettings = (tenant?.settings as Record<string, unknown>) || {};
+      const newSettings = {
+        ...currentSettings,
+        billingConfigured: false,
+        billingSkipped: true,
+        billing: {
+          skippedAt: new Date().toISOString(),
+        },
+      };
+
+      await prisma.tenant.update({
+        where: { id: tenantRequest.tenant.tenantId },
+        data: { settings: newSettings },
+      });
+
+      return reply.send({
+        success: true,
+        data: { message: 'Setup billing saltato' },
+      });
+    }
+  );
+
+  /**
    * POST /onboarding/first-warehouse
    * Create first warehouse during onboarding
    */
@@ -339,7 +507,7 @@ const onboardingRoutes: FastifyPluginAsync = async (server) => {
         const currentSettings = (tenant?.settings as Record<string, unknown>) || {};
 
         if (body.enabled) {
-          // Save WordPress configuration
+          // Save WordPress configuration with encrypted secret
           const newSettings = {
             ...currentSettings,
             wordpressConfigured: true,
@@ -348,8 +516,8 @@ const onboardingRoutes: FastifyPluginAsync = async (server) => {
               enabled: true,
               siteUrl: body.siteUrl,
               consumerKey: body.consumerKey,
-              // Store consumer secret securely (in production, encrypt this)
-              consumerSecret: body.consumerSecret,
+              // Encrypt consumer secret before storing
+              consumerSecret: body.consumerSecret ? encryptSecret(body.consumerSecret) : '',
               configuredAt: new Date().toISOString(),
             },
           };

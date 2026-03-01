@@ -63,6 +63,29 @@ jest.mock('@server/services/subscription.service', () => ({
   subscriptionService: mockSubscriptionService,
 }));
 
+// Mock Redis for webhook idempotency (BUG-005)
+const mockRedisClient = {
+  exists: jest.fn().mockResolvedValue(0), // Event not processed yet
+  setex: jest.fn().mockResolvedValue('OK'),
+};
+
+jest.mock('@server/config/redis', () => ({
+  __esModule: true,
+  default: mockRedisClient,
+}));
+
+// Mock logger
+const mockLogger = {
+  info: jest.fn(),
+  warn: jest.fn(),
+  error: jest.fn(),
+  debug: jest.fn(),
+};
+
+jest.mock('@server/config/logger', () => ({
+  logger: mockLogger,
+}));
+
 // Set environment variables before importing
 process.env.STRIPE_SECRET_KEY = 'sk_test_123456789';
 process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test_secret';
@@ -76,6 +99,9 @@ describe('StripeService', () => {
   beforeEach(() => {
     mockReset(prismaMock);
     jest.clearAllMocks();
+    // Reset Redis mocks for idempotency tests
+    mockRedisClient.exists.mockResolvedValue(0);
+    mockRedisClient.setex.mockResolvedValue('OK');
   });
 
   // ============================================================================

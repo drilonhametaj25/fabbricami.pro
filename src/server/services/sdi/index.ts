@@ -411,7 +411,7 @@ class SdiService {
       customer: NonNullable<Awaited<ReturnType<typeof prisma.customer.findUnique>>>;
       order: {
         items: Array<{
-          product: NonNullable<Awaited<ReturnType<typeof prisma.product.findUnique>>>;
+          product: Awaited<ReturnType<typeof prisma.product.findUnique>>; // Can be null for WooCommerce orders
           quantity: number;
           unitPrice: unknown;
           total: unknown;

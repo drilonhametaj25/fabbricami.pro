@@ -311,6 +311,21 @@ class RefundService {
       });
 
       return processedRefund;
+    }).then(async (processedRefund) => {
+      // Auto-sync to WooCommerce if order has wordpressId
+      if (refund.order.wordpressId) {
+        try {
+          const syncResult = await this.syncRefundToWooCommerce(data.refundId);
+          if (syncResult.success) {
+            logger.info(`Auto-synced refund ${data.refundId} to WooCommerce: #${syncResult.wcRefundId}`);
+          } else {
+            logger.warn(`Failed to auto-sync refund ${data.refundId} to WooCommerce: ${syncResult.error}`);
+          }
+        } catch (syncError: any) {
+          logger.warn(`Error auto-syncing refund ${data.refundId} to WooCommerce: ${syncError.message}`);
+        }
+      }
+      return processedRefund;
     });
   }
 

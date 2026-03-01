@@ -3,6 +3,8 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../config/database';
 import { getWarehouseService } from '../services/warehouse.service';
 import { authenticate } from '../middleware/auth.middleware';
+import { tenantMiddleware } from '../middleware/tenant.middleware';
+import { requirePlanLimit } from '../middleware/subscription.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
   createWarehouseSchema,
@@ -153,7 +155,7 @@ export default async function warehouseRoutes(fastify: FastifyInstance) {
   }>(
     '/',
     {
-      preHandler: [authenticate, validate(createWarehouseSchema)],
+      preHandler: [authenticate, tenantMiddleware, validate(createWarehouseSchema), requirePlanLimit('warehouses')],
     },
     async (request: FastifyRequest<{ Body: CreateWarehouseBody }>, reply: FastifyReply) => {
       try {

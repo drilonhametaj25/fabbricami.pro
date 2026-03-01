@@ -628,12 +628,7 @@ const orderRoutes: FastifyPluginAsync = async (server: any) => {
   server.get('/:id/full', { preHandler: authenticate }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const { id } = request.params as { id: string };
-      console.log('[DEBUG] getOrderFull called with id:', id);
       const order = await orderService.getOrderFull(id);
-      console.log('[DEBUG] getOrderFull returned:', order ? 'order found' : 'null');
-      if (order) {
-        console.log('[DEBUG] getOrderFull order.attachments:', JSON.stringify(order.attachments));
-      }
 
       if (!order) {
         return reply.status(404).send({
@@ -647,7 +642,6 @@ const orderRoutes: FastifyPluginAsync = async (server: any) => {
         data: order,
       });
     } catch (error: any) {
-      console.error('[DEBUG] getOrderFull error:', error);
       return reply.status(400).send({
         success: false,
         error: error.message || 'Failed to get full order details',

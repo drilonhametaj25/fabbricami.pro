@@ -1,5 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { authenticate, authorize } from '../middleware/auth.middleware';
+import { tenantMiddleware } from '../middleware/tenant.middleware';
+import { requirePlanLimit } from '../middleware/subscription.middleware';
 import productRepository from '../repositories/product.repository';
 import manufacturingService from '../services/manufacturing.service';
 import { parsePagination, paginatedResponse } from '../utils/response.util';
@@ -175,7 +177,7 @@ const productRoutes: FastifyPluginAsync = async (server) => {
    */
   server.post(
     '/',
-    { preHandler: [authenticate, authorize('ADMIN', 'MANAGER')] },
+    { preHandler: [authenticate, tenantMiddleware, authorize('ADMIN', 'MANAGER'), requirePlanLimit('products')] },
     async (request, reply) => {
       try {
         // Valida i dati in ingresso

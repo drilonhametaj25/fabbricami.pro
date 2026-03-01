@@ -5,6 +5,7 @@ import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
 import websocket from '@fastify/websocket';
+import helmet from '@fastify/helmet';
 import { config } from './config/environment';
 import { logger } from './config/logger';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware';
@@ -96,9 +97,17 @@ server.addContentTypeParser(
 async function setupServer() {
   // Register plugins
   // CORS: in development allow localhost origins, in production use ALLOWED_ORIGINS
-  const allowedOrigins = config.isDevelopment
-    ? ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:3100', 'http://localhost:3001', 'http://127.0.0.1:5173', 'http://127.0.0.1:5174', 'http://127.0.0.1:3100', 'http://127.0.0.1:3001']
-    : (process.env.ALLOWED_ORIGINS?.split(',') || []);
+  // HIGH-008 fix: Warn if ALLOWED_ORIGINS not set in production
+  let allowedOrigins: string[];
+  if (config.isDevelopment) {
+    allowedOrigins = ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:3100', 'http://localhost:3001', 'http://127.0.0.1:5173', 'http://127.0.0.1:5174', 'http://127.0.0.1:3100', 'http://127.0.0.1:3001'];
+  } else {
+    allowedOrigins = config.cors.allowedOrigins;
+    if (allowedOrigins.length === 0) {
+      logger.warn('WARNING: ALLOWED_ORIGINS not set in production - all CORS requests will be blocked!');
+      logger.warn('Set ALLOWED_ORIGINS environment variable (comma-separated list of allowed origins)');
+    }
+  }
 
   await server.register(cors, {
     origin: (origin, cb) => {
@@ -112,6 +121,12 @@ async function setupServer() {
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Session-Id', 'X-Tenant-Id'],
+  });
+
+  // Security headers (CSP, X-Frame-Options, HSTS, etc.)
+  await server.register(helmet, {
+    contentSecurityPolicy: config.isProduction ? undefined : false, // Disabilita CSP in dev per hot reload
+    crossOriginEmbedderPolicy: false, // Per permettere embedding di risorse esterne
   });
 
   await server.register(jwt, {

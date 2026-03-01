@@ -83,6 +83,41 @@
           <small v-if="errors.confirmPassword" class="p-error">{{ errors.confirmPassword }}</small>
         </div>
 
+        <!-- Plan Selection -->
+        <div class="form-field">
+          <label>Scegli il tuo piano *</label>
+          <div class="plan-selector">
+            <div
+              v-for="planOption in planOptions"
+              :key="planOption.code"
+              class="plan-option"
+              :class="{ 'plan-option-selected': form.plan === planOption.code }"
+              @click="form.plan = planOption.code"
+            >
+              <div class="plan-header">
+                <RadioButton
+                  :inputId="`plan-${planOption.code}`"
+                  v-model="form.plan"
+                  :value="planOption.code"
+                />
+                <div class="plan-info">
+                  <span class="plan-name">{{ planOption.name }}</span>
+                  <span v-if="planOption.popular" class="plan-badge">Consigliato</span>
+                </div>
+              </div>
+              <div class="plan-price">
+                <span class="price-amount">€{{ planOption.price }}</span>
+                <span class="price-period">/mese</span>
+              </div>
+              <ul class="plan-features">
+                <li v-for="feature in planOption.features" :key="feature">
+                  <i class="pi pi-check"></i> {{ feature }}
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
         <div class="form-field terms-field">
           <Checkbox
             id="acceptTerms"
@@ -120,8 +155,8 @@
 
       <div class="auth-footer">
         <p>
-          Creando un account, ottieni automaticamente una prova gratuita di 14 giorni
-          del piano Pro. Nessuna carta di credito richiesta.
+          Inizia con 14 giorni di prova gratuita del piano selezionato.
+          Nessuna carta di credito richiesta.
         </p>
       </div>
     </div>
@@ -134,6 +169,7 @@ import { useRouter } from 'vue-router';
 import InputText from 'primevue/inputtext';
 import Password from 'primevue/password';
 import Checkbox from 'primevue/checkbox';
+import RadioButton from 'primevue/radiobutton';
 import Button from 'primevue/button';
 import { useToast } from 'primevue/usetoast';
 import api from '../../services/api.service';
@@ -146,13 +182,56 @@ const authStore = useAuthStore();
 
 const registering = ref(false);
 
-const form = reactive<RegisterForm>({
+// Piano options con caratteristiche
+const planOptions = [
+  {
+    code: 'STARTER',
+    name: 'Starter',
+    price: 29,
+    popular: false,
+    features: [
+      '3 utenti',
+      '1 magazzino',
+      '1.000 prodotti',
+      'Report base',
+    ],
+  },
+  {
+    code: 'PRO',
+    name: 'Pro',
+    price: 79,
+    popular: true,
+    features: [
+      '10 utenti',
+      '3 magazzini',
+      '10.000 prodotti',
+      'WordPress sync',
+      'Report avanzati',
+    ],
+  },
+  {
+    code: 'BUSINESS',
+    name: 'Business',
+    price: 149,
+    popular: false,
+    features: [
+      'Utenti illimitati',
+      'Magazzini illimitati',
+      'Prodotti illimitati',
+      'Fatturazione elettronica',
+      'API access',
+    ],
+  },
+];
+
+const form = reactive({
   email: '',
   password: '',
   confirmPassword: '',
   firstName: '',
   lastName: '',
   companyName: '',
+  plan: 'PRO' as 'STARTER' | 'PRO' | 'BUSINESS',
   acceptTerms: false,
 });
 
@@ -227,6 +306,7 @@ async function register() {
       firstName: form.firstName,
       lastName: form.lastName,
       companyName: form.companyName,
+      plan: form.plan,
     });
 
     if (response.success) {
@@ -412,6 +492,99 @@ async function register() {
   font-size: var(--font-size-sm);
   color: var(--color-gray-500);
   margin: 0;
+}
+
+/* Plan Selector Styles */
+.plan-selector {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.plan-option {
+  border: 2px solid var(--border-color);
+  border-radius: var(--border-radius-lg);
+  padding: var(--space-4);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: white;
+}
+
+.plan-option:hover {
+  border-color: var(--color-primary-300);
+  background: var(--color-primary-50);
+}
+
+.plan-option-selected {
+  border-color: var(--color-primary-600);
+  background: var(--color-primary-50);
+}
+
+.plan-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.plan-info {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+}
+
+.plan-name {
+  font-weight: 600;
+  font-size: var(--font-size-base);
+  color: var(--color-gray-900);
+}
+
+.plan-badge {
+  background: var(--color-primary-600);
+  color: white;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 99px;
+  text-transform: uppercase;
+}
+
+.plan-price {
+  margin-bottom: var(--space-3);
+}
+
+.price-amount {
+  font-size: var(--font-size-2xl);
+  font-weight: 700;
+  color: var(--color-gray-900);
+}
+
+.price-period {
+  font-size: var(--font-size-sm);
+  color: var(--color-gray-500);
+}
+
+.plan-features {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.plan-features li {
+  font-size: var(--font-size-xs);
+  color: var(--color-gray-600);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.plan-features li i {
+  color: var(--color-green-600);
+  font-size: 10px;
 }
 
 @media (max-width: 480px) {

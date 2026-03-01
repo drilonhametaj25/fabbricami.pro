@@ -4,7 +4,7 @@ import { useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { User, Package, Heart, MapPin, Settings, LogOut } from 'lucide-react';
+import { User, Package, Heart, MapPin, Settings, LogOut, CreditCard } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 
 const navItems = [
@@ -12,6 +12,7 @@ const navItems = [
   { href: '/account/orders', label: 'Ordini', icon: Package },
   { href: '/account/wishlist', label: 'Lista Desideri', icon: Heart },
   { href: '/account/addresses', label: 'Indirizzi', icon: MapPin },
+  { href: '/account/subscription', label: 'Abbonamento', icon: CreditCard },
   { href: '/account/profile', label: 'Profilo', icon: Settings },
 ];
 

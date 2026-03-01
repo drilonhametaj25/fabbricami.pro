@@ -60,11 +60,12 @@ const wordpressRoutes: FastifyPluginAsync = async (server: any) => {
       const signature = request.headers['x-wc-webhook-signature'] as string;
       const rawBody = (request as any).rawBody || JSON.stringify(request.body);
 
-      if (signature && !wordpressService.validateWebhookSignature(rawBody, signature)) {
-        logger.warn('Webhook signature non valida');
+      // Validate webhook signature (required for security)
+      if (!wordpressService.validateWebhookSignature(rawBody, signature)) {
+        logger.warn('Webhook signature non valida o mancante');
         return reply.status(401).send({
           success: false,
-          error: 'Invalid webhook signature',
+          error: 'Invalid or missing webhook signature',
         });
       }
 
@@ -118,12 +119,13 @@ const wordpressRoutes: FastifyPluginAsync = async (server: any) => {
   server.post('/webhook/order-updated', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const signature = request.headers['x-wc-webhook-signature'] as string;
-      const rawBody = JSON.stringify(request.body);
+      const rawBody = (request as any).rawBody || JSON.stringify(request.body);
 
-      if (signature && !wordpressService.validateWebhookSignature(rawBody, signature)) {
+      // Validate webhook signature (required for security)
+      if (!wordpressService.validateWebhookSignature(rawBody, signature)) {
         return reply.status(401).send({
           success: false,
-          error: 'Invalid webhook signature',
+          error: 'Invalid or missing webhook signature',
         });
       }
 
@@ -146,6 +148,114 @@ const wordpressRoutes: FastifyPluginAsync = async (server: any) => {
 
     } catch (error: any) {
       logger.error('Errore webhook order-updated:', error);
+      return reply.status(500).send({
+        success: false,
+        error: error.message,
+      });
+    }
+  });
+
+  /**
+   * POST /wordpress/webhook/stock-update
+   * Riceve webhook per aggiornamento stock da WooCommerce
+   */
+  server.post('/webhook/stock-update', {
+    config: {
+      rawBody: true,
+    },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const signature = request.headers['x-wc-webhook-signature'] as string;
+      const rawBody = (request as any).rawBody || JSON.stringify(request.body);
+
+      // Validate webhook signature (required for security)
+      if (!wordpressService.validateWebhookSignature(rawBody, signature)) {
+        logger.warn('Stock update webhook signature non valida o mancante');
+        return reply.status(401).send({
+          success: false,
+          error: 'Invalid or missing webhook signature',
+        });
+      }
+
+      const productData = request.body as any;
+
+      // Ignora topic di test
+      const topic = request.headers['x-wc-webhook-topic'];
+      if (!topic || topic === 'action.woocommerce_scheduled_subscription_trial_end') {
+        return reply.send({ success: true, message: 'Ignored test topic' });
+      }
+
+      // Verifica che sia un prodotto valido
+      if (!productData || !productData.id) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Invalid product data',
+        });
+      }
+
+      // Processa aggiornamento stock
+      const result = await wordpressService.processStockUpdateWebhook(productData);
+
+      if (result.success) {
+        return reply.send({
+          success: true,
+          data: {
+            productId: result.productId,
+            newStock: result.newStock,
+            message: 'Stock aggiornato con successo',
+          },
+        });
+      } else {
+        return reply.status(500).send({
+          success: false,
+          error: result.error,
+        });
+      }
+
+    } catch (error: any) {
+      logger.error('Errore webhook stock update:', error);
+      return reply.status(500).send({
+        success: false,
+        error: error.message,
+      });
+    }
+  });
+
+  /**
+   * POST /wordpress/plugin/stock-update
+   * Riceve aggiornamento stock dal plugin WordPress
+   */
+  server.post('/plugin/stock-update', {
+    preHandler: authenticateWordPressPlugin,
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const stockData = request.body as {
+        woocommerceId: number;
+        sku?: string;
+        stockQuantity: number;
+        stockStatus?: 'instock' | 'outofstock' | 'onbackorder';
+      };
+
+      const result = await wordpressService.processPluginStockUpdate(stockData);
+
+      if (result.success) {
+        return reply.send({
+          success: true,
+          data: {
+            productId: result.productId,
+            newStock: result.newStock,
+            message: 'Stock aggiornato',
+          },
+        });
+      } else {
+        return reply.status(400).send({
+          success: false,
+          error: result.error,
+        });
+      }
+
+    } catch (error: any) {
+      logger.error('Errore plugin stock update:', error);
       return reply.status(500).send({
         success: false,
         error: error.message,
@@ -208,8 +318,9 @@ const wordpressRoutes: FastifyPluginAsync = async (server: any) => {
   /**
    * POST /wordpress/sync-products
    * Sincronizza tutti i prodotti verso WooCommerce
+   * Richiede autenticazione admin
    */
-  server.post('/sync-products', async (request: FastifyRequest, reply: FastifyReply) => {
+  server.post('/sync-products', { preHandler: authenticate }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const body = syncProductSchema.parse(request.body || {});
 
@@ -269,8 +380,9 @@ const wordpressRoutes: FastifyPluginAsync = async (server: any) => {
   /**
    * POST /wordpress/sync-inventory
    * Sincronizza giacenze verso WooCommerce
+   * Richiede autenticazione admin
    */
-  server.post('/sync-inventory', async (request: FastifyRequest, reply: FastifyReply) => {
+  server.post('/sync-inventory', { preHandler: authenticate }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const body = syncInventorySchema.parse(request.body || {});
 
@@ -794,8 +906,9 @@ const wordpressRoutes: FastifyPluginAsync = async (server: any) => {
   /**
    * POST /wordpress/full-sync
    * Esegue sync completo bidirezionale
+   * Richiede autenticazione admin
    */
-  server.post('/full-sync', async (_request: FastifyRequest, reply: FastifyReply) => {
+  server.post('/full-sync', { preHandler: authenticate }, async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
       const results = {
         customers: await wordpressService.importCustomersFromWooCommerce(),

@@ -49,6 +49,50 @@
         </li>
       </ul>
     </div>
+
+    <!-- Change Email Dialog -->
+    <Dialog
+      v-model:visible="showChangeEmailDialog"
+      header="Cambia indirizzo email"
+      modal
+      :style="{ width: '400px' }"
+      :closable="!changingEmail"
+    >
+      <div class="change-email-form">
+        <p class="dialog-description">
+          Inserisci il nuovo indirizzo email. Ti invieremo una nuova email di verifica.
+        </p>
+
+        <div class="form-field">
+          <label for="newEmail">Nuovo indirizzo email</label>
+          <InputText
+            id="newEmail"
+            v-model="newEmail"
+            class="w-full"
+            :class="{ 'p-invalid': emailError }"
+            placeholder="nome@esempio.com"
+            @keyup.enter="submitEmailChange"
+          />
+          <small v-if="emailError" class="p-error">{{ emailError }}</small>
+        </div>
+      </div>
+
+      <template #footer>
+        <Button
+          label="Annulla"
+          severity="secondary"
+          text
+          :disabled="changingEmail"
+          @click="showChangeEmailDialog = false"
+        />
+        <Button
+          label="Cambia Email"
+          icon="pi pi-check"
+          :loading="changingEmail"
+          @click="submitEmailChange"
+        />
+      </template>
+    </Dialog>
   </div>
 </template>
 
@@ -56,9 +100,12 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import Button from 'primevue/button';
+import Dialog from 'primevue/dialog';
+import InputText from 'primevue/inputtext';
 import { useToast } from 'primevue/usetoast';
 import { useOnboarding } from '../../composables/useOnboarding';
 import { useAuthStore } from '../../stores/auth.store';
+import api from '../../services/api.service';
 
 const router = useRouter();
 const toast = useToast();
@@ -68,6 +115,10 @@ const { status, fetchStatus, resendVerificationEmail, goToNextStep } = useOnboar
 // State
 const resending = ref(false);
 const resendCooldown = ref(0);
+const showChangeEmailDialog = ref(false);
+const newEmail = ref('');
+const emailError = ref('');
+const changingEmail = ref(false);
 let cooldownInterval: number | null = null;
 let statusInterval: number | null = null;
 
@@ -117,13 +168,61 @@ function startCooldown() {
 }
 
 function changeEmail() {
-  // TODO: Implement email change flow
-  toast.add({
-    severity: 'info',
-    summary: 'Funzionalità in arrivo',
-    detail: 'Contatta il supporto per cambiare email',
-    life: 5000,
-  });
+  newEmail.value = '';
+  emailError.value = '';
+  showChangeEmailDialog.value = true;
+}
+
+function validateEmail(email: string): boolean {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailRegex.test(email);
+}
+
+async function submitEmailChange() {
+  emailError.value = '';
+
+  if (!newEmail.value.trim()) {
+    emailError.value = 'Email obbligatoria';
+    return;
+  }
+
+  if (!validateEmail(newEmail.value)) {
+    emailError.value = 'Formato email non valido';
+    return;
+  }
+
+  if (newEmail.value.toLowerCase() === userEmail.value.toLowerCase()) {
+    emailError.value = 'Il nuovo indirizzo deve essere diverso da quello attuale';
+    return;
+  }
+
+  changingEmail.value = true;
+  try {
+    const response = await api.post('/auth/change-email', { newEmail: newEmail.value });
+    if (response.success) {
+      // Update local user state
+      if (authStore.user) {
+        authStore.user.email = newEmail.value;
+      }
+
+      showChangeEmailDialog.value = false;
+      toast.add({
+        severity: 'success',
+        summary: 'Email Aggiornata',
+        detail: 'Controlla la nuova casella per verificare il tuo account',
+        life: 5000,
+      });
+
+      // Refresh status
+      await fetchStatus();
+    } else {
+      emailError.value = response.error || 'Errore durante il cambio email';
+    }
+  } catch (error) {
+    emailError.value = error instanceof Error ? error.message : 'Errore di connessione';
+  } finally {
+    changingEmail.value = false;
+  }
 }
 
 // Poll for status changes
@@ -263,5 +362,29 @@ onUnmounted(() => {
 
 .help-text a:hover {
   text-decoration: underline;
+}
+
+/* Change Email Dialog */
+.change-email-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.dialog-description {
+  color: var(--color-gray-600);
+  margin: 0;
+}
+
+.change-email-form .form-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.change-email-form .form-field label {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--color-gray-700);
 }
 </style>

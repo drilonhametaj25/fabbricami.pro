@@ -163,7 +163,7 @@ class ExportService {
         fiscalCode: invoice.customer?.fiscalCode || undefined,
       },
       items: invoice.order?.items.map(item => ({
-        description: item.productName || item.product.name,
+        description: item.productName || item.product?.name || 'N/A',
         quantity: item.quantity,
         unitPrice: Number(item.unitPrice),
         taxRate: 22, // IVA standard
@@ -366,7 +366,7 @@ class ExportService {
       dueDate: invoice.dueDate,
       customer: customerData,
       items: invoice.order?.items.map(item => ({
-        description: item.productName || item.product.name,
+        description: item.productName || item.product?.name || 'N/A',
         quantity: item.quantity,
         unitPrice: Number(item.unitPrice),
         taxRate: Number(item.taxRate) || 22,
@@ -1610,7 +1610,7 @@ class ExportService {
 
     orders.forEach(order => {
       order.items.forEach(item => {
-        const key = item.productId;
+        const key = item.productId || 'unknown';
         if (!productSales[key]) {
           productSales[key] = {
             sku: item.sku,
@@ -1820,7 +1820,7 @@ class ExportService {
       yPos = tableTop + 25;
       orderWithRelations.items.forEach((item) => {
         xPos = 50;
-        const name = item.productName || item.product.name;
+        const name = item.productName || item.product?.name || 'N/A';
         const variantName = item.variant?.name ? ` - ${item.variant.name}` : '';
 
         doc.text((name + variantName).substring(0, 35), xPos, yPos, { width: colWidths[0] });

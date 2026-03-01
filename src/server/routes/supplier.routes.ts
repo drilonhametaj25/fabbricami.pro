@@ -1,6 +1,8 @@
 // Imports
 import { FastifyPluginAsync } from 'fastify';
 import { authenticate, authorize } from '../middleware/auth.middleware';
+import { tenantMiddleware } from '../middleware/tenant.middleware';
+import { requirePlanLimit } from '../middleware/subscription.middleware';
 import { validate } from '../middleware/validation.middleware';
 import supplierService from '../services/supplier.service';
 import { successResponse, errorResponse } from '../utils/response.util';
@@ -79,7 +81,7 @@ const supplierRoutes: FastifyPluginAsync = async (server) => {
   server.post(
     '/',
     {
-      preHandler: [authenticate, authorize('ADMIN', 'MANAGER'), validate(createSupplierSchema)],
+      preHandler: [authenticate, tenantMiddleware, authorize('ADMIN', 'MANAGER'), validate(createSupplierSchema), requirePlanLimit('suppliers')],
       schema: {
         tags: ['Suppliers'],
         description: 'Crea fornitore',
