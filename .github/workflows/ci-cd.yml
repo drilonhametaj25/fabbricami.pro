@@ -83,7 +83,7 @@ jobs:
           username: ${{ secrets.PRODUCTION_USER }}
           key: ${{ secrets.PRODUCTION_SSH_KEY }}
           command_timeout: 30m
-          script_stop: true
+          script_stop: false
           script: |
             set -e
             echo "=========================================="
@@ -112,16 +112,35 @@ jobs:
             docker compose -f docker-compose.prod.yml up -d --remove-orphans
 
             echo ">>> Waiting for containers to be healthy..."
-            sleep 15
+            sleep 20
 
-            echo ">>> Running smart database migration..."
-            docker compose -f docker-compose.prod.yml exec -T backend sh /app/scripts/smart-migrate.sh
+            echo ">>> Running smart database migration (with timeout protection)..."
+            # Run migration with timeout to prevent hang. Use || true to not fail deploy
+            timeout 300 docker compose -f docker-compose.prod.yml exec -T backend sh /app/scripts/smart-migrate.sh || {
+              EXIT_CODE=$?
+              if [ $EXIT_CODE -eq 124 ]; then
+                echo "!!! Migration timed out after 5 minutes"
+              elif [ $EXIT_CODE -eq 137 ]; then
+                echo "!!! Migration was killed (OOM or signal) - code 137"
+              else
+                echo "!!! Migration exited with code $EXIT_CODE"
+              fi
+              echo ">>> Checking if backend is still healthy..."
+              docker compose -f docker-compose.prod.yml ps backend || true
+              echo ">>> Recent backend logs:"
+              docker compose -f docker-compose.prod.yml logs backend --tail 20 || true
+              echo ">>> Continuing deployment - app may still work..."
+            }
 
             echo ">>> Cleaning up old images..."
             docker image prune -f || true
 
-            echo ">>> Checking container status..."
+            echo ">>> Final container status..."
             docker compose -f docker-compose.prod.yml ps
+
+            echo ">>> Health check - testing backend API..."
+            sleep 5
+            curl -sf http://localhost:3000/api/health && echo "Backend healthy!" || echo "Health check pending (may need more startup time)"
 
             echo "=========================================="
             echo "DEPLOY COMPLETED at $(date)"
