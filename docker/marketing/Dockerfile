@@ -11,7 +11,7 @@ WORKDIR /app
 COPY src/ecommerce-next/package*.json ./
 
 # Install ALL dependencies (including dev for build)
-RUN npm ci
+RUN npm install
 
 # ===========================================
 # STAGE 2: Builder

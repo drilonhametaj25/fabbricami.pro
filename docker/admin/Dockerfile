@@ -12,7 +12,7 @@ CMD ["npm", "run", "admin:dev"]
 
 # Build stage
 FROM base AS build
-RUN npm ci
+RUN npm install
 COPY . .
 
 # Build args per variabili Vite (devono essere presenti al build time)

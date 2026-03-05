@@ -17,10 +17,10 @@ FROM base AS deps
 COPY package.json package-lock.json* ./
 
 # Installa dipendenze
-RUN npm ci --only=production && npm cache clean --force
+RUN npm install --only=production && npm cache clean --force
 
 # Copia anche le dipendenze dev per il build
-RUN npm ci && npm cache clean --force
+RUN npm install && npm cache clean --force
 
 # ---- Builder ----
 FROM base AS builder
