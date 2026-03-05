@@ -18,7 +18,7 @@ CMD ["npm", "run", "dev:server"]
 
 # Build stage
 FROM base AS build
-RUN npm ci
+RUN npm install
 COPY . .
 RUN npx prisma generate
 RUN npm run build:server
@@ -33,7 +33,7 @@ RUN apk add --no-cache openssl libc6-compat
 
 COPY package*.json ./
 COPY tsconfig*.json ./
-RUN npm ci --only=production
+RUN npm install --only=production
 # Installa tsx per poter eseguire il seed
 RUN npm install -g tsx
 
