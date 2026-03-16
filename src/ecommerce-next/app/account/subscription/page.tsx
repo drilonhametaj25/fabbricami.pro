@@ -331,14 +331,14 @@ export default function SubscriptionPage() {
             <p className="text-white font-medium">Posso cambiare piano in qualsiasi momento?</p>
             <p className="text-text-secondary text-sm mt-1">
               Si, puoi effettuare upgrade o downgrade in qualsiasi momento.
-              L'importo sara calcolato in modo proporzionale.
+              L&apos;importo sara calcolato in modo proporzionale.
             </p>
           </div>
           <div>
             <p className="text-white font-medium">Cosa succede se cancello?</p>
             <p className="text-text-secondary text-sm mt-1">
               Il tuo account restera attivo fino alla fine del periodo di fatturazione corrente.
-              Potrai riattivare l'abbonamento in qualsiasi momento.
+              Potrai riattivare l&apos;abbonamento in qualsiasi momento.
             </p>
           </div>
           <div>

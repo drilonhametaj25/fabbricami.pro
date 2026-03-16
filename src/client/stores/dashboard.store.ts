@@ -82,7 +82,6 @@ export const useDashboardStore = defineStore('dashboard', () => {
         }
       }
     } catch (err: unknown) {
-      console.error('Error loading dashboard:', err);
       error.value = err instanceof Error ? err.message : 'Errore caricamento dashboard';
     } finally {
       isLoading.value = false;
@@ -101,7 +100,7 @@ export const useDashboardStore = defineStore('dashboard', () => {
         kpis.value = response.data;
       }
     } catch (err: unknown) {
-      console.error('Error loading KPIs:', err);
+      // KPI load failed silently - UI shows empty state
     } finally {
       isLoadingKpis.value = false;
     }
@@ -132,7 +131,7 @@ export const useDashboardStore = defineStore('dashboard', () => {
         suggestions.value = response.data.items;
       }
     } catch (err: unknown) {
-      console.error('Error loading suggestions:', err);
+      // Suggestions load failed silently - UI shows empty state
     } finally {
       isLoadingSuggestions.value = false;
     }
@@ -148,7 +147,7 @@ export const useDashboardStore = defineStore('dashboard', () => {
         suggestionStats.value = response.data;
       }
     } catch (err: unknown) {
-      console.error('Error loading suggestion stats:', err);
+      // Stats load failed silently
     }
   };
 
@@ -171,7 +170,6 @@ export const useDashboardStore = defineStore('dashboard', () => {
       }
       return response.success;
     } catch (err: unknown) {
-      console.error('Error dismissing suggestion:', err);
       return false;
     }
   };
@@ -194,7 +192,6 @@ export const useDashboardStore = defineStore('dashboard', () => {
       }
       return response.success;
     } catch (err: unknown) {
-      console.error('Error acting on suggestion:', err);
       return false;
     }
   };
@@ -212,7 +209,6 @@ export const useDashboardStore = defineStore('dashboard', () => {
       }
       return response;
     } catch (err: unknown) {
-      console.error('Error generating suggestions:', err);
       return null;
     }
   };
@@ -227,7 +223,7 @@ export const useDashboardStore = defineStore('dashboard', () => {
         preferences.value = response.data;
       }
     } catch (err: unknown) {
-      console.error('Error loading preferences:', err);
+      // Preferences load failed silently
     }
   };
 
@@ -242,7 +238,6 @@ export const useDashboardStore = defineStore('dashboard', () => {
       }
       return response.success;
     } catch (err: unknown) {
-      console.error('Error updating preferences:', err);
       return false;
     }
   };
@@ -257,7 +252,7 @@ export const useDashboardStore = defineStore('dashboard', () => {
         dashboard.value.urgentTasks = response.data;
       }
     } catch (err: unknown) {
-      console.error('Error refreshing urgent tasks:', err);
+      // Refresh failed silently
     }
   };
 

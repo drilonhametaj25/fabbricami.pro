@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { Heart, ShoppingBag, Minus, Plus, Truck, Shield, RotateCcw, Check, AlertCircle } from 'lucide-react';
 import { useCartStore } from '@/stores/cartStore';
 import { useWishlistStore } from '@/stores/wishlistStore';
+import { toast } from '@/stores/toastStore';
 import type { ProductDetail, ProductVariant } from '@/types';
 import { formatPrice } from '@/lib/utils';
 
@@ -62,8 +63,8 @@ export function ProductInfo({ product }: ProductInfoProps) {
       await addItem(product.id, quantity, selectedVariant?.id);
       setAddedToCart(true);
       setTimeout(() => setAddedToCart(false), 2000);
-    } catch (error) {
-      console.error('Failed to add to cart:', error);
+    } catch {
+      toast.error('Failed to add to cart');
     } finally {
       setIsAddingToCart(false);
     }

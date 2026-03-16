@@ -21,8 +21,8 @@ export const useNotificationStore = defineStore('notifications', () => {
       if (response.success) {
         unreadCount.value = response.data.count;
       }
-    } catch (error) {
-      console.error('Error loading unread count:', error);
+    } catch {
+      // Load failed silently
     }
   };
 
@@ -32,8 +32,8 @@ export const useNotificationStore = defineStore('notifications', () => {
       if (response.success) {
         notifications.value = response.data.items;
       }
-    } catch (error) {
-      console.error('Error loading notifications:', error);
+    } catch {
+      // Load failed silently
     }
   };
 
@@ -52,8 +52,8 @@ export const useNotificationStore = defineStore('notifications', () => {
         notification.isRead = true;
         unreadCount.value--;
       }
-    } catch (error) {
-      console.error('Error marking notification as read:', error);
+    } catch {
+      // Mark-as-read failed silently
     }
   };
 
@@ -62,8 +62,8 @@ export const useNotificationStore = defineStore('notifications', () => {
       await api.patch('/notifications/mark-all-read', {});
       notifications.value.forEach(n => n.isRead = true);
       unreadCount.value = 0;
-    } catch (error) {
-      console.error('Error marking all as read:', error);
+    } catch {
+      // Mark-all-as-read failed silently
     }
   };
 

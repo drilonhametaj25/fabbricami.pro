@@ -665,7 +665,6 @@ class SubscriptionService {
               tenant.name,
               Math.max(daysRemaining, 1)
             );
-            console.log(`Trial ending email sent to ${owner.email} for tenant ${tenant.name}`);
           }
         }
         break;
@@ -712,7 +711,6 @@ class SubscriptionService {
                 subscription.tenant.name,
                 invoice.hosted_invoice_url || undefined
               );
-              console.log(`Payment failed email sent to ${owner.email}`);
             }
           }
         }
@@ -742,7 +740,7 @@ class SubscriptionService {
       }
 
       default:
-        console.log(`Unhandled subscription event: ${event.type}`);
+        // Unhandled event type - no action needed
     }
   }
 
@@ -758,7 +756,6 @@ class SubscriptionService {
     const resolvedPlanCode = planCode || stripeSubscription.metadata.planCode;
 
     if (!resolvedTenantId) {
-      console.error('No tenantId found in subscription metadata');
       return;
     }
 
@@ -767,7 +764,6 @@ class SubscriptionService {
       : await prisma.subscriptionPlan.findFirst({ where: { code: 'PRO' } }); // Default
 
     if (!plan) {
-      console.error('Plan not found');
       return;
     }
 

@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Grid3X3, List, SlidersHorizontal, ChevronDown } from 'lucide-react';
+import { Grid3X3, List, SlidersHorizontal, ChevronDown, Search, X } from 'lucide-react';
 import { ProductCard } from '@/components/product/ProductCard';
 import { ProductFilters } from '@/components/shop/ProductFilters';
 import { useProducts } from '@/hooks/useProducts';
@@ -20,9 +20,62 @@ const sortOptions = [
 
 function ShopContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [showFilters, setShowFilters] = useState(false);
   const [showSort, setShowSort] = useState(false);
+
+  // Debounced search input
+  const [searchInput, setSearchInput] = useState(searchParams.get('q') || '');
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Keep local input in sync if URL param changes externally
+  useEffect(() => {
+    setSearchInput(searchParams.get('q') || '');
+  }, [searchParams]);
+
+  const handleSearchChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const value = e.target.value;
+      setSearchInput(value);
+
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+
+      debounceRef.current = setTimeout(() => {
+        const params = new URLSearchParams(searchParams.toString());
+        if (value.trim()) {
+          params.set('q', value.trim());
+        } else {
+          params.delete('q');
+        }
+        params.delete('page');
+        router.push(`/shop?${params.toString()}`);
+      }, 300);
+    },
+    [searchParams, router]
+  );
+
+  const clearSearch = useCallback(() => {
+    setSearchInput('');
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete('q');
+    params.delete('page');
+    router.push(`/shop?${params.toString()}`);
+  }, [searchParams, router]);
+
+  // Cleanup debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+    };
+  }, []);
 
   // Get params from URL
   const page = parseInt(searchParams.get('page') || '1', 10);
@@ -93,6 +146,27 @@ function ShopContent() {
 
           {/* Products Section */}
           <div className="flex-1">
+            {/* Search Bar */}
+            <div className="relative mb-6">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-text-muted pointer-events-none" />
+              <input
+                type="text"
+                value={searchInput}
+                onChange={handleSearchChange}
+                placeholder="Search products..."
+                className="w-full pl-12 pr-10 py-3 bg-surface-card border border-white/10 rounded-xl text-white placeholder-text-muted focus:outline-none focus:border-gold/50 transition-colors"
+              />
+              {searchInput && (
+                <button
+                  onClick={clearSearch}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-text-muted hover:text-white transition-colors"
+                  aria-label="Clear search"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
             {/* Toolbar */}
             <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
               {/* Results Count */}

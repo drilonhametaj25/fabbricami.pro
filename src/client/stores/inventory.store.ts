@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import api from '../composables/useApi';
+import api from '../services/api.service';
 import type { InventoryItem, InventoryMovement, Warehouse, PaginatedResponse, InventoryLocation } from '../types';
 
 interface InventoryFilters {

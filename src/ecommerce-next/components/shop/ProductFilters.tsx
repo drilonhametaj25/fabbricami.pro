@@ -19,7 +19,6 @@ export function ProductFilters({ onClose, isMobile }: ProductFiltersProps) {
 
   // Get current filter values from URL
   const currentCategory = searchParams.get('category') || '';
-  const currentBrand = searchParams.get('brand') || '';
   const currentMinPrice = searchParams.get('minPrice') || '';
   const currentMaxPrice = searchParams.get('maxPrice') || '';
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -31,15 +30,12 @@ export function ProductFilters({ onClose, isMobile }: ProductFiltersProps) {
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     categories: true,
     price: true,
-    brands: false,
     availability: false,
   });
 
   // Local state for price range
   const [minPrice, setMinPrice] = useState(currentMinPrice);
   const [maxPrice, setMaxPrice] = useState(currentMaxPrice);
-
-  const brands = ['Brand A', 'Brand B', 'Brand C', 'Brand D'];
 
   const toggleSection = (section: string) => {
     setExpandedSections((prev) => ({
@@ -89,7 +85,6 @@ export function ProductFilters({ onClose, isMobile }: ProductFiltersProps) {
 
   const hasActiveFilters =
     currentCategory ||
-    currentBrand ||
     currentMinPrice ||
     currentMaxPrice ||
     currentOnSale ||
@@ -190,29 +185,6 @@ export function ProductFilters({ onClose, isMobile }: ProductFiltersProps) {
           >
             Apply
           </button>
-        </div>
-      </FilterSection>
-
-      {/* Brands */}
-      <FilterSection
-        title="Brand"
-        expanded={expandedSections.brands}
-        onToggle={() => toggleSection('brands')}
-      >
-        <div className="space-y-1">
-          {brands.map((brand) => (
-            <button
-              key={brand}
-              onClick={() => updateFilter('brand', currentBrand === brand ? '' : brand)}
-              className={`w-full text-left py-2 px-3 rounded-lg transition-colors ${
-                currentBrand === brand
-                  ? 'bg-gold/10 text-gold'
-                  : 'text-text-secondary hover:bg-surface-raised hover:text-white'
-              }`}
-            >
-              {brand}
-            </button>
-          ))}
         </div>
       </FilterSection>
 

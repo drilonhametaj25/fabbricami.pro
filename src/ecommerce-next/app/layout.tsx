@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 import { MarketingHeader } from '@/components/marketing/MarketingHeader';
 import { MarketingFooter } from '@/components/marketing/MarketingFooter';
+import { Toast } from '@/components/common/Toast';
 
 export const metadata: Metadata = {
   title: {
@@ -82,6 +83,7 @@ export default function RootLayout({
         <MarketingHeader />
         <main>{children}</main>
         <MarketingFooter />
+        <Toast />
       </body>
     </html>
   );

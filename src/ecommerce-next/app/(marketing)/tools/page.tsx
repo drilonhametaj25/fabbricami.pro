@@ -171,7 +171,7 @@ export default function ToolsPage() {
             </h2>
             <p className="text-gray-600 mb-8">
               Questi strumenti sono solo un assaggio. Con Fabbricami ERP puoi automatizzare
-              inventario, ordini, fatturazione e molto altro in un'unica piattaforma.
+              inventario, ordini, fatturazione e molto altro in un&apos;unica piattaforma.
             </p>
             <div className="flex flex-wrap items-center justify-center gap-4">
               <Link

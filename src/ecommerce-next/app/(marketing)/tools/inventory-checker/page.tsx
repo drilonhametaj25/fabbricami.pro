@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import {
@@ -10,7 +10,6 @@ import {
   TrendingDown,
   ShoppingCart,
   Download,
-  X,
   Plus,
   Trash2,
 } from 'lucide-react';
@@ -178,7 +177,7 @@ export default function InventoryCheckerPage() {
               Checker Inventario
             </h1>
             <p className="text-lg text-gray-600">
-              Carica il tuo inventario e ottieni un'analisi completa: prodotti sotto scorta,
+              Carica il tuo inventario e ottieni un&apos;analisi completa: prodotti sotto scorta,
               dead stock e suggerimenti di riordino.
             </p>
           </div>

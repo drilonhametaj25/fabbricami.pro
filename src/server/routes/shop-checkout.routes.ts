@@ -4,6 +4,19 @@ import { stripeService } from '../services/stripe.service';
 import { paypalService } from '../services/paypal.service';
 import { shopAuthService, CustomerTokenPayload } from '../services/shop-auth.service';
 import { successResponse, errorResponse } from '../utils/response.util';
+import { validate } from '../middleware/validation.middleware';
+import {
+  createCheckoutOrderSchema,
+  stripeCreateSessionSchema,
+  stripeCreateIntentSchema,
+  stripeVerifySessionSchema,
+  paypalCreateOrderSchema,
+  paypalCaptureSchema,
+  getOrderSchema,
+  trackOrderSchema,
+  shippingMethodsSchema,
+  validateCouponSchema,
+} from '../schemas/shop-checkout.schema';
 import { PrismaClient, ShopShippingMethod } from '@prisma/client';
 
 const prisma = new PrismaClient();
@@ -57,22 +70,9 @@ const shopCheckoutRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // Create order from checkout
-  fastify.post('/create-order', async (request: FastifyRequest, reply: FastifyReply) => {
+  fastify.post('/create-order', { preHandler: [validate(createCheckoutOrderSchema)] }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const body = request.body as CheckoutData;
-
-      // Validate required fields
-      if (!body.cartId || !body.email || !body.shippingAddress || !body.shippingMethodId) {
-        return errorResponse(reply, 'Dati checkout incompleti', 400);
-      }
-
-      // Validate shipping address
-      const { shippingAddress } = body;
-      if (!shippingAddress.firstName || !shippingAddress.lastName ||
-          !shippingAddress.address || !shippingAddress.city ||
-          !shippingAddress.postalCode || !shippingAddress.country) {
-        return errorResponse(reply, 'Indirizzo di spedizione incompleto', 400);
-      }
 
       // Add customerId if logged in
       if (request.customer) {
@@ -88,13 +88,9 @@ const shopCheckoutRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // Create Stripe checkout session for an order
-  fastify.post('/stripe/create-session', async (request: FastifyRequest, reply: FastifyReply) => {
+  fastify.post('/stripe/create-session', { preHandler: [validate(stripeCreateSessionSchema)] }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const body = request.body as { orderId: string };
-
-      if (!body.orderId) {
-        return errorResponse(reply, 'ID ordine richiesto', 400);
-      }
 
       // Get order details
       const order = await shopCheckoutService.getOrder(body.orderId);
@@ -137,13 +133,9 @@ const shopCheckoutRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // Create Stripe payment intent for Elements integration
-  fastify.post('/stripe/create-intent', async (request: FastifyRequest, reply: FastifyReply) => {
+  fastify.post('/stripe/create-intent', { preHandler: [validate(stripeCreateIntentSchema)] }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const body = request.body as { orderId: string };
-
-      if (!body.orderId) {
-        return errorResponse(reply, 'ID ordine richiesto', 400);
-      }
 
       const order = await shopCheckoutService.getOrder(body.orderId);
       if (!order) {
@@ -173,12 +165,12 @@ const shopCheckoutRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // Verify Stripe checkout session
-  fastify.get('/stripe/verify-session/:sessionId', async (
-    request: FastifyRequest<{ Params: { sessionId: string } }>,
+  fastify.get('/stripe/verify-session/:sessionId', { preHandler: [validate(stripeVerifySessionSchema)] }, async (
+    request: FastifyRequest,
     reply: FastifyReply
   ) => {
     try {
-      const { sessionId } = request.params;
+      const { sessionId } = request.params as { sessionId: string };
 
       const session = await stripeService.getCheckoutSession(sessionId);
       if (!session) {
@@ -237,13 +229,9 @@ const shopCheckoutRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // Create PayPal order
-  fastify.post('/paypal/create-order', async (request: FastifyRequest, reply: FastifyReply) => {
+  fastify.post('/paypal/create-order', { preHandler: [validate(paypalCreateOrderSchema)] }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const body = request.body as { orderId: string };
-
-      if (!body.orderId) {
-        return errorResponse(reply, 'ID ordine richiesto', 400);
-      }
 
       const order = await shopCheckoutService.getOrder(body.orderId);
       if (!order) {
@@ -281,13 +269,9 @@ const shopCheckoutRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // Capture PayPal order
-  fastify.post('/paypal/capture', async (request: FastifyRequest, reply: FastifyReply) => {
+  fastify.post('/paypal/capture', { preHandler: [validate(paypalCaptureSchema)] }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const body = request.body as { paypalOrderId: string };
-
-      if (!body.paypalOrderId) {
-        return errorResponse(reply, 'ID ordine PayPal richiesto', 400);
-      }
 
       const result = await paypalService.captureOrder(body.paypalOrderId);
 
@@ -323,12 +307,12 @@ const shopCheckoutRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // Get order by ID or order number
-  fastify.get('/orders/:identifier', async (
-    request: FastifyRequest<{ Params: { identifier: string } }>,
+  fastify.get('/orders/:identifier', { preHandler: [validate(getOrderSchema)] }, async (
+    request: FastifyRequest,
     reply: FastifyReply
   ) => {
     try {
-      const { identifier } = request.params;
+      const { identifier } = request.params as { identifier: string };
       const order = await shopCheckoutService.getOrder(identifier);
 
       if (!order) {
@@ -347,13 +331,9 @@ const shopCheckoutRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // Track order by order number and email
-  fastify.post('/track', async (request: FastifyRequest, reply: FastifyReply) => {
+  fastify.post('/track', { preHandler: [validate(trackOrderSchema)] }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const body = request.body as { orderNumber: string; email?: string };
-
-      if (!body.orderNumber) {
-        return errorResponse(reply, 'Numero ordine richiesto', 400);
-      }
 
       const trackingInfo = await shopCheckoutService.trackOrder(body.orderNumber, body.email);
 
@@ -368,13 +348,9 @@ const shopCheckoutRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // Get available shipping methods for address
-  fastify.post('/shipping/methods', async (request: FastifyRequest, reply: FastifyReply) => {
+  fastify.post('/shipping/methods', { preHandler: [validate(shippingMethodsSchema)] }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const body = request.body as { country: string; postalCode?: string; cartTotal?: number };
-
-      if (!body.country) {
-        return errorResponse(reply, 'Paese richiesto', 400);
-      }
 
       // Find shipping zone for country
       const zone = await prisma.shopShippingZone.findFirst({
@@ -436,13 +412,9 @@ const shopCheckoutRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // Validate coupon
-  fastify.post('/coupon/validate', async (request: FastifyRequest, reply: FastifyReply) => {
+  fastify.post('/coupon/validate', { preHandler: [validate(validateCouponSchema)] }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const body = request.body as { code: string; cartTotal: number };
-
-      if (!body.code) {
-        return errorResponse(reply, 'Codice coupon richiesto', 400);
-      }
 
       const coupon = await prisma.coupon.findUnique({
         where: { code: body.code.toUpperCase() },

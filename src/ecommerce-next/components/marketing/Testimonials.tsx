@@ -1,7 +1,6 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import Image from 'next/image';
 import { Star, Quote } from 'lucide-react';
 
 const testimonials = [
@@ -118,7 +117,7 @@ export function Testimonials() {
 
               {/* Quote */}
               <p className="text-gray-700 leading-relaxed mb-6">
-                "{testimonial.quote}"
+                &ldquo;{testimonial.quote}&rdquo;
               </p>
 
               {/* Author */}

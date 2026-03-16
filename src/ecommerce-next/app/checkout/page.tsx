@@ -19,7 +19,6 @@ import { useAuthStore } from '@/stores/authStore';
 import { useShippingMethods, useCountries } from '@/hooks/useShipping';
 import { formatPrice } from '@/lib/utils';
 import { api } from '@/lib/api';
-import type { ApiResponse } from '@/types';
 
 type CheckoutStep = 'info' | 'shipping' | 'payment';
 
@@ -36,6 +35,7 @@ export default function CheckoutPage() {
   const { methods: shippingMethods, loading: shippingLoading } = useShippingMethods();
   const { countries } = useCountries();
 
+  const [isHydrated, setIsHydrated] = useState(false);
   const [currentStep, setCurrentStep] = useState<CheckoutStep>('info');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -87,10 +87,14 @@ export default function CheckoutPage() {
     }
   }, [customer]);
 
-  // Redirect if cart is empty
+  // Mark as hydrated once cart state is confirmed, redirect if empty
   useEffect(() => {
-    if (!cartLoading && (!cart || cart.items.length === 0)) {
-      router.push('/cart');
+    if (!cartLoading) {
+      if (!cart || cart.items.length === 0) {
+        router.push('/cart');
+      } else {
+        setIsHydrated(true);
+      }
     }
   }, [cart, cartLoading, router]);
 
@@ -182,19 +186,19 @@ export default function CheckoutPage() {
         notes: formData.notes,
       };
 
-      const response = await api.post<ApiResponse<{ orderId: string; paymentUrl?: string }>>(
+      const response = await api.post<{ orderId: string; paymentUrl?: string }>(
         '/shop/checkout',
         orderData
       );
 
-      if (response.success && response.data) {
+      if (response.orderId) {
         // If there's a payment URL (Stripe/PayPal), redirect to it
-        if (response.data.paymentUrl) {
-          window.location.href = response.data.paymentUrl;
+        if (response.paymentUrl) {
+          window.location.href = response.paymentUrl;
         } else {
           // Clear cart and redirect to confirmation
           clearCart();
-          router.push(`/checkout/confirmation?orderId=${response.data.orderId}`);
+          router.push(`/checkout/confirmation?orderId=${response.orderId}`);
         }
       } else {
         throw new Error('Failed to create order');
@@ -210,7 +214,7 @@ export default function CheckoutPage() {
     (m) => m.id === formData.shippingMethodId
   );
 
-  if (cartLoading) {
+  if (cartLoading || !isHydrated) {
     return (
       <div className="min-h-screen bg-primary flex items-center justify-center">
         <div className="w-10 h-10 border-4 border-gold border-t-transparent rounded-full animate-spin" />

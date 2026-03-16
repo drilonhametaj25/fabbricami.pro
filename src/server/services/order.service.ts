@@ -1289,8 +1289,6 @@ class OrderService {
         id: `att_${Date.now()}_${idx}`,
         addedAt: att.addedAt || new Date().toISOString(),
       }));
-      console.log('[OrderService] createOrderFull attachments to save:', JSON.stringify(attachmentsWithIds));
-
       // Crea l'ordine
       const order = await tx.order.create({
         data: {
@@ -1703,7 +1701,6 @@ class OrderService {
    * Ottieni ordine completo con tutte le relazioni
    */
   async getOrderFull(id: string) {
-    console.log('[OrderService] getOrderFull called with id:', id);
     const order = await prisma.order.findUnique({
       where: { id },
       include: {
@@ -1761,10 +1758,6 @@ class OrderService {
       },
     });
 
-    console.log('[OrderService] getOrderFull query completed, order:', order ? 'found' : 'not found');
-    if (order) {
-      console.log('[OrderService] getOrderFull attachments:', JSON.stringify(order.attachments));
-    }
     if (!order) {
       return null;
     }

@@ -6,6 +6,7 @@ import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Minus, Plus, Trash2, ShoppingBag } from 'lucide-react';
 import { useCartStore } from '@/stores/cartStore';
+import { toast } from '@/stores/toastStore';
 import { formatPrice, getImageUrl } from '@/lib/utils';
 
 export function CartDrawer() {
@@ -43,16 +44,16 @@ export function CartDrawer() {
     if (newQuantity < 1) return;
     try {
       await updateQuantity(itemId, newQuantity);
-    } catch (error) {
-      console.error('Failed to update quantity:', error);
+    } catch {
+      toast.error('Failed to update quantity');
     }
   };
 
   const handleRemoveItem = async (itemId: string) => {
     try {
       await removeItem(itemId);
-    } catch (error) {
-      console.error('Failed to remove item:', error);
+    } catch {
+      toast.error('Failed to remove item');
     }
   };
 

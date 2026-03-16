@@ -61,7 +61,7 @@ export function MarketingFooter() {
               <span className="text-xl font-bold">Fabbricami</span>
             </Link>
             <p className="text-gray-400 text-sm mb-6 leading-relaxed">
-              L'ERP completo per e-commerce. Gestisci inventario, ordini, produzione e contabilita in un'unica piattaforma.
+              L&apos;ERP completo per e-commerce. Gestisci inventario, ordini, produzione e contabilita in un&apos;unica piattaforma.
             </p>
 
             {/* Contact Info */}

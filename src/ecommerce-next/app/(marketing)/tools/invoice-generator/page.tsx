@@ -1,8 +1,7 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
-import { motion } from 'framer-motion';
 import { FileText, Plus, Trash2, Download, Eye } from 'lucide-react';
 
 interface InvoiceItem {

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import api from '../composables/useApi';
+import api from '../services/api.service';
 import type { Product, PaginatedResponse } from '../types';
 
 interface ProductFilters {

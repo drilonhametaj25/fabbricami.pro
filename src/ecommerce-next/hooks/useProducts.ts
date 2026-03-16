@@ -54,7 +54,7 @@ export function useProducts(initialFilters?: ProductFilters): UseProductsReturn 
     });
 
     // Skip if we already fetched with these exact filters
-    if (fetchKey === lastFetchKey.current && products.length > 0) {
+    if (fetchKey === lastFetchKey.current) {
       return;
     }
 
@@ -84,7 +84,7 @@ export function useProducts(initialFilters?: ProductFilters): UseProductsReturn 
     } finally {
       setLoading(false);
     }
-  }, [products.length]);
+  }, []);
 
   // Create stable filter key for dependency
   const filterKey = JSON.stringify(initialFilters);

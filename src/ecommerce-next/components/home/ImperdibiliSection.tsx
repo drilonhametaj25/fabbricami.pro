@@ -117,8 +117,8 @@ export function ImperdibiliSection({ products }: ImperdibiliSectionProps) {
   const handleAddToCart = async (product: FeaturedProduct) => {
     try {
       await addItem(product.id, 1);
-    } catch (error) {
-      console.error('Failed to add to cart:', error);
+    } catch {
+      // Cart store handles error feedback via toast
     }
   };
 

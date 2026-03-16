@@ -1,7 +1,7 @@
 import { ref } from 'vue';
 import { useAuthStore } from '../stores/auth.store';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3100';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 interface ApiOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';

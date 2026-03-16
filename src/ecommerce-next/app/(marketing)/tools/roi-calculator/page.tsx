@@ -277,7 +277,7 @@ export default function ROICalculatorPage() {
                         </div>
                         <div>
                           <div className="text-3xl font-bold">{results.roi.toFixed(0)}%</div>
-                          <div className="text-white/70">Ritorno sull'investimento</div>
+                          <div className="text-white/70">Ritorno sull&apos;investimento</div>
                         </div>
                       </div>
 
@@ -314,7 +314,7 @@ export default function ROICalculatorPage() {
                       Inserisci i tuoi dati
                     </h3>
                     <p className="text-gray-500">
-                      Compila il form e clicca "Calcola ROI" per vedere quanto puoi risparmiare.
+                      Compila il form e clicca &ldquo;Calcola ROI&rdquo; per vedere quanto puoi risparmiare.
                     </p>
                   </div>
                 )}

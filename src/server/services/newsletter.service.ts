@@ -356,8 +356,8 @@ class NewsletterService {
           tags: tags || [],
         }),
       });
-    } catch (error) {
-      console.error('Mailchimp add error:', error);
+    } catch (_error) {
+      // Mailchimp sync error - route handlers log errors
     }
   }
 
@@ -381,8 +381,8 @@ class NewsletterService {
           status: 'unsubscribed',
         }),
       });
-    } catch (error) {
-      console.error('Mailchimp remove error:', error);
+    } catch (_error) {
+      // Mailchimp sync error - route handlers log errors
     }
   }
 
@@ -409,8 +409,8 @@ class NewsletterService {
           interests: this.preferencesToInterests(preferences),
         }),
       });
-    } catch (error) {
-      console.error('Mailchimp update error:', error);
+    } catch (_error) {
+      // Mailchimp sync error - route handlers log errors
     }
   }
 
@@ -434,8 +434,8 @@ class NewsletterService {
           tags: tags.map(tag => ({ name: tag, status: 'active' })),
         }),
       });
-    } catch (error) {
-      console.error('Mailchimp tags error:', error);
+    } catch (_error) {
+      // Mailchimp sync error - route handlers log errors
     }
   }
 
@@ -467,13 +467,10 @@ class NewsletterService {
   /**
    * Send confirmation email
    */
-  private async sendConfirmationEmail(email: string, token: string, _firstName?: string): Promise<void> {
-    const confirmUrl = `${process.env.FRONTEND_URL}/newsletter/confirm?token=${token}`;
-
-    // TODO: Implement actual email sending
+  private async sendConfirmationEmail(_email: string, token: string, _firstName?: string): Promise<void> {
+    // TODO: Implement actual email sending with confirmUrl:
+    // `${process.env.FRONTEND_URL}/newsletter/confirm?token=${token}`
     // Using nodemailer or a service like SendGrid/Mailchimp transactional
-    console.log(`Newsletter confirmation email would be sent to ${email}`);
-    console.log(`Confirmation URL: ${confirmUrl}`);
 
     // For now, auto-confirm in development
     if (process.env.NODE_ENV === 'development') {

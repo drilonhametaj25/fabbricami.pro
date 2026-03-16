@@ -6,6 +6,7 @@ import Image from 'next/image';
 import gsap from 'gsap';
 import { Heart, ShoppingBag, Eye } from 'lucide-react';
 import { useCartStore } from '@/stores/cartStore';
+import { toast } from '@/stores/toastStore';
 import { formatPrice, getDiscountPercentage, cn } from '@/lib/utils';
 import type { Product } from '@/types';
 
@@ -21,6 +22,7 @@ export function ProductCard({ product, showQuickAdd = true, className }: Product
   const [isWishlisted, setIsWishlisted] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
   const glowRef = useRef<HTMLDivElement>(null);
+  const rafRef = useRef<number | null>(null);
 
   const { addItem } = useCartStore();
 
@@ -32,37 +34,46 @@ export function ProductCard({ product, showQuickAdd = true, className }: Product
 
   const imageUrl = product.imageUrl || product.mainImageUrl || '/images/placeholder-product.svg';
 
-  // 3D Tilt effect on mouse move
+  // 3D Tilt effect on mouse move, throttled via requestAnimationFrame
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!cardRef.current) return;
+    if (rafRef.current) return; // Skip if a RAF is already queued
 
-    const card = cardRef.current;
-    const rect = card.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    const centerX = rect.width / 2;
-    const centerY = rect.height / 2;
+    const clientX = e.clientX;
+    const clientY = e.clientY;
 
-    const rotateX = (y - centerY) / 20;
-    const rotateY = (centerX - x) / 20;
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null;
+      if (!cardRef.current) return;
 
-    gsap.to(card, {
-      rotateX: rotateX,
-      rotateY: rotateY,
-      duration: 0.3,
-      ease: 'power2.out',
-      transformPerspective: 1000,
-    });
+      const card = cardRef.current;
+      const rect = card.getBoundingClientRect();
+      const x = clientX - rect.left;
+      const y = clientY - rect.top;
+      const centerX = rect.width / 2;
+      const centerY = rect.height / 2;
 
-    // Update glow position
-    if (glowRef.current) {
-      gsap.to(glowRef.current, {
-        x: x - 100,
-        y: y - 100,
-        opacity: 0.15,
+      const rotateX = (y - centerY) / 20;
+      const rotateY = (centerX - x) / 20;
+
+      gsap.to(card, {
+        rotateX: rotateX,
+        rotateY: rotateY,
         duration: 0.3,
+        ease: 'power2.out',
+        transformPerspective: 1000,
       });
-    }
+
+      // Update glow position
+      if (glowRef.current) {
+        gsap.to(glowRef.current, {
+          x: x - 100,
+          y: y - 100,
+          opacity: 0.15,
+          duration: 0.3,
+        });
+      }
+    });
   }, []);
 
   const handleMouseEnter = useCallback(() => {
@@ -79,6 +90,11 @@ export function ProductCard({ product, showQuickAdd = true, className }: Product
 
   const handleMouseLeave = useCallback(() => {
     setIsHovered(false);
+    // Cancel any pending RAF
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
     if (cardRef.current) {
       gsap.to(cardRef.current, {
         rotateX: 0,
@@ -115,8 +131,8 @@ export function ProductCard({ product, showQuickAdd = true, className }: Product
 
     try {
       await addItem(product.id, 1);
-    } catch (error) {
-      console.error('Failed to add to cart:', error);
+    } catch {
+      toast.error('Failed to add to cart');
     } finally {
       setIsAddingToCart(false);
     }

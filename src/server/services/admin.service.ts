@@ -388,15 +388,11 @@ class AdminService {
     if (stripe) {
       try {
         const syncResult = await this.syncPlanToStripe(plan.id);
-        if (syncResult.success) {
-          console.log(`Plan ${plan.code} auto-synced to Stripe`);
-        } else {
+        if (!syncResult.success) {
           syncWarning = syncResult.error || 'Stripe sync failed';
-          console.warn(`Auto-sync to Stripe failed for plan ${plan.code}:`, syncResult.error);
         }
       } catch (error: any) {
         syncWarning = error.message || 'Stripe sync failed';
-        console.error(`Auto-sync to Stripe failed for plan ${plan.code}:`, error);
       }
     }
 
@@ -434,7 +430,7 @@ class AdminService {
     if (data.sortOrder !== undefined) updateData.sortOrder = data.sortOrder;
     if (data.isActive !== undefined) updateData.isActive = data.isActive;
 
-    const updatedPlan = await prisma.subscriptionPlan.update({
+    await prisma.subscriptionPlan.update({
       where: { id: planId },
       data: updateData,
     });
@@ -453,15 +449,11 @@ class AdminService {
     if (stripe && existingPlan.stripeProductId && (pricesChanged || nameChanged || activeChanged)) {
       try {
         const syncResult = await this.syncPlanToStripe(planId);
-        if (syncResult.success) {
-          console.log(`Plan ${updatedPlan.code} re-synced to Stripe (prices/name/status changed)`);
-        } else {
+        if (!syncResult.success) {
           syncWarning = syncResult.error || 'Stripe re-sync failed';
-          console.warn(`Re-sync to Stripe failed for plan ${updatedPlan.code}:`, syncResult.error);
         }
       } catch (error: any) {
         syncWarning = error.message || 'Stripe re-sync failed';
-        console.error(`Re-sync to Stripe failed for plan ${updatedPlan.code}:`, error);
       }
     }
 
@@ -548,15 +540,15 @@ class AdminService {
       if (plan.stripePriceMonthlyId) {
         try {
           await stripe.prices.update(plan.stripePriceMonthlyId, { active: false });
-        } catch (error) {
-          console.warn('Failed to deactivate old monthly price:', error);
+        } catch (_error) {
+          // Old price deactivation failed - non-critical
         }
       }
       if (plan.stripePriceYearlyId) {
         try {
           await stripe.prices.update(plan.stripePriceYearlyId, { active: false });
-        } catch (error) {
-          console.warn('Failed to deactivate old yearly price:', error);
+        } catch (_error) {
+          // Old price deactivation failed - non-critical
         }
       }
 

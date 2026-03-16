@@ -1,8 +1,6 @@
 'use client';
 
-import { useRef, useEffect } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
 import { motion } from 'framer-motion';
 import { Play, ArrowRight, CheckCircle2 } from 'lucide-react';
 
@@ -59,7 +57,7 @@ export function Hero() {
 
             {/* Subtitle */}
             <p className="text-lg text-white/70 mb-8 leading-relaxed max-w-xl">
-              Inventario, ordini, produzione, contabilita e molto altro in un'unica piattaforma.
+              Inventario, ordini, produzione, contabilita e molto altro in un&apos;unica piattaforma.
               Sincronizza con WooCommerce e automatizza il tuo business.
             </p>
 
