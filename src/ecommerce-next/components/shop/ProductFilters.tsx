@@ -21,8 +21,6 @@ export function ProductFilters({ onClose, isMobile }: ProductFiltersProps) {
   const currentCategory = searchParams.get('category') || '';
   const currentMinPrice = searchParams.get('minPrice') || '';
   const currentMaxPrice = searchParams.get('maxPrice') || '';
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const _currentSort = searchParams.get('sort') || 'newest';
   const currentOnSale = searchParams.get('onSale') === 'true';
   const currentInStock = searchParams.get('inStock') === 'true';
 

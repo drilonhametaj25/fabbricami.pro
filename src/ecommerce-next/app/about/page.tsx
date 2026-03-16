@@ -1,6 +1,4 @@
 import { Metadata } from 'next';
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-import Image from 'next/image';
 import Link from 'next/link';
 import { Award, Users, Globe, Heart } from 'lucide-react';
 

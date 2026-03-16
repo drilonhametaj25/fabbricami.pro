@@ -19,8 +19,6 @@ export function CustomCursor() {
   const cursorRef = useRef<HTMLDivElement>(null);
   const cursorDotRef = useRef<HTMLDivElement>(null);
   const glowRef = useRef<HTMLDivElement>(null);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const _trailRef = useRef<HTMLDivElement>(null);
   const requestRef = useRef<number | null>(null);
   const mousePos = useRef<CursorPosition>({ x: 0, y: 0 });
   const cursorPos = useRef<CursorPosition>({ x: 0, y: 0 });
