@@ -144,6 +144,20 @@ const authRoutes: FastifyPluginAsync = async (server) => {
 
       const user = await prisma.user.findUnique({
         where: { id: payload.userId },
+        include: {
+          tenant: {
+            select: {
+              slug: true,
+              subscription: {
+                select: {
+                  plan: {
+                    select: { code: true },
+                  },
+                },
+              },
+            },
+          },
+        },
       });
 
       if (!user || !user.isActive || user.refreshToken !== refreshToken) {
@@ -157,13 +171,23 @@ const authRoutes: FastifyPluginAsync = async (server) => {
         userId: user.id,
         email: user.email,
         role: user.role,
+        tenantId: user.tenantId || undefined,
+        tenantSlug: user.tenant?.slug,
+        planCode: user.tenant?.subscription?.plan?.code,
       };
 
       const token = generateToken(newPayload);
+      const newRefreshToken = generateRefreshToken(newPayload);
+
+      // Ruota il refresh token nel database
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { refreshToken: newRefreshToken },
+      });
 
       return reply.send({
         success: true,
-        data: { token },
+        data: { token, refreshToken: newRefreshToken },
       });
     } catch (_error) {
       return reply.status(401).send({

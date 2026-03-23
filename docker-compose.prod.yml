@@ -113,17 +113,14 @@ services:
       - "traefik.http.routers.api.entrypoints=websecure"
       - "traefik.http.routers.api.tls.certresolver=letsencrypt"
       - "traefik.http.services.api.loadbalancer.server.port=3000"
-      # CORS Middleware
-      - "traefik.http.middlewares.api-cors.headers.accesscontrolallowmethods=GET,POST,PUT,PATCH,DELETE,OPTIONS"
-      - "traefik.http.middlewares.api-cors.headers.accesscontrolallowheaders=Content-Type,Authorization,X-Requested-With"
-      - "traefik.http.middlewares.api-cors.headers.accesscontrolalloworiginlist=${ALLOWED_ORIGINS}"
-      - "traefik.http.middlewares.api-cors.headers.accesscontrolmaxage=100"
-      - "traefik.http.middlewares.api-cors.headers.accesscontrolallowcredentials=true"
+      # NOTE: CORS is handled entirely by Fastify (@fastify/cors) - do NOT add CORS headers here
+      # Adding CORS in both Traefik and Fastify causes duplicate Access-Control-Allow-Origin headers,
+      # which browsers reject, causing all authenticated API calls to fail with 401.
       # Security Headers
       - "traefik.http.middlewares.api-security.headers.frameDeny=true"
       - "traefik.http.middlewares.api-security.headers.browserXssFilter=true"
       - "traefik.http.middlewares.api-security.headers.contentTypeNosniff=true"
-      - "traefik.http.routers.api.middlewares=api-cors,api-security"
+      - "traefik.http.routers.api.middlewares=api-security"
 
   # ===========================================
   # ERP FRONTEND (Vue 3)
