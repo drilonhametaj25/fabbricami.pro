@@ -66,7 +66,7 @@ const dashboardRoutes: FastifyPluginAsync = async (server: any) => {
     { preHandler: authenticate },
     async (request: any, reply: any) => {
       try {
-        const userId = request.user?.id;
+        const userId = request.user?.userId;
 
         if (!userId) {
           return reply.status(401).send({
@@ -103,7 +103,7 @@ const dashboardRoutes: FastifyPluginAsync = async (server: any) => {
     { preHandler: authenticate },
     async (request: any, reply: any) => {
       try {
-        const userId = request.user?.id;
+        const userId = request.user?.userId;
 
         if (!userId) {
           return reply.status(401).send({
@@ -200,7 +200,7 @@ const dashboardRoutes: FastifyPluginAsync = async (server: any) => {
     { preHandler: authenticate },
     async (request: any, reply: any) => {
       try {
-        const userId = request.user?.id;
+        const userId = request.user?.userId;
 
         if (!userId) {
           return reply.status(401).send({
@@ -236,7 +236,7 @@ const dashboardRoutes: FastifyPluginAsync = async (server: any) => {
     { preHandler: authenticate },
     async (request: any, reply: any) => {
       try {
-        const userId = request.user?.id;
+        const userId = request.user?.userId;
 
         if (!userId) {
           return reply.status(401).send({
@@ -309,7 +309,7 @@ const dashboardRoutes: FastifyPluginAsync = async (server: any) => {
     { preHandler: authenticate },
     async (request: any, reply: any) => {
       try {
-        const userId = request.user?.id;
+        const userId = request.user?.userId;
 
         if (!userId) {
           return reply.status(401).send({
@@ -342,7 +342,7 @@ const dashboardRoutes: FastifyPluginAsync = async (server: any) => {
     { preHandler: authenticate },
     async (request: any, reply: any) => {
       try {
-        const userId = request.user?.id;
+        const userId = request.user?.userId;
 
         if (!userId) {
           return reply.status(401).send({
@@ -381,7 +381,7 @@ const dashboardRoutes: FastifyPluginAsync = async (server: any) => {
     { preHandler: authenticate },
     async (request: any, reply: any) => {
       try {
-        const userId = request.user?.id;
+        const userId = request.user?.userId;
         const userRole = request.user?.role;
 
         if (!userId || !userRole) {
