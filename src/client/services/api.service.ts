@@ -1,7 +1,7 @@
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 class ApiService {
-  private async request(method: string, endpoint: string, data?: any, responseType?: 'json' | 'blob') {
+  private async request(method: string, endpoint: string, data?: any, responseType?: 'json' | 'blob'): Promise<any> {
     const token = localStorage.getItem('token');
 
     const headers: HeadersInit = {};
@@ -79,7 +79,7 @@ class ApiService {
     }
   }
 
-  async get(endpoint: string, options?: { params?: Record<string, any>; responseType?: 'json' | 'blob' }) {
+  async get<T = any>(endpoint: string, options?: { params?: Record<string, any>; responseType?: 'json' | 'blob' }): Promise<T> {
     let url = endpoint;
     if (options?.params) {
       const params = new URLSearchParams();
@@ -93,23 +93,23 @@ class ApiService {
         url = `${endpoint}?${queryString}`;
       }
     }
-    return this.request('GET', url, undefined, options?.responseType);
+    return this.request('GET', url, undefined, options?.responseType) as Promise<T>;
   }
 
-  async post(endpoint: string, data?: any) {
-    return this.request('POST', endpoint, data);
+  async post<T = any>(endpoint: string, data?: any): Promise<T> {
+    return this.request('POST', endpoint, data) as Promise<T>;
   }
 
-  async patch(endpoint: string, data: any) {
-    return this.request('PATCH', endpoint, data);
+  async patch<T = any>(endpoint: string, data: any): Promise<T> {
+    return this.request('PATCH', endpoint, data) as Promise<T>;
   }
 
-  async put(endpoint: string, data: any) {
-    return this.request('PUT', endpoint, data);
+  async put<T = any>(endpoint: string, data: any): Promise<T> {
+    return this.request('PUT', endpoint, data) as Promise<T>;
   }
 
-  async delete(endpoint: string) {
-    return this.request('DELETE', endpoint);
+  async delete<T = any>(endpoint: string): Promise<T> {
+    return this.request('DELETE', endpoint) as Promise<T>;
   }
 }
 

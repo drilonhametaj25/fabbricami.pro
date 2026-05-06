@@ -1085,22 +1085,15 @@ class OrderService {
   }
 
   /**
-   * Validazione transizioni workflow
-   * PENDING → CONFIRMED → PROCESSING → READY → SHIPPED → DELIVERED
-   *   └──→ CANCELLED (da qualsiasi stato eccetto DELIVERED)
+   * Validazione transizioni workflow.
+   * Delegata alla state machine in `utils/order-state-machine.ts` per
+   * coerenza con il resto del sistema (notifiche, WooCommerce sync).
    */
   private isValidStatusTransition(from: string, to: string): boolean {
-    const transitions: Record<string, string[]> = {
-      PENDING: ['CONFIRMED', 'CANCELLED'],
-      CONFIRMED: ['PROCESSING', 'CANCELLED'],
-      PROCESSING: ['READY', 'CANCELLED'],
-      READY: ['SHIPPED', 'CANCELLED'],
-      SHIPPED: ['DELIVERED', 'CANCELLED'],
-      DELIVERED: [], // stato finale
-      CANCELLED: [], // stato finale
-    };
-
-    return transitions[from]?.includes(to) || false;
+    // Lazy import per evitare cicli (state-machine importa solo @prisma/client)
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { canTransition } = require('../utils/order-state-machine');
+    return canTransition(from, to);
   }
 
   /**

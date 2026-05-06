@@ -101,14 +101,16 @@ export const createProductSchema = z.object({
   wcAverageRating: coerceNumber.nullable().optional(),
   wcRatingCount: coerceInt.nullable().optional(),
   wcTotalSales: coerceInt.nullable().optional(),
-  wcRelatedIds: z.any().nullable().optional(),
-  wcUpsellIds: z.any().nullable().optional(),
-  wcCrossSellIds: z.any().nullable().optional(),
+  // Array di ID WooCommerce (correlati/upsell/cross-sell): es. [12, 34, 56]
+  wcRelatedIds: z.array(z.number().int()).nullable().optional(),
+  wcUpsellIds: z.array(z.number().int()).nullable().optional(),
+  wcCrossSellIds: z.array(z.number().int()).nullable().optional(),
   wcPurchaseNote: z.string().nullable().optional(),
   wcExternalUrl: z.string().nullable().optional(),
   wcButtonText: z.string().nullable().optional(),
   wcParentId: coerceInt.nullable().optional(),
-  wcGroupedProducts: z.any().nullable().optional(),
+  // Per prodotti grouped: array di ID prodotti figlio
+  wcGroupedProducts: z.array(z.number().int()).nullable().optional(),
 
   // Nuovi campi WooCommerce per prodotti virtuali/downloadable
   wcVirtual: z.boolean().nullable().optional(),
@@ -116,10 +118,25 @@ export const createProductSchema = z.object({
   wcDownloadLimit: coerceInt.nullable().optional(),
   wcDownloadExpiry: coerceInt.nullable().optional(),
   wcGlobalUniqueId: z.string().nullable().optional(),
-  wcDefaultAttributes: z.any().nullable().optional(),
+  // Attributi default per varianti: array di { id, name, option }
+  wcDefaultAttributes: z.array(z.object({
+    id: z.number().int().optional(),
+    name: z.string(),
+    option: z.string(),
+  })).nullable().optional(),
 
-  wcTags: z.any().nullable().optional(),
-  wcMetaData: z.any().nullable().optional(),
+  // Tag WooCommerce: array di { id, name, slug }
+  wcTags: z.array(z.object({
+    id: z.number().int().optional(),
+    name: z.string(),
+    slug: z.string().optional(),
+  })).nullable().optional(),
+  // Meta WooCommerce: array di { id, key, value }
+  wcMetaData: z.array(z.object({
+    id: z.number().int().optional(),
+    key: z.string(),
+    value: z.unknown(),
+  })).nullable().optional(),
   mainImageUrl: z.string().nullable().optional(),
   mainImageId: coerceInt.nullable().optional(),
   webPrice: coerceNumber.nullable().optional(),
@@ -129,19 +146,33 @@ export const createProductSchema = z.object({
   webSlug: z.string().nullable().optional(),
   webMetaTitle: z.string().nullable().optional(),
   webMetaDescription: z.string().nullable().optional(),
-  webAttributes: z.any().nullable().optional(),
-  downloadFiles: z.any().nullable().optional(),
-  images: z.any().nullable().optional(),
+  // Attributi prodotto: array di { name, value/options }
+  webAttributes: z.array(z.object({
+    name: z.string(),
+    value: z.string().optional(),
+    options: z.array(z.string()).optional(),
+    visible: z.boolean().optional(),
+    variation: z.boolean().optional(),
+  })).nullable().optional(),
+  // File scaricabili: array di { id?, name, file }
+  downloadFiles: z.array(z.object({
+    id: z.string().optional(),
+    name: z.string(),
+    file: z.string(),
+  })).nullable().optional(),
+  // Galleria immagini: array di URL stringa
+  images: z.array(z.string()).nullable().optional(),
 
-  // Campi ignorati (relazioni che il frontend invia ma non devono essere processati)
+  // Campi ignorati (relazioni che il frontend invia ma non devono essere processati).
+  // Sono passthrough: non validati sui campi interni perche' provenienti da response API.
   id: z.string().uuid().optional(), // Ignorato nell'update, usato solo come riferimento
   createdAt: z.string().optional(),
   updatedAt: z.string().optional(),
-  variants: z.any().optional(),
-  inventory: z.any().optional(),
-  supplier: z.any().optional(),
-  productImages: z.any().optional(),
-  categories: z.any().optional(),
+  variants: z.array(z.unknown()).optional(),
+  inventory: z.array(z.unknown()).optional(),
+  supplier: z.unknown().optional(),
+  productImages: z.array(z.unknown()).optional(),
+  categories: z.array(z.unknown()).optional(),
   minStock: coerceInt.nullable().optional(),
   maxStock: coerceInt.nullable().optional(),
   reorderPoint: coerceInt.nullable().optional(),

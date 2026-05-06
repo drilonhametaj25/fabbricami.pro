@@ -13,6 +13,40 @@ const connection = {
 // Queue per job WordPress
 export const wordpressQueue = new Queue('wordpress', { connection });
 
+// Dead Letter Queue per job WordPress falliti definitivamente.
+// Usata per ispezione manuale e replay; i job qui dentro NON vengono processati
+// automaticamente. Un job atterra qui dopo il consumo dei retry esponenziali.
+export const wordpressDlqQueue = new Queue('wordpress-dlq', { connection });
+
+/**
+ * Sposta un job fallito nella DLQ con il payload originale + metadata di errore.
+ * Best-effort: errore loggato ma non rilanciato per evitare di sovrascrivere
+ * lo stato di failure originale.
+ */
+async function moveToDlq(job: Job<WordPressJobData>, err: Error): Promise<void> {
+  try {
+    await wordpressDlqQueue.add(
+      'wordpress-failed',
+      {
+        originalJobId: job.id,
+        originalName: job.name,
+        data: job.data,
+        attemptsMade: job.attemptsMade,
+        failedReason: err.message,
+        stack: err.stack,
+        failedAt: new Date().toISOString(),
+      },
+      {
+        removeOnComplete: false,
+        removeOnFail: false,
+      }
+    );
+    logger.error(`WP job ${job.id} (${job.name}) moved to DLQ: ${err.message}`);
+  } catch (dlqError: any) {
+    logger.error(`Failed to move WP job ${job.id} to DLQ: ${dlqError.message}`);
+  }
+}
+
 // Tipi di job WordPress
 type WordPressJobType =
   | 'sync-inventory'
@@ -500,6 +534,10 @@ export async function getActiveCustomerImportJobs(): Promise<{
 
 /**
  * Inizializza worker WordPress
+ *
+ * Politica retry: 5 tentativi con backoff esponenziale (1s, 2s, 4s, 8s, 16s).
+ * Dopo l'ultimo tentativo fallito il job viene spostato nella DLQ
+ * (`wordpressDlqQueue`) per ispezione manuale + replay.
  */
 export function initWordPressWorker() {
   const worker = new Worker<WordPressJobData>(
@@ -519,11 +557,71 @@ export function initWordPressWorker() {
     logger.debug(`WordPress job ${job.id} completato`);
   });
 
-  worker.on('failed', (job, err) => {
-    logger.error(`WordPress job ${job?.id} fallito:`, err);
+  worker.on('failed', async (job, err) => {
+    logger.error(`WordPress job ${job?.id} fallito (attempt ${job?.attemptsMade}/${job?.opts.attempts}):`, err);
+
+    // Quando il job ha consumato tutti i retry, sposta in DLQ.
+    if (job && job.opts.attempts && job.attemptsMade >= job.opts.attempts) {
+      await moveToDlq(job, err);
+    }
   });
 
   return worker;
+}
+
+/**
+ * Default options per add() ai job WordPress: 5 retry esponenziali + persist.
+ */
+export const WP_JOB_RETRY_OPTS = {
+  attempts: 5,
+  backoff: {
+    type: 'exponential' as const,
+    delay: 1000, // 1s, 2s, 4s, 8s, 16s
+  },
+  removeOnFail: false,
+  removeOnComplete: 100,
+};
+
+// =============================================
+// DLQ MANAGEMENT
+// =============================================
+
+/**
+ * Lista job nella DLQ (per dashboard admin/monitor).
+ */
+export async function listDlqJobs(limit: number = 100) {
+  const jobs = await wordpressDlqQueue.getJobs(['waiting', 'completed', 'failed'], 0, limit);
+  return jobs.map(j => ({
+    id: j.id,
+    name: j.name,
+    data: j.data,
+    timestamp: j.timestamp,
+  }));
+}
+
+/**
+ * Replay di un job dalla DLQ verso la queue principale.
+ * Riusa il payload originale; resetta gli attempts.
+ */
+export async function replayDlqJob(dlqJobId: string): Promise<{ replayed: boolean; jobId?: string }> {
+  const dlqJob = await wordpressDlqQueue.getJob(dlqJobId);
+  if (!dlqJob) return { replayed: false };
+
+  const originalData = dlqJob.data?.data;
+  const originalName = dlqJob.data?.originalName || 'replayed-job';
+  if (!originalData) return { replayed: false };
+
+  const newJob = await wordpressQueue.add(originalName, originalData, WP_JOB_RETRY_OPTS);
+  await dlqJob.remove();
+  return { replayed: true, jobId: newJob.id };
+}
+
+/**
+ * Conta job in DLQ (per alert se cresce).
+ */
+export async function getDlqStats() {
+  const counts = await wordpressDlqQueue.getJobCounts();
+  return counts;
 }
 
 /**
@@ -565,36 +663,32 @@ export async function scheduleWordPressJobs() {
 }
 
 /**
- * Aggiunge job sync singolo prodotto alla coda
+ * Aggiunge job sync singolo prodotto alla coda con retry esponenziali e DLQ.
  */
 export async function queueProductSync(productId: string) {
   await wordpressQueue.add(
     `sync-product-${productId}`,
     { type: 'sync-single-product', productId },
     {
+      ...WP_JOB_RETRY_OPTS,
       delay: 1000, // Ritardo 1s per evitare duplicati
-      removeOnComplete: true,
-      removeOnFail: 10,
     }
   );
 }
 
 /**
- * Aggiunge job update stato ordine alla coda
+ * Aggiunge job update stato ordine alla coda con retry esponenziali e DLQ.
  */
 export async function queueOrderStatusUpdate(orderId: string, status: string) {
   await wordpressQueue.add(
     `update-order-${orderId}`,
     { type: 'update-order-status', orderId, status },
-    {
-      removeOnComplete: true,
-      removeOnFail: 10,
-    }
+    WP_JOB_RETRY_OPTS
   );
 }
 
 /**
- * Aggiunge job sync giacenze immediato
+ * Aggiunge job sync giacenze immediato con retry esponenziali e DLQ.
  */
 export async function queueInventorySync(productId?: string) {
   if (productId) {
@@ -602,17 +696,15 @@ export async function queueInventorySync(productId?: string) {
       `sync-inventory-${productId}`,
       { type: 'sync-single-product', productId },
       {
+        ...WP_JOB_RETRY_OPTS,
         delay: 500,
-        removeOnComplete: true,
       }
     );
   } else {
     await wordpressQueue.add(
       'immediate-inventory-sync',
       { type: 'sync-inventory' },
-      {
-        removeOnComplete: true,
-      }
+      WP_JOB_RETRY_OPTS
     );
   }
 }

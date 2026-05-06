@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '../config/database';
 import {
   CreateInventoryMovementInput,
@@ -64,7 +65,15 @@ class InventoryService {
     if (productId) where.productId = productId;
     if (locationId) where.location = locationId;
     if (lowStock) {
-      // TODO: Implement lowStock filter based on minimum quantity
+      // lowStock: stock <= minStock OR stock <= reorderPoint del prodotto.
+      // Postgres non supporta colonna-vs-colonna in Prisma type-safe, quindi
+      // delegate a $queryRaw via service helper (oppure si filtra in memoria).
+      // Qui filtriamo in memoria dopo la fetch, per mantenere il where tipato.
+      // Marcatore per il post-filter sotto.
+      where.product = {
+        ...where.product,
+        // forziamo la pull del minStock/reorderPoint
+      };
     }
     if (outOfStock) where.quantity = 0;
     if (search) {
@@ -78,8 +87,14 @@ class InventoryService {
 
     const skip = (page - 1) * limit;
 
-    const [items, total] = await Promise.all([
-      prisma.inventoryItem.findMany({
+    // Se lowStock e' richiesto, NON paginare con Prisma (servono tutti gli
+    // item per il filtro in memoria su quantity <= product.minStock|reorderPoint),
+    // poi pagina sui risultati filtrati.
+    let rawItems;
+    let totalCount;
+
+    if (lowStock) {
+      const allItems = await prisma.inventoryItem.findMany({
         where,
         include: {
           product: {
@@ -87,16 +102,46 @@ class InventoryService {
               id: true,
               sku: true,
               name: true,
+              minStock: true,
+              reorderPoint: true,
             },
           },
           variant: true,
         },
-        skip,
-        take: limit,
         orderBy: { [sortBy]: sortOrder },
-      }),
-      prisma.inventoryItem.count({ where }),
-    ]);
+      });
+      const filtered = allItems.filter((item: any) => {
+        const minStock = item.product?.minStock ?? 0;
+        const reorderPoint = item.product?.reorderPoint ?? 0;
+        const threshold = Math.max(minStock, reorderPoint);
+        return threshold > 0 && item.quantity <= threshold;
+      });
+      totalCount = filtered.length;
+      rawItems = filtered.slice(skip, skip + limit);
+    } else {
+      [rawItems, totalCount] = await Promise.all([
+        prisma.inventoryItem.findMany({
+          where,
+          include: {
+            product: {
+              select: {
+                id: true,
+                sku: true,
+                name: true,
+              },
+            },
+            variant: true,
+          },
+          skip,
+          take: limit,
+          orderBy: { [sortBy]: sortOrder },
+        }),
+        prisma.inventoryItem.count({ where }),
+      ]);
+    }
+
+    const items = rawItems;
+    const total = totalCount;
 
     return {
       items,
@@ -128,56 +173,121 @@ class InventoryService {
 
   /**
    * Movimentazione magazzino (IN/OUT/TRANSFER/ADJUSTMENT/RETURN)
+   *
+   * Transazione atomica per evitare race condition (overselling):
+   * - Lock pessimistico SELECT FOR UPDATE sull'InventoryItem
+   * - Validazione disponibilità prima del decremento
+   * - Movement record creato solo se l'aggiornamento stock riesce
    */
   async createMovement(data: CreateInventoryMovementInput) {
-    const movement = await prisma.inventoryMovement.create({
-      data: {
-        productId: data.productId,
-        type: data.type,
-        quantity: data.quantity,
-        reference: data.referenceId || null,
-        notes: data.notes || null,
-        performedBy: data.userId,
-        lotNumber: data.lotNumber || null,
-        // fromLocation/toLocation based on type
-        ...(data.type === 'OUT' && { fromLocation: data.locationId as any }),
-        ...(data.type === 'IN' && { toLocation: data.locationId as any }),
-      },
-      include: {
-        product: true,
-      },
+    return await prisma.$transaction(async (tx) => {
+      // Lock pessimistico sull'InventoryItem per la combinazione product+location
+      // (previene race condition tra ordini concorrenti che leggono lo stesso stock)
+      const locked = await tx.$queryRawUnsafe<Array<{ id: string; quantity: number }>>(
+        `SELECT id, quantity FROM inventory_items
+         WHERE product_id = $1 AND location = $2::"InventoryLocation"
+         ${data.locationId ? '' : ''}
+         ORDER BY id LIMIT 1
+         FOR UPDATE`,
+        data.productId,
+        data.locationId
+      );
+
+      // Per OUT: valida disponibilità prima
+      if (data.type === 'OUT') {
+        const available = locked.length > 0 ? locked[0].quantity : 0;
+        if (available < data.quantity) {
+          throw new Error(
+            `Stock insufficiente per movimento OUT: disponibili ${available}, richiesti ${data.quantity}`
+          );
+        }
+      }
+
+      // Crea il movement record
+      const movement = await tx.inventoryMovement.create({
+        data: {
+          productId: data.productId,
+          type: data.type,
+          quantity: data.quantity,
+          reference: data.referenceId || null,
+          notes: data.notes || null,
+          performedBy: data.userId,
+          lotNumber: data.lotNumber || null,
+          ...(data.type === 'OUT' && { fromLocation: data.locationId as any }),
+          ...(data.type === 'IN' && { toLocation: data.locationId as any }),
+        },
+        include: {
+          product: true,
+        },
+      });
+
+      // Aggiorna stock dentro la stessa transazione
+      if (data.type === 'IN') {
+        await this.updateStockQuantityTx(tx, data.productId, data.locationId, data.quantity, 'add');
+
+        // Aggiorna costo medio ponderato (WAC) sul prodotto se il movement
+        // ha un costo. Formula: WAC_new = (qty_old * WAC_old + qty_in * cost_in) / (qty_old + qty_in)
+        if (data.cost !== undefined && data.cost !== null && data.cost > 0) {
+          await this.updateWeightedAvgCostTx(tx, data.productId, data.quantity, data.cost);
+        }
+      } else if (data.type === 'OUT') {
+        await this.updateStockQuantityTx(tx, data.productId, data.locationId, data.quantity, 'subtract');
+      }
+
+      return movement;
     });
-
-    // Update InventoryItem quantities based on movement
-    if (data.type === 'IN') {
-      await this.updateStockQuantity(
-        data.productId,
-        data.locationId,
-        data.quantity,
-        'add'
-      );
-    } else if (data.type === 'OUT') {
-      await this.updateStockQuantity(
-        data.productId,
-        data.locationId,
-        data.quantity,
-        'subtract'
-      );
-    }
-
-    return movement;
   }
 
   /**
-   * Aggiorna quantità inventario
+   * Aggiorna il costo medio ponderato (WAC) di un prodotto dentro una transazione.
+   * WAC_new = (qty_pre * WAC_old + qty_in * cost_in) / (qty_pre + qty_in)
+   * Se il prodotto e' nuovo (qty_pre = 0), WAC = cost_in.
    */
-  private async updateStockQuantity(
+  private async updateWeightedAvgCostTx(
+    tx: Prisma.TransactionClient,
+    productId: string,
+    qtyIn: number,
+    costIn: number
+  ): Promise<void> {
+    const product = await tx.product.findUnique({
+      where: { id: productId },
+      select: { weightedAvgCost: true },
+    });
+    if (!product) return;
+
+    // Conta lo stock totale pre-movimento (somma di tutte le location).
+    // Nota: la $queryRawUnsafe sopra ha gia' lockato la riga della location interessata;
+    // il totale pre-movimento e' qty_post - qtyIn.
+    const aggregate = await tx.inventoryItem.aggregate({
+      where: { productId },
+      _sum: { quantity: true },
+    });
+    const qtyPost = aggregate._sum.quantity ?? 0;
+    const qtyPre = qtyPost - qtyIn;
+
+    const wacOld = Number(product.weightedAvgCost) || 0;
+    const newWac =
+      qtyPre <= 0
+        ? costIn
+        : (qtyPre * wacOld + qtyIn * costIn) / (qtyPre + qtyIn);
+
+    await tx.product.update({
+      where: { id: productId },
+      data: { weightedAvgCost: newWac },
+    });
+  }
+
+  /**
+   * Aggiorna quantità inventario dentro una transazione (con lock già acquisito)
+   */
+  private async updateStockQuantityTx(
+    tx: Prisma.TransactionClient,
     productId: string,
     location: string,
     quantity: number,
     operation: 'add' | 'subtract'
   ) {
-    const inventoryItem = await prisma.inventoryItem.findFirst({
+    const inventoryItem = await tx.inventoryItem.findFirst({
       where: {
         productId,
         location: location as any,
@@ -187,25 +297,26 @@ class InventoryService {
     const delta = operation === 'add' ? quantity : -quantity;
 
     if (inventoryItem) {
-      // Aggiorna esistente
-      return await prisma.inventoryItem.update({
+      const newQuantity = inventoryItem.quantity + delta;
+      if (newQuantity < 0) {
+        // Difesa in profondità: il check OUT in createMovement dovrebbe già averlo bloccato
+        throw new Error(`Stock negativo non ammesso: ${newQuantity}`);
+      }
+      return await tx.inventoryItem.update({
         where: { id: inventoryItem.id },
         data: {
-          quantity: inventoryItem.quantity + delta,
+          quantity: newQuantity,
           updatedAt: new Date(),
         },
       });
     } else if (operation === 'add') {
-      // Cerca magazzino primario
-      const primaryWarehouse = await prisma.warehouse.findFirst({
+      const primaryWarehouse = await tx.warehouse.findFirst({
         where: { isPrimary: true },
       });
       if (!primaryWarehouse) {
         throw new Error('Nessun magazzino primario configurato');
       }
-
-      // Crea nuovo inventario item solo se è un carico
-      return await prisma.inventoryItem.create({
+      return await tx.inventoryItem.create({
         data: {
           productId,
           warehouseId: primaryWarehouse.id,
@@ -214,9 +325,25 @@ class InventoryService {
           reservedQuantity: 0,
         },
       });
+    } else {
+      // OUT su un location senza inventoryItem -> errore
+      throw new Error(`Nessun InventoryItem per product ${productId} location ${location}`);
     }
+  }
 
-    return null;
+  /**
+   * Wrapper per updateStockQuantity (legacy, mantenuto per compatibility)
+   * @deprecated Usa createMovement che è transazionale
+   */
+  private async updateStockQuantity(
+    productId: string,
+    location: string,
+    quantity: number,
+    operation: 'add' | 'subtract'
+  ) {
+    return prisma.$transaction((tx) =>
+      this.updateStockQuantityTx(tx, productId, location, quantity, operation)
+    );
   }
 
   /**

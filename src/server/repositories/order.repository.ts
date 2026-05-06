@@ -30,7 +30,8 @@ class OrderRepository {
    * Trova ordine per numero
    */
   async findByOrderNumber(orderNumber: string) {
-    return await prisma.order.findUnique({
+    // OrderNumber univoco per tenant - usa findFirst (il Prisma middleware aggiunge tenantId)
+    return await prisma.order.findFirst({
       where: { orderNumber },
       include: {
         customer: true,

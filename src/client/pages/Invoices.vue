@@ -201,7 +201,27 @@
               @click="sendToSdi(data)"
               :loading="sendingSdi === data.id"
             />
+            <Button
+              v-if="!data.xmlFilePath"
+              icon="pi pi-file-edit"
+              text
+              rounded
+              severity="info"
+              v-tooltip.top="'Genera XML FatturaPA'"
+              @click="generateXml(data)"
+              :loading="generatingXml === data.id"
+            />
             <Button icon="pi pi-file-export" text rounded v-tooltip.top="'Scarica XML'" @click="downloadXml(data)" v-if="data.xmlFilePath" />
+            <Button
+              v-if="data.xmlFilePath"
+              icon="pi pi-check-circle"
+              text
+              rounded
+              severity="secondary"
+              v-tooltip.top="'Valida XML'"
+              @click="validateXml(data)"
+              :loading="validatingXml === data.id"
+            />
           </div>
         </template>
       </Column>
@@ -398,6 +418,8 @@ const toast = useToast();
 const loading = ref(false);
 const creating = ref(false);
 const sendingSdi = ref<string | null>(null);
+const generatingXml = ref<string | null>(null);
+const validatingXml = ref<string | null>(null);
 const invoices = ref<any[]>([]);
 const customers = ref<any[]>([]);
 const selectedInvoice = ref<any>(null);
@@ -580,6 +602,47 @@ const downloadXml = async (invoice: any) => {
     window.URL.revokeObjectURL(url);
   } catch (error) {
     toast.add({ severity: 'error', summary: 'Errore', detail: 'Impossibile scaricare l\'XML', life: 3000 });
+  }
+};
+
+const generateXml = async (invoice: any) => {
+  generatingXml.value = invoice.id;
+  try {
+    await apiService.post(`/sdi/invoices/${invoice.id}/generate-xml`);
+    toast.add({ severity: 'success', summary: 'XML generato', detail: 'XML FatturaPA generato con successo', life: 3000 });
+    loadInvoices();
+  } catch (error: any) {
+    toast.add({
+      severity: 'error',
+      summary: 'Errore generazione XML',
+      detail: error.message || 'Impossibile generare l\'XML',
+      life: 5000,
+    });
+  } finally {
+    generatingXml.value = null;
+  }
+};
+
+const validateXml = async (invoice: any) => {
+  validatingXml.value = invoice.id;
+  try {
+    const response: any = await apiService.post(`/sdi/invoices/${invoice.id}/validate-xml`);
+    const result = response?.data || response;
+    if (result?.valid) {
+      toast.add({ severity: 'success', summary: 'XML valido', detail: 'XML conforme allo schema FatturaPA 1.2.2', life: 3000 });
+    } else {
+      const errs = (result?.errors || []).map((e: any) => e.message).join(' ; ');
+      toast.add({
+        severity: 'warn',
+        summary: 'XML non valido',
+        detail: errs || 'XML non conforme',
+        life: 8000,
+      });
+    }
+  } catch (error: any) {
+    toast.add({ severity: 'error', summary: 'Errore validazione', detail: error.message || 'Impossibile validare l\'XML', life: 5000 });
+  } finally {
+    validatingXml.value = null;
   }
 };
 

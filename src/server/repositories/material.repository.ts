@@ -21,7 +21,8 @@ export class MaterialRepository {
    * Find material by SKU
    */
   async findBySku(sku: string) {
-    return prisma.material.findUnique({
+    // SKU univoco per tenant - usa findFirst (il Prisma middleware aggiunge tenantId)
+    return prisma.material.findFirst({
       where: { sku },
       include: {
         supplier: true,

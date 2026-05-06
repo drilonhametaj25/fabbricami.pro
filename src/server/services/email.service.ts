@@ -1,5 +1,10 @@
 import nodemailer, { Transporter } from 'nodemailer';
 import { logger } from '../config/logger';
+import { config } from '../config/environment';
+
+// URL frontend (Nuxt e-commerce e Vue admin) — usano i valori validati di env.
+const SHOP_URL = config.frontend.url;
+const ADMIN_URL = config.frontend.appUrl;
 
 /**
  * Email Service
@@ -478,7 +483,7 @@ class EmailService {
 
       <p><strong>Azione richiesta:</strong> Verificare e procedere con il riordino dei materiali.</p>
 
-      <a href="${process.env.APP_URL || '#'}/inventory?filter=low-stock" class="button">
+      <a href="${ADMIN_URL}/inventory?filter=low-stock" class="button">
         Vai a Gestione Magazzino
       </a>
     `;
@@ -505,7 +510,7 @@ class EmailService {
         <strong>Articoli:</strong> ${data.items.length}
       </div>
 
-      <a href="${process.env.APP_URL || '#'}/orders/${data.orderNumber}" class="button">
+      <a href="${ADMIN_URL}/orders/${data.orderNumber}" class="button">
         Visualizza Ordine
       </a>
     `;
@@ -545,7 +550,7 @@ class EmailService {
         ${dueDate ? `<br><br><strong>Scadenza:</strong> ${dueDate.toLocaleDateString('it-IT')}` : ''}
       </div>
 
-      <a href="${process.env.APP_URL || '#'}/tasks" class="button">
+      <a href="${ADMIN_URL}/tasks" class="button">
         Vai ai Task
       </a>
     `;
@@ -610,7 +615,7 @@ class EmailService {
         </tbody>
       </table>
 
-      <a href="${process.env.APP_URL || '#'}/accounting?tab=receivables" class="button">
+      <a href="${ADMIN_URL}/accounting?tab=receivables" class="button">
         Vai a Contabilità
       </a>
     `;
@@ -630,7 +635,7 @@ class EmailService {
    * Send email verification to customer
    */
   async sendVerificationEmail(email: string, token: string, firstName: string): Promise<boolean> {
-    const verifyUrl = `${process.env.APP_URL || 'http://localhost:3001'}/account/verify-email?token=${token}`;
+    const verifyUrl = `${SHOP_URL}/account/verify-email?token=${token}`;
 
     const content = `
       <h2>Verify Your Email Address</h2>
@@ -661,7 +666,7 @@ class EmailService {
    * Send password reset email to customer
    */
   async sendPasswordResetEmail(email: string, token: string, firstName: string): Promise<boolean> {
-    const resetUrl = `${process.env.APP_URL || 'http://localhost:3001'}/account/reset-password?token=${token}`;
+    const resetUrl = `${SHOP_URL}/account/reset-password?token=${token}`;
 
     const content = `
       <h2>Reset Your Password</h2>
@@ -692,7 +697,7 @@ class EmailService {
    * Send welcome email after verification
    */
   async sendWelcomeEmail(email: string, firstName: string): Promise<boolean> {
-    const shopUrl = `${process.env.APP_URL || 'http://localhost:3001'}/shop`;
+    const shopUrl = `${SHOP_URL}/shop`;
 
     const content = `
       <h2>Welcome to ${this.companyName}!</h2>
@@ -728,7 +733,7 @@ class EmailService {
    * Send email verification for SaaS/ERP users
    */
   async sendSaasVerificationEmail(email: string, token: string, firstName: string): Promise<boolean> {
-    const verifyUrl = `${process.env.APP_URL || 'http://localhost:5173'}/verify-email?token=${token}`;
+    const verifyUrl = `${ADMIN_URL}/verify-email?token=${token}`;
 
     const content = `
       <h2>Verifica il tuo indirizzo email</h2>
@@ -763,7 +768,7 @@ class EmailService {
    * Send password reset email for SaaS/ERP users
    */
   async sendSaasPasswordResetEmail(email: string, token: string, firstName: string): Promise<boolean> {
-    const resetUrl = `${process.env.APP_URL || 'http://localhost:5173'}/reset-password?token=${token}`;
+    const resetUrl = `${ADMIN_URL}/reset-password?token=${token}`;
 
     const content = `
       <h2>Reimposta la tua password</h2>
@@ -798,7 +803,7 @@ class EmailService {
    * Send welcome email after tenant registration
    */
   async sendSaasWelcomeEmail(email: string, firstName: string, tenantName: string): Promise<boolean> {
-    const dashboardUrl = `${process.env.APP_URL || 'http://localhost:5173'}/dashboard`;
+    const dashboardUrl = `${ADMIN_URL}/dashboard`;
 
     const content = `
       <h2>Benvenuto su ${this.companyName}!</h2>
@@ -845,7 +850,7 @@ class EmailService {
     newMemberEmail: string,
     tenantName: string
   ): Promise<boolean> {
-    const teamUrl = `${process.env.APP_URL || 'http://localhost:5173'}/settings/team`;
+    const teamUrl = `${ADMIN_URL}/settings/team`;
 
     const content = `
       <h2>Nuovo membro nel team</h2>
@@ -878,7 +883,7 @@ class EmailService {
     tenantName: string,
     daysRemaining: number
   ): Promise<boolean> {
-    const billingUrl = `${process.env.APP_URL || 'http://localhost:5173'}/settings/billing`;
+    const billingUrl = `${ADMIN_URL}/settings/billing`;
 
     const content = `
       <h2>Il tuo periodo di prova sta per terminare</h2>
@@ -916,7 +921,7 @@ class EmailService {
     tenantName: string,
     invoiceUrl?: string
   ): Promise<boolean> {
-    const billingUrl = `${process.env.APP_URL || 'http://localhost:5173'}/settings/billing`;
+    const billingUrl = `${ADMIN_URL}/settings/billing`;
 
     const content = `
       <h2>Pagamento non riuscito</h2>
@@ -955,7 +960,7 @@ class EmailService {
     firstName: string,
     tenantName: string
   ): Promise<boolean> {
-    const billingUrl = `${process.env.APP_URL || 'http://localhost:5173'}/settings/billing`;
+    const billingUrl = `${ADMIN_URL}/settings/billing`;
 
     const content = `
       <h2>Il tuo periodo di prova è terminato</h2>
@@ -981,6 +986,183 @@ class EmailService {
       subject: `Periodo di prova terminato per ${tenantName}`,
       html: this.baseTemplate('Prova Terminata', content),
       text: `Ciao ${firstName},\n\nIl periodo di prova gratuito per ${tenantName} è terminato.\n\nPassa a un piano a pagamento per continuare: ${billingUrl}\n\nHai domande? Contattaci rispondendo a questa email.`,
+    });
+  }
+
+  /**
+   * Notifica generica cambio stato ordine al cliente.
+   */
+  async sendOrderStatusUpdate(data: {
+    customerEmail: string;
+    customerName: string;
+    orderNumber: string;
+    oldStatus: string;
+    newStatus: string;
+    statusLabel?: string; // Es. "In lavorazione", "Spedito"
+    note?: string;
+  }): Promise<boolean> {
+    const label = data.statusLabel || data.newStatus;
+    const content = `
+      <h2>Aggiornamento ordine ${data.orderNumber}</h2>
+      <p>Ciao ${data.customerName},</p>
+      <p>Lo stato del tuo ordine <strong>${data.orderNumber}</strong> e' stato aggiornato.</p>
+      <div class="highlight">
+        <strong>Nuovo stato:</strong> ${label}
+      </div>
+      ${data.note ? `<p>${data.note}</p>` : ''}
+      <p style="text-align:center; margin:30px 0;">
+        <a href="${SHOP_URL}/account/orders" class="button">Visualizza ordine</a>
+      </p>
+      <p>Grazie per averci scelto!</p>
+    `;
+    return this.send({
+      to: data.customerEmail,
+      subject: `Aggiornamento ordine ${data.orderNumber}: ${label}`,
+      html: this.baseTemplate('Aggiornamento ordine', content),
+    });
+  }
+
+  /**
+   * Notifica al cliente di pagamento fallito su un ordine (non subscription).
+   */
+  async sendOrderPaymentFailed(data: {
+    customerEmail: string;
+    customerName: string;
+    orderNumber: string;
+    amount: number;
+    reason?: string;
+    retryUrl?: string;
+  }): Promise<boolean> {
+    const retry = data.retryUrl || `${SHOP_URL}/account/orders`;
+    const content = `
+      <h2>Pagamento non riuscito</h2>
+      <p>Ciao ${data.customerName},</p>
+      <p>Non siamo riusciti a completare il pagamento di EUR ${data.amount.toFixed(2)} per l'ordine
+      <strong>${data.orderNumber}</strong>.</p>
+      ${data.reason ? `<div class="highlight"><strong>Motivo:</strong> ${data.reason}</div>` : ''}
+      <p>Per evitare la cancellazione automatica dell'ordine, riprova il pagamento utilizzando il pulsante sottostante:</p>
+      <p style="text-align:center; margin:30px 0;">
+        <a href="${retry}" class="button">Riprova pagamento</a>
+      </p>
+      <p class="text-muted">Se hai gia' provveduto, ignora questa email.</p>
+    `;
+    return this.send({
+      to: data.customerEmail,
+      subject: `Pagamento non riuscito - Ordine ${data.orderNumber}`,
+      html: this.baseTemplate('Pagamento non riuscito', content),
+    });
+  }
+
+  /**
+   * Notifica generata fattura emessa al cliente.
+   */
+  async sendInvoiceGenerated(data: {
+    customerEmail: string;
+    customerName: string;
+    invoiceNumber: string;
+    issueDate: Date;
+    dueDate: Date;
+    total: number;
+    pdfPath?: string;
+  }): Promise<boolean> {
+    const content = `
+      <h2>Fattura ${data.invoiceNumber} emessa</h2>
+      <p>Gentile ${data.customerName},</p>
+      <p>Abbiamo emesso la fattura <strong>${data.invoiceNumber}</strong>.</p>
+      <div class="highlight">
+        <table>
+          <tr><td><strong>Data emissione:</strong></td><td>${data.issueDate.toLocaleDateString('it-IT')}</td></tr>
+          <tr><td><strong>Scadenza:</strong></td><td>${data.dueDate.toLocaleDateString('it-IT')}</td></tr>
+          <tr><td><strong>Importo:</strong></td><td>EUR ${data.total.toFixed(2)}</td></tr>
+        </table>
+      </div>
+      <p>La fattura e' allegata in PDF. La trasmissione SDI verra' gestita automaticamente.</p>
+      <p>Per qualsiasi domanda, rispondi pure a questa email.</p>
+    `;
+    const attachments = data.pdfPath
+      ? [{ filename: `${data.invoiceNumber}.pdf`, path: data.pdfPath, contentType: 'application/pdf' }]
+      : undefined;
+    return this.send({
+      to: data.customerEmail,
+      subject: `Fattura ${data.invoiceNumber} - ${this.companyName}`,
+      html: this.baseTemplate('Fattura emessa', content),
+      attachments,
+    });
+  }
+
+  /**
+   * Notifica al fornitore di nuovo ordine d'acquisto creato.
+   */
+  async sendPurchaseOrderCreated(data: {
+    supplierEmail: string;
+    supplierName: string;
+    orderNumber: string;
+    expectedDate?: Date;
+    items: Array<{ description: string; quantity: number; unitPrice: number }>;
+    total: number;
+    notes?: string;
+    pdfPath?: string;
+  }): Promise<boolean> {
+    const itemsRows = data.items
+      .map(
+        i =>
+          `<tr><td>${i.description}</td><td style="text-align:right">${i.quantity}</td><td style="text-align:right">EUR ${i.unitPrice.toFixed(2)}</td><td style="text-align:right">EUR ${(i.quantity * i.unitPrice).toFixed(2)}</td></tr>`
+      )
+      .join('');
+    const content = `
+      <h2>Nuovo ordine d'acquisto ${data.orderNumber}</h2>
+      <p>Gentile ${data.supplierName},</p>
+      <p>Vi inviamo il seguente ordine di acquisto:</p>
+      <table style="width:100%; border-collapse:collapse;">
+        <thead>
+          <tr><th align="left">Descrizione</th><th align="right">Q.ta</th><th align="right">Prezzo</th><th align="right">Totale</th></tr>
+        </thead>
+        <tbody>${itemsRows}</tbody>
+        <tfoot>
+          <tr><td colspan="3" align="right"><strong>Totale ordine:</strong></td><td align="right"><strong>EUR ${data.total.toFixed(2)}</strong></td></tr>
+        </tfoot>
+      </table>
+      ${data.expectedDate ? `<p><strong>Data consegna richiesta:</strong> ${data.expectedDate.toLocaleDateString('it-IT')}</p>` : ''}
+      ${data.notes ? `<div class="highlight"><strong>Note:</strong> ${data.notes}</div>` : ''}
+      <p>Vi preghiamo di confermare ricezione e date di consegna.</p>
+      <p>Cordiali saluti,<br>${this.companyName}</p>
+    `;
+    const attachments = data.pdfPath
+      ? [{ filename: `PO-${data.orderNumber}.pdf`, path: data.pdfPath, contentType: 'application/pdf' }]
+      : undefined;
+    return this.send({
+      to: data.supplierEmail,
+      subject: `Ordine d'acquisto ${data.orderNumber}`,
+      html: this.baseTemplate('Ordine d\'acquisto', content),
+      attachments,
+    });
+  }
+
+  /**
+   * Newsletter double-opt-in confirmation
+   */
+  async sendNewsletterConfirmation(
+    email: string,
+    firstName: string,
+    confirmUrl: string
+  ): Promise<boolean> {
+    const greeting = firstName ? `Ciao ${firstName},` : 'Ciao,';
+    const content = `
+      <h2>Conferma l'iscrizione alla newsletter</h2>
+      <p>${greeting}</p>
+      <p>Grazie per esserti iscritto/a alla newsletter di <strong>${this.companyName}</strong>.</p>
+      <p>Per completare l'iscrizione e ricevere aggiornamenti, conferma cliccando sul pulsante sottostante:</p>
+      <p style="text-align:center; margin:30px 0;">
+        <a href="${confirmUrl}" class="button">Conferma iscrizione</a>
+      </p>
+      <p class="text-muted">Se non riconosci questa richiesta puoi ignorare questa email — non sarai iscritto/a.</p>
+      <p class="text-muted" style="word-break:break-all; font-size:12px;">${confirmUrl}</p>
+    `;
+    return this.send({
+      to: email,
+      subject: `Conferma la tua iscrizione - ${this.companyName}`,
+      html: this.baseTemplate('Conferma iscrizione', content),
+      text: `${greeting}\n\nConferma l'iscrizione alla newsletter visitando: ${confirmUrl}\n\nSe non hai richiesto l'iscrizione, ignora questa email.`,
     });
   }
 

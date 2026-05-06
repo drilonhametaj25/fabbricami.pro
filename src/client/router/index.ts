@@ -1,6 +1,19 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import { useAuthStore } from '../stores/auth.store';
 import api from '../services/api.service';
+import type { UserRole } from '../types';
+
+// Role groups per la matrice permessi (allineata con usePermissions.ts)
+const ALL_ROLES: UserRole[] = ['ADMIN', 'MANAGER', 'CONTABILE', 'MAGAZZINIERE', 'OPERATORE', 'COMMERCIALE', 'VIEWER'];
+const STAFF: UserRole[] = ['ADMIN', 'MANAGER'];
+const STAFF_AND_WAREHOUSE: UserRole[] = ['ADMIN', 'MANAGER', 'MAGAZZINIERE'];
+const STAFF_AND_SALES: UserRole[] = ['ADMIN', 'MANAGER', 'COMMERCIALE'];
+const STAFF_AND_ACCOUNTING: UserRole[] = ['ADMIN', 'MANAGER', 'CONTABILE'];
+const PRODUCT_VIEWERS: UserRole[] = ['ADMIN', 'MANAGER', 'MAGAZZINIERE', 'COMMERCIALE'];
+const ORDER_VIEWERS: UserRole[] = ['ADMIN', 'MANAGER', 'COMMERCIALE', 'MAGAZZINIERE'];
+const CUSTOMER_VIEWERS: UserRole[] = ['ADMIN', 'MANAGER', 'COMMERCIALE', 'CONTABILE'];
+const REPORT_VIEWERS: UserRole[] = ['ADMIN', 'MANAGER', 'CONTABILE', 'VIEWER'];
+const ANALYTICS_VIEWERS: UserRole[] = ['ADMIN', 'MANAGER', 'COMMERCIALE', 'VIEWER'];
 
 const router = createRouter({
   history: createWebHistory(),
@@ -105,136 +118,175 @@ const router = createRouter({
           path: '/products',
           name: 'Products',
           component: () => import('../pages/Products.vue'),
+          meta: { roles: PRODUCT_VIEWERS },
         },
         {
           path: '/product-categories',
           name: 'ProductCategories',
           component: () => import('../pages/ProductCategories.vue'),
+          meta: { roles: STAFF_AND_SALES },
         },
         {
           path: '/warehouses',
           name: 'Warehouses',
           component: () => import('../pages/Warehouses.vue'),
+          meta: { roles: STAFF_AND_WAREHOUSE },
         },
         {
           path: '/inventory',
           name: 'Inventory',
           component: () => import('../pages/Inventory.vue'),
+          meta: { roles: STAFF_AND_WAREHOUSE },
         },
         {
           path: '/orders',
           name: 'Orders',
           component: () => import('../pages/Orders.vue'),
+          meta: { roles: ORDER_VIEWERS },
         },
         {
           path: '/customers',
           name: 'Customers',
           component: () => import('../pages/Customers.vue'),
+          meta: { roles: CUSTOMER_VIEWERS },
         },
         {
           path: '/customers/:id',
           name: 'CustomerDetail',
           component: () => import('../pages/CustomerDetail.vue'),
+          meta: { roles: CUSTOMER_VIEWERS },
         },
         {
           path: '/pricelists',
           name: 'PriceLists',
           component: () => import('../pages/PriceLists.vue'),
+          meta: { roles: STAFF_AND_SALES },
         },
         {
           path: '/accounting',
           name: 'Accounting',
           component: () => import('../pages/Accounting.vue'),
+          meta: { roles: STAFF_AND_ACCOUNTING },
         },
         {
           path: '/tasks',
           name: 'Tasks',
           component: () => import('../pages/Tasks.vue'),
+          meta: { roles: ALL_ROLES },
         },
         {
           path: '/employees',
           name: 'Employees',
           component: () => import('../pages/Employees.vue'),
+          meta: { roles: STAFF },
         },
         {
           path: '/analytics',
           name: 'Analytics',
           component: () => import('../pages/Analytics.vue'),
+          meta: { roles: ANALYTICS_VIEWERS },
         },
         {
           path: '/suppliers',
           name: 'Suppliers',
           component: () => import('../pages/Suppliers.vue'),
+          meta: { roles: STAFF_AND_WAREHOUSE },
         },
         {
           path: '/purchase-orders',
           name: 'PurchaseOrders',
           component: () => import('../pages/PurchaseOrders.vue'),
+          meta: { roles: STAFF_AND_WAREHOUSE },
         },
         {
           path: '/notifications',
           name: 'Notifications',
           component: () => import('../pages/Notifications.vue'),
+          meta: { roles: ALL_ROLES },
         },
         {
           path: '/calendar',
           name: 'CalendarEvents',
           component: () => import('../pages/CalendarEvents.vue'),
+          meta: { roles: ALL_ROLES },
         },
         {
           path: '/materials',
           name: 'Materials',
           component: () => import('../pages/Materials.vue'),
+          meta: { roles: STAFF_AND_WAREHOUSE },
         },
         {
           path: '/operation-types',
           name: 'OperationTypes',
           component: () => import('../pages/OperationTypes.vue'),
+          meta: { roles: STAFF },
         },
         {
           path: '/production-orders',
           name: 'ProductionOrders',
           component: () => import('../pages/ProductionOrders.vue'),
+          meta: { roles: ['ADMIN', 'MANAGER', 'OPERATORE'] },
         },
         {
           path: '/wordpress',
           name: 'WordPress',
           component: () => import('../pages/WordPressSettings.vue'),
+          meta: { roles: STAFF },
         },
         {
           path: '/logistics',
           name: 'Logistics',
           component: () => import('../pages/Logistics.vue'),
+          meta: { roles: STAFF_AND_WAREHOUSE },
         },
         {
           path: '/settings',
           name: 'CompanySettings',
           component: () => import('../pages/CompanySettings.vue'),
+          meta: { roles: ['ADMIN'] },
         },
         {
           path: '/settings/billing',
           name: 'Billing',
           component: () => import('../pages/Billing.vue'),
+          meta: { roles: ['ADMIN'] },
         },
         {
           path: '/settings/team',
           name: 'TeamMembers',
           component: () => import('../pages/TeamMembers.vue'),
+          meta: { roles: ['ADMIN'] },
         },
         {
           path: '/invoices',
           name: 'Invoices',
           component: () => import('../pages/Invoices.vue'),
+          meta: { roles: STAFF_AND_ACCOUNTING },
         },
         {
           path: '/ddt',
           name: 'DDT',
           component: () => import('../pages/DDT.vue'),
+          meta: { roles: STAFF_AND_WAREHOUSE },
         },
         {
           path: '/reports',
           name: 'Reports',
           component: () => import('../pages/Reports.vue'),
+          meta: { roles: REPORT_VIEWERS },
+        },
+        {
+          path: '/mrp/capacity',
+          name: 'MrpCapacity',
+          component: () => import('../pages/MrpCapacity.vue'),
+          meta: { roles: STAFF },
+        },
+        {
+          path: '/forbidden',
+          name: 'Forbidden',
+          component: () => import('../pages/Forbidden.vue'),
+          meta: { roles: ALL_ROLES },
         },
       ],
     },
@@ -257,7 +309,9 @@ async function checkOnboardingStatus(): Promise<string | null> {
   }
 
   try {
-    const response = await api.get<{ currentStep: string }>('/onboarding/status');
+    const response = await api.get<{ success: boolean; data: { currentStep: string } }>(
+      '/onboarding/status'
+    );
     if (response.success && response.data) {
       onboardingStatusCache = {
         status: response.data.currentStep,
@@ -279,7 +333,7 @@ export function clearOnboardingCache() {
 }
 
 // Navigation guard
-router.beforeEach(async (to, from, next) => {
+router.beforeEach(async (to, _from, next) => {
   const authStore = useAuthStore();
   const requiresAuth = to.meta.requiresAuth !== false;
   const isOnboardingRoute = to.meta.isOnboarding === true;
@@ -317,6 +371,24 @@ router.beforeEach(async (to, from, next) => {
     // If onboarding complete, redirect to dashboard
     if (currentStep === 'complete') {
       next('/');
+      return;
+    }
+  }
+
+  // RBAC: blocca route per ruoli non autorizzati
+  // Se la route ha `meta.roles` e l'utente non ha un ruolo permesso,
+  // dirotta a /forbidden (eccetto la /forbidden stessa per evitare loop).
+  const allowedRoles = to.meta.roles as UserRole[] | undefined;
+  if (
+    requiresAuth &&
+    authStore.isAuthenticated &&
+    allowedRoles &&
+    allowedRoles.length > 0 &&
+    to.name !== 'Forbidden'
+  ) {
+    const userRole = authStore.userRole as UserRole;
+    if (!allowedRoles.includes(userRole)) {
+      next({ name: 'Forbidden' });
       return;
     }
   }

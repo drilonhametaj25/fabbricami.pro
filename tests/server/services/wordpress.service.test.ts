@@ -316,6 +316,10 @@ describe('WordPressService', () => {
         findFirst: jest.fn().mockResolvedValue({ id: 'inv-1', reservedQuantity: 0 }),
         update: jest.fn().mockResolvedValue({ id: 'inv-1' }),
       },
+      // reserveStock usa SELECT FOR UPDATE via $queryRawUnsafe per lock pessimistico
+      $queryRawUnsafe: jest.fn().mockResolvedValue([
+        { id: 'inv-1', quantity: 100, reserved_quantity: 0 },
+      ]),
     }));
 
     // Reset settings to configured state - MUST be done before reloadSettings
@@ -3377,6 +3381,9 @@ describe('WordPressService Additional Coverage', () => {
             findFirst: jest.fn().mockResolvedValue({ id: 'inv-1', reservedQuantity: 0 }),
             update: jest.fn().mockResolvedValue({}),
           },
+          $queryRawUnsafe: jest.fn().mockResolvedValue([
+            { id: 'inv-1', quantity: 100, reserved_quantity: 0 },
+          ]),
         };
         return fn(txMock);
       });

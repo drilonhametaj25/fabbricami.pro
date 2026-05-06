@@ -13,8 +13,12 @@ import {
   pauseCustomerImportJob,
   resumeCustomerImportJob,
   getActiveCustomerImportJobs,
+  listDlqJobs,
+  replayDlqJob,
+  getDlqStats,
 } from '../jobs/wordpress.job';
 import { importJobService } from '../services/import-job.service';
+import { authorize } from '../middleware/auth.middleware';
 
 // Schema validazione
 const syncProductSchema = z.object({
@@ -1965,6 +1969,61 @@ const wordpressRoutes: FastifyPluginAsync = async (server: any) => {
         success: false,
         error: error.message,
       });
+    }
+  });
+
+  // ============================================
+  // DLQ MANAGEMENT (admin only)
+  // ============================================
+
+  /**
+   * GET /api/v1/wordpress/dlq/stats - Conta job in DLQ
+   */
+  server.get('/dlq/stats', {
+    preHandler: [authenticate, authorize('ADMIN', 'MANAGER')],
+  }, async (_request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const stats = await getDlqStats();
+      return reply.send({ success: true, data: stats });
+    } catch (error: any) {
+      logger.error('DLQ stats error:', error);
+      return reply.status(500).send({ success: false, error: error.message });
+    }
+  });
+
+  /**
+   * GET /api/v1/wordpress/dlq?limit=100 - Lista job in DLQ
+   */
+  server.get('/dlq', {
+    preHandler: [authenticate, authorize('ADMIN', 'MANAGER')],
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const query = request.query as { limit?: string };
+      const limit = query.limit ? parseInt(query.limit, 10) : 100;
+      const jobs = await listDlqJobs(limit);
+      return reply.send({ success: true, data: jobs });
+    } catch (error: any) {
+      logger.error('DLQ list error:', error);
+      return reply.status(500).send({ success: false, error: error.message });
+    }
+  });
+
+  /**
+   * POST /api/v1/wordpress/dlq/:jobId/replay - Replay job dalla DLQ
+   */
+  server.post('/dlq/:jobId/replay', {
+    preHandler: [authenticate, authorize('ADMIN')],
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const { jobId } = request.params as { jobId: string };
+      const result = await replayDlqJob(jobId);
+      if (!result.replayed) {
+        return reply.status(404).send({ success: false, error: 'DLQ job non trovato' });
+      }
+      return reply.send({ success: true, data: result });
+    } catch (error: any) {
+      logger.error('DLQ replay error:', error);
+      return reply.status(500).send({ success: false, error: error.message });
     }
   });
 };

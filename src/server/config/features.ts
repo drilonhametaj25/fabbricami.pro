@@ -6,6 +6,8 @@ import { initWordPressWorker } from '../jobs/wordpress.job';
 import { initSdiWorker, scheduleSdiJobs } from '../jobs/sdi.job';
 import { initSuggestionWorker, scheduleSuggestionJobs } from '../jobs/suggestion.job';
 import { initTrialExpirationJobs } from '../jobs/trial-expiration.job';
+import { initMrpJobs } from '../jobs/mrp.job';
+import { initPaymentDueReminderJobs } from '../jobs/payment-due-reminder.job';
 import { initWebSocket } from '../utils/websocket.util';
 import { FastifyInstance } from 'fastify';
 import logger from '../config/logger';
@@ -52,6 +54,14 @@ export async function initQueueSystem() {
     // Inizializza job per gestione scadenza trial
     initTrialExpirationJobs();
     logger.info('✅ Trial expiration jobs initialized');
+
+    // Inizializza MRP jobs (ricalcolo notturno + capacity bottleneck alert)
+    initMrpJobs();
+    logger.info('✅ MRP jobs initialized');
+
+    // Inizializza scadenzario + dunning jobs (cron 09:00)
+    initPaymentDueReminderJobs();
+    logger.info('✅ Payment due reminder & dunning jobs initialized');
 
     logger.info('✅ Queue system initialized successfully');
   } catch (error: any) {

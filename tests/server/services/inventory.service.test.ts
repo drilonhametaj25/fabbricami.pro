@@ -54,6 +54,16 @@ jest.mock('@server/config/logger', () => ({
 describe('InventoryService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // Default mock for $transaction: esegue il callback con prismaMock come tx.
+    // (createMovement, transferStock e altre funzioni ora usano $transaction
+    // per atomicità.) Default mock per $queryRawUnsafe (SELECT FOR UPDATE):
+    // ritorna stock abbondante così le validazioni di disponibilità passano.
+    (prismaMock.$transaction as jest.Mock).mockImplementation(
+      async (callback: any) => callback(prismaMock)
+    );
+    (prismaMock.$queryRawUnsafe as jest.Mock).mockResolvedValue([
+      { id: 'inv-mock', quantity: 10000 },
+    ]);
   });
 
   // ==========================================

@@ -124,17 +124,11 @@ export async function tenantMiddleware(
     // Attach tenant to request per uso nei handler
     (request as TenantRequest).tenant = ctx;
 
-    // Esegui il resto della request nel contesto del tenant
-    // Questo permette al Prisma middleware di auto-filtrare per tenantId
-    await new Promise<void>((resolve, reject) => {
-      tenantContext.run(ctx, async () => {
-        try {
-          resolve();
-        } catch (error) {
-          reject(error);
-        }
-      });
-    });
+    // CRITICAL: Imposta l'AsyncLocalStorage context con enterWith.
+    // Questo garantisce che il context tenant sia disponibile per il resto
+    // del lifecycle della request (handler, prisma middleware, ecc.)
+    // senza wrappare il control-flow in una callback.
+    tenantContext.enterWith(ctx);
 
   } catch (err) {
     request.log.error('Tenant middleware error: ' + String(err));
@@ -230,6 +224,7 @@ export async function optionalTenantMiddleware(
         tenantStatus: tenant.status,
       };
       (request as TenantRequest).tenant = ctx;
+      tenantContext.enterWith(ctx);
     }
   } catch (err) {
     // Silently fail for optional tenant

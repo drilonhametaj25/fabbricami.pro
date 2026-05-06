@@ -465,17 +465,23 @@ class NewsletterService {
   }
 
   /**
-   * Send confirmation email
+   * Send confirmation email (double opt-in)
+   * - In production/staging: invia email reale al cliente
+   * - In development: auto-confirma per evitare blocco senza SMTP configurato
    */
-  private async sendConfirmationEmail(_email: string, token: string, _firstName?: string): Promise<void> {
-    // TODO: Implement actual email sending with confirmUrl:
-    // `${process.env.FRONTEND_URL}/newsletter/confirm?token=${token}`
-    // Using nodemailer or a service like SendGrid/Mailchimp transactional
+  private async sendConfirmationEmail(email: string, token: string, firstName?: string): Promise<void> {
+    const baseUrl = process.env.APP_URL || process.env.FRONTEND_URL || 'http://localhost:3001';
+    const confirmUrl = `${baseUrl}/newsletter/confirm?token=${token}`;
 
-    // For now, auto-confirm in development
     if (process.env.NODE_ENV === 'development') {
+      // Dev: auto-confirm così il flusso UX non si blocca su SMTP non configurato
       await this.confirmSubscription(token);
+      return;
     }
+
+    // Production: invia email di conferma; solleva errore se invio fallisce
+    const { emailService } = await import('./email.service');
+    await emailService.sendNewsletterConfirmation(email, firstName || '', confirmUrl);
   }
 
   /**

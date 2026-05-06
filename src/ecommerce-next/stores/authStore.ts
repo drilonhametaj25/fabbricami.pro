@@ -3,7 +3,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { api } from '@/lib/api';
-import type { Customer } from '@/types';
+import type { Cart, Customer } from '@/types';
+import { useCartStore } from './cartStore';
 
 interface AuthStore {
   customer: Customer | null;
@@ -37,6 +38,35 @@ interface LoginResponse {
   customer: Customer;
 }
 
+/**
+ * Dopo login/register: se l'utente aveva un cart guest (sessionId locale),
+ * lo unisce al cart cliente lato server e aggiorna lo store cart.
+ * Best-effort: errori non bloccano il login flow.
+ */
+async function mergeGuestCartIfPresent(): Promise<void> {
+  try {
+    const cartState = useCartStore.getState();
+    const sessionId = cartState.sessionId;
+
+    if (sessionId) {
+      const mergedCart = await api.post<Cart>('/shop/cart/merge', { sessionId });
+      // Aggiorna direttamente lo store cart con il carrello unito.
+      // Usa setState dello store cart (zustand low-level API).
+      useCartStore.setState({ cart: mergedCart });
+    } else {
+      // Nessun cart guest: prendi il cart utente esistente
+      await cartState.fetchCart();
+    }
+  } catch {
+    // Best-effort: in caso di errore, fallback a fetchCart
+    try {
+      await useCartStore.getState().fetchCart();
+    } catch {
+      // ignore
+    }
+  }
+}
+
 export const useAuthStore = create<AuthStore>()(
   persist(
     (set, get) => ({
@@ -63,6 +93,9 @@ export const useAuthStore = create<AuthStore>()(
             token: response.token,
             loading: false,
           });
+
+          // Merge guest cart con cart utente (se sessionId guest presente)
+          await mergeGuestCartIfPresent();
         } catch (error) {
           set({ error: (error as Error).message, loading: false });
           throw error;
@@ -83,6 +116,9 @@ export const useAuthStore = create<AuthStore>()(
             token: response.token,
             loading: false,
           });
+
+          // Merge guest cart con cart utente (se sessionId guest presente)
+          await mergeGuestCartIfPresent();
         } catch (error) {
           set({ error: (error as Error).message, loading: false });
           throw error;

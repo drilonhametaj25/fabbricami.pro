@@ -23,6 +23,8 @@ import {
 } from './sdi-provider.interface';
 import { fatturaPaXmlService } from './fatturapa-xml.service';
 import { arubaSdiService } from './aruba-sdi.service';
+import { signatureService } from './signature.service';
+import { decryptSecret } from '../../utils/crypto.util';
 import { FatturapaDocumentType, SdiStatus } from '@prisma/client';
 import { logger } from '../../config/logger';
 import * as fs from 'fs/promises';
@@ -214,7 +216,7 @@ class SdiService {
       }
 
       // Leggi contenuto XML
-      const xml = await fs.readFile(invoice.xmlFilePath!, 'utf-8');
+      let xml = await fs.readFile(invoice.xmlFilePath!, 'utf-8');
 
       // Valida XML prima dell'invio
       const validationResult = fatturaPaValidatorService.validateXml(xml);
@@ -226,6 +228,29 @@ class SdiService {
           error: `Validazione XML fallita: ${errorMessages}`,
           errorCode: 'VALIDATION_ERROR',
         };
+      }
+
+      // Firma XAdES (PROVIDER mode = no-op, LOCAL_PKCS12 = firma con cert tenant)
+      const settings = await prisma.companySettings.findFirst();
+      const signatureMode = signatureService.resolveMode({
+        sdiSignatureMode: (settings?.sdiSignatureMode as 'PROVIDER' | 'LOCAL_PKCS12' | null) ?? null,
+        sdiPkcs12Path: settings?.sdiPkcs12Path,
+        sdiPkcs12PasswordEnc: settings?.sdiPkcs12PasswordEnc,
+      });
+      if (signatureMode === 'LOCAL_PKCS12' && settings?.sdiPkcs12Path && settings?.sdiPkcs12PasswordEnc) {
+        const sigResult = await signatureService.signFatturapaXml(xml, 'LOCAL_PKCS12', {
+          pkcs12Path: settings.sdiPkcs12Path,
+          pkcs12Password: decryptSecret(settings.sdiPkcs12PasswordEnc),
+        });
+        if (!sigResult.success || !sigResult.signedXml) {
+          logger.error(`SDI signature failed for invoice ${invoice.invoiceNumber}: ${sigResult.error}`);
+          return {
+            success: false,
+            error: `Firma XAdES fallita: ${sigResult.error}`,
+            errorCode: 'SIGNATURE_ERROR',
+          };
+        }
+        xml = sigResult.signedXml;
       }
 
       // Invia tramite provider

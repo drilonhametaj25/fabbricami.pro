@@ -74,7 +74,8 @@ class SupplierRepository {
    * Trova fornitore per codice
    */
   async findByCode(code: string) {
-    return prisma.supplier.findUnique({
+    // Codice univoco per tenant - usa findFirst (il Prisma middleware aggiunge tenantId)
+    return prisma.supplier.findFirst({
       where: { code },
     });
   }

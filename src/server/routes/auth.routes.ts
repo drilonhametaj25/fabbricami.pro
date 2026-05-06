@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { tenantService } from '../services/tenant.service';
 import { tenantInviteService } from '../services/tenant-invite.service';
 import { emailService } from '../services/email.service';
+import { logger } from '../config/logger';
 import {
   registerSchema,
   verifyEmailSchema,
@@ -321,25 +322,9 @@ const authRoutes: FastifyPluginAsync = async (server) => {
         user.firstName
       );
 
-      // Generate tokens (user can use the app while verifying email)
-      const payload = {
-        userId: user.id,
-        email: user.email,
-        role: user.role,
-        tenantId: tenant.id,
-        tenantSlug: tenant.slug,
-        planCode: tenant.subscription?.planCode,
-      };
-
-      const token = generateToken(payload);
-      const refreshToken = generateRefreshToken(payload);
-
-      // Save refresh token
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { refreshToken },
-      });
-
+      // SECURITY: NON emettiamo token JWT/refreshToken qui. L'utente DEVE verificare
+      // l'email prima di poter accedere. Questo previene account spam e bypass della
+      // verifica email tramite il token rilasciato a /register.
       return reply.status(201).send({
         success: true,
         data: {
@@ -357,13 +342,12 @@ const authRoutes: FastifyPluginAsync = async (server) => {
             name: tenant.name,
             subscription: tenant.subscription,
           },
-          token,
-          refreshToken,
-          message: 'Registrazione completata. Controlla la tua email per verificare l\'account.',
+          requiresEmailVerification: true,
+          message: 'Registrazione completata. Controlla la tua email per verificare l\'account prima di accedere.',
         },
       });
     } catch (error) {
-      console.error('Registration error:', error);
+      logger.error('Registration error:', error);
       return reply.status(400).send({
         success: false,
         error: error instanceof Error ? error.message : 'Errore durante la registrazione',

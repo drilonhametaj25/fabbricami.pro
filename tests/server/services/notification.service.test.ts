@@ -30,6 +30,23 @@ jest.mock('@server/repositories/notification.repository', () => ({
   default: mockNotificationRepository,
 }));
 
+// Mock websocket utils (depends on prisma which connects at module load)
+jest.mock('@server/utils/websocket.util', () => ({
+  __esModule: true,
+  sendToClient: jest.fn(),
+  broadcast: jest.fn(),
+}));
+
+// Mock database (lazy import in notifyRoles)
+jest.mock('@server/config/database', () => ({
+  __esModule: true,
+  prisma: {
+    user: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
+  },
+}));
+
 // Import after mocks
 import notificationService from '@server/services/notification.service';
 import { NotificationType, UserRole } from '@prisma/client';

@@ -2,6 +2,7 @@
 import notificationRepository from '../repositories/notification.repository';
 import logger from '../config/logger';
 import { NotificationType, UserRole } from '@prisma/client';
+import { sendToClient } from '../utils/websocket.util';
 
 // Types/Interfaces
 interface CreateNotificationInput {
@@ -64,7 +65,22 @@ class NotificationService {
 
     logger.info(`Created notification for user ${data.userId}: ${data.title}`);
 
-    // TODO: Invia notifica real-time via WebSocket
+    // Invia notifica real-time via WebSocket (silent fail se utente non connesso)
+    try {
+      sendToClient(data.userId, {
+        type: 'notification',
+        data: {
+          id: notification.id,
+          type: notification.type,
+          title: notification.title,
+          message: notification.message,
+          link: notification.link,
+          createdAt: notification.createdAt,
+        },
+      });
+    } catch (error) {
+      logger.warn(`WebSocket send failed for user ${data.userId}: ${error}`);
+    }
 
     return notification;
   }
@@ -85,7 +101,22 @@ class NotificationService {
 
     logger.info(`Created ${notifications.length} notifications: ${data.title}`);
 
-    // TODO: Invia notifiche real-time via WebSocket
+    // Invia notifiche real-time via WebSocket a ciascun utente connesso
+    for (const userId of data.userIds) {
+      try {
+        sendToClient(userId, {
+          type: 'notification',
+          data: {
+            type: data.type,
+            title: data.title,
+            message: data.message,
+            link: data.link,
+          },
+        });
+      } catch (error) {
+        logger.warn(`WebSocket send failed for user ${userId}: ${error}`);
+      }
+    }
 
     return { count: notifications.length };
   }
@@ -103,7 +134,32 @@ class NotificationService {
 
     logger.info(`Created notifications for roles ${roles.join(', ')}: ${data.title}`);
 
-    // TODO: Invia notifiche real-time via WebSocket
+    // Invia notifiche real-time via WebSocket a tutti gli utenti dei ruoli specificati
+    try {
+      // Lazy import per evitare ciclo modulo in test (prisma fa connect top-level)
+      const { prisma } = await import('../config/database');
+      const users = await prisma.user.findMany({
+        where: { role: { in: roles }, isActive: true },
+        select: { id: true },
+      });
+      for (const user of users) {
+        try {
+          sendToClient(user.id, {
+            type: 'notification',
+            data: {
+              type: data.type,
+              title: data.title,
+              message: data.message,
+              link: data.link,
+            },
+          });
+        } catch (error) {
+          logger.warn(`WebSocket send failed for user ${user.id}: ${error}`);
+        }
+      }
+    } catch (error) {
+      logger.warn(`Failed to fetch users for role notification: ${error}`);
+    }
 
     return { success: true };
   }

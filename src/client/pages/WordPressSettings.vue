@@ -535,6 +535,68 @@
           </Column>
         </DataTable>
       </section>
+
+      <!-- Dead Letter Queue: job WordPress falliti definitivamente -->
+      <section class="logs-section">
+        <div class="section-header">
+          <h2 class="section-title">
+            <i class="pi pi-exclamation-triangle"></i>
+            Dead Letter Queue
+            <Tag
+              v-if="dlqStats.total > 0"
+              :value="dlqStats.total + ' job'"
+              severity="danger"
+              class="ml-2"
+            />
+          </h2>
+          <Button
+            label="Aggiorna"
+            icon="pi pi-refresh"
+            outlined
+            size="small"
+            @click="loadDlq"
+            :loading="loadingDlq"
+          />
+        </div>
+        <p class="section-description">
+          Job WordPress che hanno consumato tutti i 5 retry esponenziali. Possono essere ispezionati e ri-triggerati.
+        </p>
+
+        <DataTable
+          :value="dlqJobs"
+          :loading="loadingDlq"
+          stripedRows
+          responsiveLayout="scroll"
+          :paginator="dlqJobs.length > 10"
+          :rows="10"
+          :emptyMessage="loadingDlq ? 'Caricamento...' : 'Nessun job in DLQ'"
+        >
+          <Column field="id" header="Job ID" style="width: 200px" />
+          <Column field="name" header="Tipo" />
+          <Column header="Fallito il" style="width: 180px">
+            <template #body="{ data }">
+              {{ data.timestamp ? new Date(data.timestamp).toLocaleString('it-IT') : '-' }}
+            </template>
+          </Column>
+          <Column header="Errore" style="min-width: 200px">
+            <template #body="{ data }">
+              <span class="error-text" v-if="data.data?.failedReason">{{ data.data.failedReason }}</span>
+            </template>
+          </Column>
+          <Column header="Azioni" style="width: 120px">
+            <template #body="{ data }">
+              <Button
+                label="Replay"
+                icon="pi pi-replay"
+                size="small"
+                outlined
+                @click="replayDlq(data.id)"
+                :loading="replayingDlq === data.id"
+              />
+            </template>
+          </Column>
+        </DataTable>
+      </section>
     </div>
 
     <!-- Dialog Creazione Credenziali -->
@@ -1459,6 +1521,43 @@ const loadLogs = async () => {
   }
 };
 
+// Dead Letter Queue (job WordPress falliti definitivamente dopo 5 retry)
+const dlqJobs = ref<Array<{ id: string; name: string; data: any; timestamp: number }>>([]);
+const dlqStats = ref<{ total: number }>({ total: 0 });
+const loadingDlq = ref(false);
+const replayingDlq = ref<string | null>(null);
+
+const loadDlq = async () => {
+  loadingDlq.value = true;
+  try {
+    const [jobs, stats]: any[] = await Promise.all([
+      api.get('/wordpress/dlq?limit=100'),
+      api.get('/wordpress/dlq/stats'),
+    ]);
+    dlqJobs.value = (jobs?.data || jobs) ?? [];
+    const s = stats?.data || stats || {};
+    const total = (s.waiting || 0) + (s.completed || 0) + (s.failed || 0) + (s.delayed || 0) + (s.active || 0);
+    dlqStats.value = { total };
+  } catch (error: any) {
+    toast.add({ severity: 'error', summary: 'Errore', detail: error.message || 'Caricamento DLQ fallito', life: 4000 });
+  } finally {
+    loadingDlq.value = false;
+  }
+};
+
+const replayDlq = async (jobId: string) => {
+  replayingDlq.value = jobId;
+  try {
+    await api.post(`/wordpress/dlq/${jobId}/replay`);
+    toast.add({ severity: 'success', summary: 'Replay', detail: 'Job re-immesso in coda', life: 3000 });
+    await loadDlq();
+  } catch (error: any) {
+    toast.add({ severity: 'error', summary: 'Errore replay', detail: error.message || 'Replay fallito', life: 4000 });
+  } finally {
+    replayingDlq.value = null;
+  }
+};
+
 // Sync actions
 const syncWebProducts = async () => {
   syncing.webProducts = true;
@@ -2039,6 +2138,7 @@ onMounted(() => {
   loadSyncStatus();
   loadCredentials();
   loadLogs();
+  loadDlq();
   // Controlla se ci sono job di importazione attivi
   checkExistingJobs();
 });

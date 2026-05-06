@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import { config } from '../config/environment';
 import { prisma } from '../config/database';
 import { UserRole } from '@prisma/client';
+import { tenantContext, TenantContext } from './tenant.middleware';
 
 // Types
 export interface JWTPayload {
@@ -82,6 +83,18 @@ export async function authenticate(
         tenantSlug: user.tenant?.slug,
         planCode: user.tenant?.subscription?.plan?.code,
       };
+
+      // CRITICAL: imposta il tenant context tramite AsyncLocalStorage
+      // così il Prisma middleware può auto-filtrare per tenantId
+      // su TUTTE le route protette, anche senza tenantMiddleware esplicito.
+      if (user.tenantId && user.tenant) {
+        const ctx: TenantContext = {
+          tenantId: user.tenantId,
+          tenantSlug: user.tenant.slug,
+          tenantStatus: user.tenant.status,
+        };
+        tenantContext.enterWith(ctx);
+      }
     } catch (error) {
       if (error instanceof jwt.TokenExpiredError) {
         return reply.status(401).send({

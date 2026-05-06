@@ -575,6 +575,52 @@ const accountingRoutes: FastifyPluginAsync = async (server: any) => {
       });
     }
   });
+
+  // ============================================
+  // MARGINS / COGS
+  // ============================================
+
+  /**
+   * GET /api/v1/accounting/margins/products/:productId
+   * Margine di un singolo prodotto su periodo (default: tutto storico)
+   * Query: ?from=YYYY-MM-DD&to=YYYY-MM-DD
+   */
+  server.get('/margins/products/:productId', { preHandler: authenticate }, async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const { productId } = request.params as { productId: string };
+      const query = request.query as { from?: string; to?: string };
+      const dateFrom = query.from ? new Date(query.from) : undefined;
+      const dateTo = query.to ? new Date(query.to) : undefined;
+      const data = await accountingService.getProductMargin(productId, dateFrom, dateTo);
+      return reply.send({ success: true, data });
+    } catch (error: any) {
+      return reply.status(400).send({
+        success: false,
+        error: error.message || 'Failed to get product margin',
+      });
+    }
+  });
+
+  /**
+   * GET /api/v1/accounting/margins/top
+   * Top N prodotti per gross profit nel periodo
+   * Query: ?from=YYYY-MM-DD&to=YYYY-MM-DD&limit=50
+   */
+  server.get('/margins/top', { preHandler: authenticate }, async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const query = request.query as { from?: string; to?: string; limit?: string };
+      const dateFrom = query.from ? new Date(query.from) : undefined;
+      const dateTo = query.to ? new Date(query.to) : undefined;
+      const limit = query.limit ? parseInt(query.limit, 10) : 50;
+      const data = await accountingService.getTopProductMargins({ dateFrom, dateTo, limit });
+      return reply.send({ success: true, data });
+    } catch (error: any) {
+      return reply.status(400).send({
+        success: false,
+        error: error.message || 'Failed to get top product margins',
+      });
+    }
+  });
 };
 
 export default accountingRoutes;

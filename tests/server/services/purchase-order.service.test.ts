@@ -30,6 +30,15 @@ jest.mock('@server/services/notification.service', () => ({
   default: mockNotificationService,
 }));
 
+// Mock email service (purchase-order.service ora invia email a fornitore al confirm)
+const mockEmailService = {
+  sendPurchaseOrderCreated: jest.fn().mockResolvedValue(true),
+};
+jest.mock('@server/services/email.service', () => ({
+  __esModule: true,
+  emailService: mockEmailService,
+}));
+
 // Mock purchase order repository
 const mockPurchaseOrderRepository = {
   findAll: jest.fn(),

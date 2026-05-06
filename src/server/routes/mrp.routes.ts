@@ -1,6 +1,15 @@
 import { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import { mrpService } from '../services/mrp.service';
+import { capacityPlanningService } from '../services/capacity-planning.service';
 import { z } from 'zod';
+
+const capacityCheckSchema = z.object({
+  productId: z.string().uuid(),
+  quantity: z.number().int().positive(),
+  plannedStartDate: z.string(),
+  plannedEndDate: z.string(),
+  dailyCapacityMinutes: z.number().int().positive().optional(),
+});
 
 const productionRequirementsSchema = z.object({
   productId: z.string().uuid(),
@@ -267,6 +276,46 @@ const mrpRoutes: FastifyPluginAsync = async (server: any) => {
         success: false,
         error: error.message,
       });
+    }
+  });
+
+  // =============================================
+  // CAPACITY PLANNING
+  // =============================================
+
+  /**
+   * GET /mrp/capacity?horizonDays=30&dailyCapacityMinutes=480
+   * Carico produttivo per operation type su orizzonte temporale.
+   */
+  server.get('/capacity', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const query = request.query as { horizonDays?: string; dailyCapacityMinutes?: string };
+      const horizonDays = query.horizonDays ? parseInt(query.horizonDays, 10) : 30;
+      const dailyCap = query.dailyCapacityMinutes ? parseInt(query.dailyCapacityMinutes, 10) : 480;
+      const result = await capacityPlanningService.getCapacityPlan(horizonDays, dailyCap);
+      return reply.send({ success: true, data: result });
+    } catch (error: any) {
+      return reply.status(500).send({ success: false, error: error.message });
+    }
+  });
+
+  /**
+   * POST /mrp/capacity/check-feasibility
+   * Verifica se un nuovo production order e' schedulabile senza saturazioni.
+   */
+  server.post('/capacity/check-feasibility', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const body = capacityCheckSchema.parse(request.body);
+      const result = await capacityPlanningService.checkFeasibility({
+        productId: body.productId,
+        quantity: body.quantity,
+        plannedStartDate: new Date(body.plannedStartDate),
+        plannedEndDate: new Date(body.plannedEndDate),
+        dailyCapacityMinutes: body.dailyCapacityMinutes,
+      });
+      return reply.send({ success: true, data: result });
+    } catch (error: any) {
+      return reply.status(400).send({ success: false, error: error.message });
     }
   });
 };

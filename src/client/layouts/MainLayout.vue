@@ -30,132 +30,137 @@
           <span class="nav-section-title">Gestione</span>
         </div>
 
-        <router-link to="/products" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Prodotti' : null">
+        <router-link v-if="canAccessModule('products')" to="/products" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Prodotti' : null">
           <i class="pi pi-box"></i>
           <span class="nav-label">Prodotti</span>
         </router-link>
 
-        <router-link to="/product-categories" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Categorie' : null">
+        <router-link v-if="canAccessModule('product-categories')" to="/product-categories" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Categorie' : null">
           <i class="pi pi-sitemap"></i>
           <span class="nav-label">Categorie</span>
         </router-link>
 
-        <router-link to="/warehouses" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Magazzini' : null">
+        <router-link v-if="canAccessModule('warehouses')" to="/warehouses" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Magazzini' : null">
           <i class="pi pi-building"></i>
           <span class="nav-label">Magazzini</span>
         </router-link>
 
-        <router-link to="/inventory" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Giacenze' : null">
+        <router-link v-if="canAccessModule('inventory')" to="/inventory" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Giacenze' : null">
           <i class="pi pi-warehouse"></i>
           <span class="nav-label">Giacenze</span>
         </router-link>
 
-        <router-link to="/materials" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Materiali' : null">
+        <router-link v-if="canAccessModule('materials')" to="/materials" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Materiali' : null">
           <i class="pi pi-th-large"></i>
           <span class="nav-label">Materiali</span>
         </router-link>
 
-        <router-link to="/orders" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Ordini' : null">
+        <router-link v-if="canAccessModule('orders')" to="/orders" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Ordini' : null">
           <i class="pi pi-shopping-cart"></i>
           <span class="nav-label">Ordini</span>
         </router-link>
 
-        <div class="nav-section" v-show="!sidebarCollapsed">
+        <div v-if="canAccessModule('invoices') || canAccessModule('ddt')" class="nav-section" v-show="!sidebarCollapsed">
           <span class="nav-section-title">Documenti</span>
         </div>
 
-        <router-link to="/invoices" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Fatture' : null">
+        <router-link v-if="canAccessModule('invoices')" to="/invoices" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Fatture' : null">
           <i class="pi pi-file"></i>
           <span class="nav-label">Fatture</span>
         </router-link>
 
-        <router-link to="/ddt" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'DDT' : null">
+        <router-link v-if="canAccessModule('ddt')" to="/ddt" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'DDT' : null">
           <i class="pi pi-send"></i>
           <span class="nav-label">DDT</span>
         </router-link>
 
-        <div class="nav-section" v-show="!sidebarCollapsed">
+        <div v-if="canAccessModule('operation-types') || canAccessModule('production-orders')" class="nav-section" v-show="!sidebarCollapsed">
           <span class="nav-section-title">Produzione</span>
         </div>
 
-        <router-link to="/operation-types" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Tipi Operazione' : null">
+        <router-link v-if="canAccessModule('operation-types')" to="/operation-types" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Tipi Operazione' : null">
           <i class="pi pi-cog"></i>
           <span class="nav-label">Tipi Operazione</span>
         </router-link>
 
-        <router-link to="/production-orders" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Ordini Produzione' : null">
+        <router-link v-if="canAccessModule('production-orders')" to="/production-orders" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Ordini Produzione' : null">
           <i class="pi pi-clipboard"></i>
           <span class="nav-label">Ordini Produzione</span>
         </router-link>
 
-        <div class="nav-section" v-show="!sidebarCollapsed">
+        <router-link v-if="canAccessModule('production-orders')" to="/mrp/capacity" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'MRP Capacity' : null">
+          <i class="pi pi-chart-bar"></i>
+          <span class="nav-label">MRP Capacity</span>
+        </router-link>
+
+        <div v-if="canAccessModule('suppliers') || canAccessModule('purchase-orders') || canAccessModule('logistics')" class="nav-section" v-show="!sidebarCollapsed">
           <span class="nav-section-title">Acquisti</span>
         </div>
 
-        <router-link to="/suppliers" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Fornitori' : null">
+        <router-link v-if="canAccessModule('suppliers')" to="/suppliers" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Fornitori' : null">
           <i class="pi pi-truck"></i>
           <span class="nav-label">Fornitori</span>
         </router-link>
 
-        <router-link to="/purchase-orders" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Ordini Acquisto' : null">
+        <router-link v-if="canAccessModule('purchase-orders')" to="/purchase-orders" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Ordini Acquisto' : null">
           <i class="pi pi-file-edit"></i>
           <span class="nav-label">Ordini Acquisto</span>
         </router-link>
 
-        <router-link to="/logistics" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Logistica' : null">
+        <router-link v-if="canAccessModule('logistics')" to="/logistics" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Logistica' : null">
           <i class="pi pi-compass"></i>
           <span class="nav-label">Logistica</span>
         </router-link>
 
-        <div class="nav-section" v-show="!sidebarCollapsed">
+        <div v-if="canAccessModule('customers') || canAccessModule('employees') || canAccessModule('tasks')" class="nav-section" v-show="!sidebarCollapsed">
           <span class="nav-section-title">Clienti & Team</span>
         </div>
 
-        <router-link to="/customers" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Clienti' : null">
+        <router-link v-if="canAccessModule('customers')" to="/customers" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Clienti' : null">
           <i class="pi pi-users"></i>
           <span class="nav-label">Clienti</span>
         </router-link>
 
-        <router-link to="/pricelists" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Listini Prezzi' : null">
+        <router-link v-if="canAccessModule('pricelists')" to="/pricelists" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Listini Prezzi' : null">
           <i class="pi pi-list"></i>
           <span class="nav-label">Listini Prezzi</span>
         </router-link>
 
-        <router-link to="/employees" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Dipendenti' : null">
+        <router-link v-if="canAccessModule('employees')" to="/employees" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Dipendenti' : null">
           <i class="pi pi-id-card"></i>
           <span class="nav-label">Dipendenti</span>
         </router-link>
 
-        <router-link to="/tasks" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Task' : null">
+        <router-link v-if="canAccessModule('tasks')" to="/tasks" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Task' : null">
           <i class="pi pi-check-square"></i>
           <span class="nav-label">Task</span>
         </router-link>
 
-        <div class="nav-section" v-show="!sidebarCollapsed">
+        <div v-if="canAccessModule('accounting') || canAccessModule('analytics') || canAccessModule('reports')" class="nav-section" v-show="!sidebarCollapsed">
           <span class="nav-section-title">Analytics</span>
         </div>
 
-        <router-link to="/accounting" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Contabilita' : null">
+        <router-link v-if="canAccessModule('accounting')" to="/accounting" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Contabilita' : null">
           <i class="pi pi-euro"></i>
           <span class="nav-label">Contabilita</span>
         </router-link>
 
-        <router-link to="/analytics" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Analytics' : null">
+        <router-link v-if="canAccessModule('analytics')" to="/analytics" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Analytics' : null">
           <i class="pi pi-chart-line"></i>
           <span class="nav-label">Analytics</span>
         </router-link>
 
-        <router-link to="/reports" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Report' : null">
+        <router-link v-if="canAccessModule('reports')" to="/reports" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Report' : null">
           <i class="pi pi-file-pdf"></i>
           <span class="nav-label">Report</span>
         </router-link>
 
-        <router-link to="/calendar" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Calendario' : null">
+        <router-link v-if="canAccessModule('calendar')" to="/calendar" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Calendario' : null">
           <i class="pi pi-calendar"></i>
           <span class="nav-label">Calendario</span>
         </router-link>
 
-        <router-link to="/notifications" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Notifiche' : null">
+        <router-link v-if="canAccessModule('notifications')" to="/notifications" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Notifiche' : null">
           <div class="nav-item-icon-wrapper">
             <i class="pi pi-bell"></i>
             <Badge v-if="notificationStore.unreadCount > 0" :value="notificationStore.unreadCount" severity="danger" class="notification-badge" />
@@ -163,30 +168,30 @@
           <span class="nav-label">Notifiche</span>
         </router-link>
 
-        <div class="nav-section" v-show="!sidebarCollapsed">
+        <div v-if="canAccessModule('wordpress')" class="nav-section" v-show="!sidebarCollapsed">
           <span class="nav-section-title">Integrazioni</span>
         </div>
 
-        <router-link to="/wordpress" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'WordPress' : null">
+        <router-link v-if="canAccessModule('wordpress')" to="/wordpress" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'WordPress' : null">
           <i class="pi pi-globe"></i>
           <span class="nav-label">WordPress</span>
         </router-link>
 
-        <div class="nav-section" v-show="!sidebarCollapsed">
+        <div v-if="canAccessModule('team') || canAccessModule('billing') || canAccessModule('settings')" class="nav-section" v-show="!sidebarCollapsed">
           <span class="nav-section-title">Account</span>
         </div>
 
-        <router-link to="/settings/team" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Team' : null">
+        <router-link v-if="canAccessModule('team')" to="/settings/team" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Team' : null">
           <i class="pi pi-user-plus"></i>
           <span class="nav-label">Team</span>
         </router-link>
 
-        <router-link to="/settings/billing" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Fatturazione' : null">
+        <router-link v-if="canAccessModule('billing')" to="/settings/billing" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Fatturazione' : null">
           <i class="pi pi-credit-card"></i>
           <span class="nav-label">Fatturazione</span>
         </router-link>
 
-        <router-link to="/settings" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Impostazioni' : null">
+        <router-link v-if="canAccessModule('settings')" to="/settings" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Impostazioni' : null">
           <i class="pi pi-cog"></i>
           <span class="nav-label">Impostazioni</span>
         </router-link>
@@ -206,7 +211,7 @@
               <i class="pi pi-user"></i>
             </div>
             <div class="user-details">
-              <div class="user-name">{{ authStore.user?.name || 'Admin User' }}</div>
+              <div class="user-name">{{ displayUserName }}</div>
               <div class="user-role">{{ authStore.user?.role || 'Administrator' }}</div>
             </div>
           </div>
@@ -242,7 +247,10 @@ import { useAuthStore } from '../stores/auth.store';
 import { useNotificationStore } from '../stores/notification.store';
 import { useSubscriptionStore } from '../stores/subscription.store';
 import { useRouter } from 'vue-router';
+import { usePermissions } from '../composables/usePermissions';
 import PlanLimitBanner from '../components/billing/PlanLimitBanner.vue';
+
+const { canAccessModule } = usePermissions();
 
 const authStore = useAuthStore();
 const notificationStore = useNotificationStore();
@@ -250,6 +258,14 @@ const subscriptionStore = useSubscriptionStore();
 const router = useRouter();
 
 const sidebarCollapsed = ref(false);
+
+// User display name: firstName + lastName, fallback a email/'Admin User'
+const displayUserName = computed(() => {
+  const u = authStore.user;
+  if (!u) return 'Admin User';
+  const fullName = `${u.firstName || ''} ${u.lastName || ''}`.trim();
+  return fullName || u.email || 'Admin User';
+});
 
 // Tenant & Subscription computed
 const tenantName = computed(() => authStore.tenantName || 'EcommerceERP');

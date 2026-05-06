@@ -1,5 +1,7 @@
 import { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import { authenticate, authorize } from '../middleware/auth.middleware';
+import { tenantMiddleware } from '../middleware/tenant.middleware';
+import { requirePlanLimit } from '../middleware/subscription.middleware';
 import { orderService } from '../services/order.service';
 import {
   createOrderSchema,
@@ -120,7 +122,7 @@ const orderRoutes: FastifyPluginAsync = async (server: any) => {
    * POST /api/v1/orders
    * Crea nuovo ordine
    */
-  server.post('/', { preHandler: authenticate }, async (request: FastifyRequest, reply: FastifyReply) => {
+  server.post('/', { preHandler: [authenticate, tenantMiddleware, requirePlanLimit('orders')] }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const data = createOrderSchema.parse(request.body);
       const order = await orderService.createOrder(data);

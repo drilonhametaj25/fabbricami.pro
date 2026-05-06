@@ -69,8 +69,8 @@ async function handleBarcodeScanned(data: any, client: WebSocketClient) {
   logger.info(`Barcode scanned: ${barcode} - Action: ${action}`);
 
   try {
-    // Trova prodotto per barcode
-    const product = await prisma.product.findUnique({
+    // Trova prodotto per barcode (univoco per tenant: middleware aggiunge tenantId)
+    const product = await prisma.product.findFirst({
       where: { barcode },
       include: {
         inventory: true,

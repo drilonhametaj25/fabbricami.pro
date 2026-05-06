@@ -772,7 +772,7 @@ describe('PriceListService', () => {
     it('should resolve items by SKU', async () => {
       const mockPriceList = createMockPriceList();
       mockPriceListRepository.findById.mockResolvedValue(mockPriceList);
-      prismaMock.product.findUnique.mockResolvedValue({ id: 'prod-1' } as any);
+      prismaMock.product.findFirst.mockResolvedValue({ id: 'prod-1' } as any);
       mockPriceListRepository.bulkUpsertItems.mockResolvedValue([{}]);
 
       const result = await priceListService.bulkImportPrices({
@@ -788,8 +788,8 @@ describe('PriceListService', () => {
     it('should skip invalid items', async () => {
       const mockPriceList = createMockPriceList();
       mockPriceListRepository.findById.mockResolvedValue(mockPriceList);
-      // Only the item with productSku will call findUnique (first item has productId already)
-      prismaMock.product.findUnique.mockResolvedValueOnce(null); // SKU not found
+      // Only the item with productSku will call findFirst (first item has productId already)
+      prismaMock.product.findFirst.mockResolvedValueOnce(null); // SKU not found
       mockPriceListRepository.bulkUpsertItems.mockResolvedValue([{}]);
 
       const result = await priceListService.bulkImportPrices({
@@ -807,7 +807,7 @@ describe('PriceListService', () => {
     it('should throw error when no valid items', async () => {
       const mockPriceList = createMockPriceList();
       mockPriceListRepository.findById.mockResolvedValue(mockPriceList);
-      prismaMock.product.findUnique.mockResolvedValue(null);
+      prismaMock.product.findFirst.mockResolvedValue(null);
 
       await expect(
         priceListService.bulkImportPrices({

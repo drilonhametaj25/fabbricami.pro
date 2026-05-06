@@ -1768,6 +1768,211 @@ class AccountingService {
 
     return `${prefix}${nextNumber.toString().padStart(5, '0')}`;
   }
+
+  // ========================================================================
+  // MARGINS / COGS
+  // ========================================================================
+
+  /**
+   * Calcola il margine per un prodotto su un range temporale.
+   * Usa il costo medio ponderato (weightedAvgCost) come riferimento per COGS.
+   * Considera solo ordini con stato SHIPPED/DELIVERED (vendite confermate).
+   *
+   * Ritorna:
+   * - revenue: ricavo totale (subtotal items)
+   * - cogs: costo merce venduta (sum qty * weightedAvgCost al momento attuale)
+   * - grossProfit: revenue - cogs
+   * - grossMarginPct: (grossProfit / revenue) * 100
+   * - unitsSold
+   */
+  async getProductMargin(
+    productId: string,
+    dateFrom?: Date,
+    dateTo?: Date
+  ): Promise<{
+    productId: string;
+    productSku: string | null;
+    productName: string | null;
+    revenue: number;
+    cogs: number;
+    grossProfit: number;
+    grossMarginPct: number;
+    unitsSold: number;
+    weightedAvgCost: number;
+  }> {
+    const product = await prisma.product.findUnique({
+      where: { id: productId },
+      select: { id: true, sku: true, name: true, cost: true, weightedAvgCost: true },
+    });
+
+    if (!product) {
+      throw new Error('Prodotto non trovato');
+    }
+
+    const wac = Number(product.weightedAvgCost) || Number(product.cost) || 0;
+
+    const orderItems = await prisma.orderItem.findMany({
+      where: {
+        productId,
+        order: {
+          status: { in: ['SHIPPED', 'DELIVERED'] },
+          ...(dateFrom || dateTo
+            ? {
+                orderDate: {
+                  ...(dateFrom && { gte: dateFrom }),
+                  ...(dateTo && { lte: dateTo }),
+                },
+              }
+            : {}),
+        },
+      },
+      select: {
+        quantity: true,
+        unitPrice: true,
+        discount: true,
+      },
+    });
+
+    let revenue = 0;
+    let unitsSold = 0;
+    for (const item of orderItems) {
+      const lineRevenue =
+        Number(item.unitPrice) * item.quantity - Number(item.discount || 0);
+      revenue += lineRevenue;
+      unitsSold += item.quantity;
+    }
+    const cogs = unitsSold * wac;
+    const grossProfit = revenue - cogs;
+    const grossMarginPct = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
+
+    return {
+      productId: product.id,
+      productSku: product.sku,
+      productName: product.name,
+      revenue: Math.round(revenue * 100) / 100,
+      cogs: Math.round(cogs * 100) / 100,
+      grossProfit: Math.round(grossProfit * 100) / 100,
+      grossMarginPct: Math.round(grossMarginPct * 100) / 100,
+      unitsSold,
+      weightedAvgCost: wac,
+    };
+  }
+
+  /**
+   * Calcola i margini per tutti i prodotti venduti nel range temporale,
+   * ordinati per grossProfit decrescente. Restituisce top N risultati.
+   */
+  async getTopProductMargins(params: {
+    dateFrom?: Date;
+    dateTo?: Date;
+    limit?: number;
+  }): Promise<
+    Array<{
+      productId: string;
+      productSku: string | null;
+      productName: string | null;
+      revenue: number;
+      cogs: number;
+      grossProfit: number;
+      grossMarginPct: number;
+      unitsSold: number;
+    }>
+  > {
+    const { dateFrom, dateTo, limit = 50 } = params;
+
+    // Aggregazione per productId su OrderItem di ordini SHIPPED/DELIVERED.
+    const aggregated = await prisma.orderItem.groupBy({
+      by: ['productId'],
+      where: {
+        productId: { not: null },
+        order: {
+          status: { in: ['SHIPPED', 'DELIVERED'] },
+          ...(dateFrom || dateTo
+            ? {
+                orderDate: {
+                  ...(dateFrom && { gte: dateFrom }),
+                  ...(dateTo && { lte: dateTo }),
+                },
+              }
+            : {}),
+        },
+      },
+      _sum: {
+        quantity: true,
+      },
+    });
+
+    const productIds = aggregated.map((a) => a.productId).filter((id): id is string => !!id);
+    if (productIds.length === 0) return [];
+
+    const products = await prisma.product.findMany({
+      where: { id: { in: productIds } },
+      select: { id: true, sku: true, name: true, cost: true, weightedAvgCost: true },
+    });
+    const byId = new Map(products.map((p) => [p.id, p]));
+
+    // Per ciascun prodotto, somma il revenue ricalcolando dagli items
+    const results = [] as Array<{
+      productId: string;
+      productSku: string | null;
+      productName: string | null;
+      revenue: number;
+      cogs: number;
+      grossProfit: number;
+      grossMarginPct: number;
+      unitsSold: number;
+    }>;
+
+    for (const agg of aggregated) {
+      if (!agg.productId) continue;
+      const product = byId.get(agg.productId);
+      if (!product) continue;
+
+      const wac = Number(product.weightedAvgCost) || Number(product.cost) || 0;
+      const items = await prisma.orderItem.findMany({
+        where: {
+          productId: agg.productId,
+          order: {
+            status: { in: ['SHIPPED', 'DELIVERED'] },
+            ...(dateFrom || dateTo
+              ? {
+                  orderDate: {
+                    ...(dateFrom && { gte: dateFrom }),
+                    ...(dateTo && { lte: dateTo }),
+                  },
+                }
+              : {}),
+          },
+        },
+        select: { quantity: true, unitPrice: true, discount: true },
+      });
+
+      let revenue = 0;
+      let unitsSold = 0;
+      for (const item of items) {
+        revenue += Number(item.unitPrice) * item.quantity - Number(item.discount || 0);
+        unitsSold += item.quantity;
+      }
+      const cogs = unitsSold * wac;
+      const grossProfit = revenue - cogs;
+      const grossMarginPct = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
+
+      results.push({
+        productId: product.id,
+        productSku: product.sku,
+        productName: product.name,
+        revenue: Math.round(revenue * 100) / 100,
+        cogs: Math.round(cogs * 100) / 100,
+        grossProfit: Math.round(grossProfit * 100) / 100,
+        grossMarginPct: Math.round(grossMarginPct * 100) / 100,
+        unitsSold,
+      });
+    }
+
+    // Ordina per grossProfit decrescente
+    results.sort((a, b) => b.grossProfit - a.grossProfit);
+    return results.slice(0, limit);
+  }
 }
 
 export const accountingService = new AccountingService();

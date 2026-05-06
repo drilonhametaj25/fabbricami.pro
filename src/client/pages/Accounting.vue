@@ -565,6 +565,68 @@
           </DataTable>
         </div>
       </TabPanel>
+
+      <!-- TAB: Margini -->
+      <TabPanel header="Margini">
+        <div class="content-section">
+          <div class="section-header">
+            <h2 class="section-title">Top prodotti per margine</h2>
+            <div class="filters">
+              <Calendar
+                v-model="marginFromDate"
+                placeholder="Da"
+                dateFormat="dd/mm/yy"
+                showIcon
+              />
+              <Calendar
+                v-model="marginToDate"
+                placeholder="A"
+                dateFormat="dd/mm/yy"
+                showIcon
+              />
+              <Button
+                label="Aggiorna"
+                icon="pi pi-refresh"
+                @click="loadTopMargins"
+                :loading="loadingMargins"
+              />
+            </div>
+          </div>
+
+          <DataTable
+            :value="topMargins"
+            :loading="loadingMargins"
+            stripedRows
+            responsiveLayout="scroll"
+            :paginator="topMargins.length > 10"
+            :rows="10"
+          >
+            <Column field="productSku" header="SKU" sortable style="width: 130px" />
+            <Column field="productName" header="Prodotto" sortable />
+            <Column header="Unita vendute" style="width: 130px">
+              <template #body="{ data }">{{ data.unitsSold }}</template>
+            </Column>
+            <Column header="Ricavo" style="width: 130px">
+              <template #body="{ data }">{{ formatCurrency(data.revenue) }}</template>
+            </Column>
+            <Column header="COGS" style="width: 130px">
+              <template #body="{ data }">{{ formatCurrency(data.cogs) }}</template>
+            </Column>
+            <Column header="Margine lordo" style="width: 140px">
+              <template #body="{ data }">
+                <span :class="marginColorClass(data.grossMarginPct)">
+                  {{ formatCurrency(data.grossProfit) }}
+                </span>
+              </template>
+            </Column>
+            <Column header="Margine %" style="width: 110px">
+              <template #body="{ data }">
+                <Tag :severity="marginSeverity(data.grossMarginPct)" :value="data.grossMarginPct + '%'" />
+              </template>
+            </Column>
+          </DataTable>
+        </div>
+      </TabPanel>
     </TabView>
 
     <!-- Dialog: Registra Pagamento -->
@@ -662,6 +724,49 @@ const loadingCashFlow = ref(false);
 const loadingRecommendations = ref(false);
 const loadingPlans = ref(false);
 const savingPayment = ref(false);
+const loadingMargins = ref(false);
+
+// Margin filters & data
+const marginFromDate = ref<Date | null>(null);
+const marginToDate = ref<Date | null>(null);
+const topMargins = ref<Array<{
+  productId: string;
+  productSku: string | null;
+  productName: string | null;
+  unitsSold: number;
+  revenue: number;
+  cogs: number;
+  grossProfit: number;
+  grossMarginPct: number;
+}>>([]);
+
+async function loadTopMargins() {
+  loadingMargins.value = true;
+  try {
+    const params = new URLSearchParams();
+    if (marginFromDate.value) params.set('from', marginFromDate.value.toISOString().slice(0, 10));
+    if (marginToDate.value) params.set('to', marginToDate.value.toISOString().slice(0, 10));
+    params.set('limit', '50');
+    const response: any = await api.get(`/accounting/margins/top?${params.toString()}`);
+    topMargins.value = response?.data || response || [];
+  } catch (err: any) {
+    toast.add({ severity: 'error', summary: 'Errore', detail: err.message || 'Caricamento margini fallito', life: 4000 });
+  } finally {
+    loadingMargins.value = false;
+  }
+}
+
+function marginSeverity(pct: number): 'success' | 'info' | 'warn' | 'danger' {
+  if (pct >= 30) return 'success';
+  if (pct >= 15) return 'info';
+  if (pct >= 5) return 'warn';
+  return 'danger';
+}
+function marginColorClass(pct: number): string {
+  if (pct >= 30) return 'text-success';
+  if (pct >= 5) return 'text-warn';
+  return 'text-danger';
+}
 
 // Data
 const dashboard = ref<any>({});

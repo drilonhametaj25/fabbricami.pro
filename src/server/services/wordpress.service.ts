@@ -1365,24 +1365,47 @@ class WordPressService {
   }
 
   /**
-   * Riserva stock per item ordine
+   * Riserva stock per item ordine.
+   *
+   * Usa SELECT ... FOR UPDATE per acquisire un lock pessimistico sulla riga
+   * di inventory_items prima del decremento. Questo previene race condition
+   * tra ordini WP concorrenti che leggerebbero lo stesso valore di
+   * `reservedQuantity` causando over-reservation.
+   *
+   * Deve essere chiamato dentro una `prisma.$transaction` (parametro `tx`).
    */
   private async reserveStock(tx: any, productId: string, quantity: number) {
-    const inventoryItem = await tx.inventoryItem.findFirst({
-      where: {
-        productId,
-        location: 'WEB',
+    // Lock pessimistico sulla riga inventory_items per (productId, WEB).
+    const locked = (await tx.$queryRawUnsafe(
+      `SELECT id, quantity, reserved_quantity FROM inventory_items
+       WHERE product_id = $1 AND location = 'WEB'::"InventoryLocation"
+       ORDER BY id LIMIT 1
+       FOR UPDATE`,
+      productId
+    )) as Array<{ id: string; quantity: number; reserved_quantity: number }>;
+
+    if (!locked || locked.length === 0) {
+      logger.warn(`reserveStock: nessun InventoryItem WEB per product ${productId}`);
+      return;
+    }
+
+    const row = locked[0];
+    const available = row.quantity - row.reserved_quantity;
+    if (available < quantity) {
+      // Logga ma non bloccare: in WP siamo in modalità "best effort" perche'
+      // l'ordine arriva da fuori. L'overselling deve essere gestito a livello
+      // di policy (allow backorder o no). Qui logghiamo e procediamo.
+      logger.warn(
+        `reserveStock: stock insufficiente per ${productId} (disponibile=${available}, richiesto=${quantity})`
+      );
+    }
+
+    await tx.inventoryItem.update({
+      where: { id: row.id },
+      data: {
+        reservedQuantity: { increment: quantity },
       },
     });
-
-    if (inventoryItem) {
-      await tx.inventoryItem.update({
-        where: { id: inventoryItem.id },
-        data: {
-          reservedQuantity: inventoryItem.reservedQuantity + quantity,
-        },
-      });
-    }
   }
 
   /**

@@ -212,16 +212,32 @@ describe('Auth Middleware', () => {
         },
       });
 
-      await authenticate(request, reply);
+      // CRITICAL: verifica che authenticate setti il tenant context via enterWith
+      // così il Prisma middleware può scope-are le query automaticamente.
+      // Spy approach — Jest ha quirks con propagazione ALS in test (jestjs/jest#12793).
+      const { tenantContext } = await import('@server/middleware/tenant.middleware');
+      const enterWithSpy = jest.spyOn(tenantContext, 'enterWith');
 
-      expect(request.user).toEqual({
-        userId: 'user-1',
-        email: 'test@test.com',
-        role: 'ADMIN',
-        tenantId: 'tenant-1',
-        tenantSlug: 'acme-corp',
-        planCode: 'PRO',
-      });
+      try {
+        await authenticate(request, reply);
+
+        expect(request.user).toEqual({
+          userId: 'user-1',
+          email: 'test@test.com',
+          role: 'ADMIN',
+          tenantId: 'tenant-1',
+          tenantSlug: 'acme-corp',
+          planCode: 'PRO',
+        });
+
+        expect(enterWithSpy).toHaveBeenCalledWith({
+          tenantId: 'tenant-1',
+          tenantSlug: 'acme-corp',
+          tenantStatus: 'ACTIVE',
+        });
+      } finally {
+        enterWithSpy.mockRestore();
+      }
     });
 
     it('should handle tenant without subscription', async () => {

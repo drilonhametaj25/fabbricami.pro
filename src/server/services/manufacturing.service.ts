@@ -580,8 +580,8 @@ class ManufacturingService {
    * Clona un prodotto con tutta la sua pipeline
    */
   async cloneProduct(sourceProductId: string, newSku: string, newName: string) {
-    // Verifica che il nuovo SKU non esista
-    const skuExists = await prisma.product.findUnique({ where: { sku: newSku } });
+    // Verifica che il nuovo SKU non esista (per tenant: middleware aggiunge tenantId)
+    const skuExists = await prisma.product.findFirst({ where: { sku: newSku } });
     if (skuExists) {
       throw new Error(`Prodotto con SKU "${newSku}" esiste già`);
     }

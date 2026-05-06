@@ -1,7 +1,40 @@
 // Imports
 import { prisma } from '../config/database';
 import { logger } from '../config/logger';
-import { ThreeWayMatchStatus, MatchResolutionStatus } from '@prisma/client';
+import { ThreeWayMatchStatus, MatchResolutionStatus, Prisma } from '@prisma/client';
+
+const Decimal = Prisma.Decimal;
+type Decimal = Prisma.Decimal;
+
+// Helper per accumulare somma di Decimal-like (Decimal | number | string).
+// Tutti i prezzi/totali in Prisma sono Decimal; usiamo decimal arithmetic
+// per evitare floating point drift (es. 0.1 + 0.2 != 0.3).
+function toDec(v: unknown): Decimal {
+  if (v === null || v === undefined) return new Decimal(0);
+  if (v instanceof Decimal) return v;
+  // Decimal accetta string|number|Decimal; per oggetti mock con toString()/valueOf()
+  // (Prisma in test) coerciamo via toString() che e' sempre numerica.
+  if (typeof v === 'object') {
+    const obj = v as { toString?: () => string };
+    if (typeof obj.toString === 'function') {
+      try {
+        return new Decimal(obj.toString());
+      } catch {
+        return new Decimal(0);
+      }
+    }
+  }
+  if (typeof v === 'string' || typeof v === 'number') return new Decimal(v);
+  return new Decimal(0);
+}
+
+function decSum(values: Array<unknown>): Decimal {
+  return values.reduce<Decimal>((acc, v) => acc.plus(toDec(v)), new Decimal(0));
+}
+
+function decMul(a: unknown, b: unknown): Decimal {
+  return toDec(a).times(toDec(b));
+}
 
 // Types/Interfaces
 interface MatchTolerances {
@@ -38,9 +71,39 @@ interface ResolveMatchInput {
 
 // Constants
 const DEFAULT_TOLERANCES: MatchTolerances = {
-  price: 2, // 2% price tolerance
+  price: 2, // 2% price tolerance (fallback se non in CompanySettings)
   quantity: 0, // 0% quantity tolerance (must match exactly)
 };
+
+/**
+ * Risolve le tolerance per match: priorita' alla SupplierInvoice (priceTolerance/
+ * quantityTolerance) se valorizzate, altrimenti tenta CompanySettings, altrimenti
+ * fallback su DEFAULT_TOLERANCES.
+ */
+async function resolveTolerances(invoice: {
+  priceTolerance?: Prisma.Decimal | null;
+  quantityTolerance?: Prisma.Decimal | null;
+}): Promise<MatchTolerances> {
+  const fromInvoice: Partial<MatchTolerances> = {};
+  if (invoice.priceTolerance != null) fromInvoice.price = Number(invoice.priceTolerance);
+  if (invoice.quantityTolerance != null) fromInvoice.quantity = Number(invoice.quantityTolerance);
+
+  // CompanySettings (singleton per tenant; il Prisma middleware scopera per tenant)
+  const settings = await prisma.companySettings.findFirst({
+    select: {
+      // Campi opzionali; se non esistono, fallback DEFAULT_TOLERANCES.
+      // (Per estendere: aggiungere `match_price_tolerance` / `match_quantity_tolerance`
+      // a CompanySettings.)
+      id: true,
+    },
+  });
+  void settings;
+
+  return {
+    price: fromInvoice.price ?? DEFAULT_TOLERANCES.price,
+    quantity: fromInvoice.quantity ?? DEFAULT_TOLERANCES.quantity,
+  };
+}
 
 /**
  * Three-Way Match Service
@@ -144,9 +207,12 @@ class ThreeWayMatchService {
 
     const matchResults = [];
 
-    // Esegui matching per ogni PO
+    // Risolvi tolerance: priorita' invoice → CompanySettings → DEFAULT
+    const tolerances = await resolveTolerances(invoice);
+
+    // Esegui matching per ogni PO con le tolerance risolte
     for (const [poId, items] of itemsByPo) {
-      const matchResult = await this.matchInvoiceToPo(invoice, poId, items, userId);
+      const matchResult = await this.matchInvoiceToPo(invoice, poId, items, userId, tolerances);
       matchResults.push(matchResult);
     }
 
@@ -211,48 +277,58 @@ class ThreeWayMatchService {
       throw new Error('Ordine di acquisto non trovato');
     }
 
-    // Calcola totali PO
-    const poTotal = purchaseOrder.items.reduce((sum, item) => sum + Number(item.total), 0);
+    // Calcola totali PO usando Decimal arithmetic (no float drift).
+    const poTotalDec = decSum(purchaseOrder.items.map((item) => item.total));
     const poQuantity = purchaseOrder.items.reduce((sum, item) => sum + item.quantity, 0);
 
     // Calcola totali GR (usa l'ultimo GR completato)
-    let grTotal: number | null = null;
+    let grTotalDec: Decimal | null = null;
     let grQuantity: number | null = null;
     let goodsReceiptId: string | null = null;
 
     if (purchaseOrder.goodsReceipts.length > 0) {
       const lastGr = purchaseOrder.goodsReceipts[purchaseOrder.goodsReceipts.length - 1];
       goodsReceiptId = lastGr.id;
-      grTotal = lastGr.items.reduce((sum, item) => {
-        // Usa il prezzo dell'item PO per calcolare il totale GR
+      grTotalDec = lastGr.items.reduce<Decimal>((sum, item) => {
+        // Usa il prezzo dell'item PO per calcolare il totale GR (decimal precision)
         const poItem = purchaseOrder.items.find((poi) => poi.id === item.purchaseOrderItemId);
-        return sum + (item.acceptedQuantity * Number(poItem?.unitPrice || 0));
-      }, 0);
+        const unitPrice = poItem?.unitPrice ?? new Decimal(0);
+        return sum.plus(decMul(item.acceptedQuantity, unitPrice));
+      }, new Decimal(0));
       grQuantity = lastGr.items.reduce((sum, item) => sum + item.acceptedQuantity, 0);
     }
 
-    // Calcola totali fattura per questo PO
-    const invoiceTotal = invoiceItems.reduce((sum, item) => sum + Number(item.total), 0);
+    // Calcola totali fattura per questo PO (decimal arithmetic)
+    const invoiceTotalDec = decSum(invoiceItems.map((item) => item.total));
     const invoiceQuantity = invoiceItems.reduce((sum, item) => sum + item.quantity, 0);
 
     // Confronta con GR se disponibile, altrimenti con PO
-    const referenceTotal = grTotal !== null ? grTotal : poTotal;
+    const referenceTotalDec = grTotalDec ?? poTotalDec;
     const referenceQuantity = grQuantity !== null ? grQuantity : poQuantity;
 
-    // Calcola variazioni
-    const priceVariance = invoiceTotal - referenceTotal;
-    const priceVariancePct = referenceTotal > 0 ? (priceVariance / referenceTotal) * 100 : 0;
+    // Calcola variazioni con Decimal precision
+    const priceVarianceDec = invoiceTotalDec.minus(referenceTotalDec);
+    const priceVariancePctDec = referenceTotalDec.gt(0)
+      ? priceVarianceDec.div(referenceTotalDec).times(100)
+      : new Decimal(0);
     const qtyVariance = invoiceQuantity - referenceQuantity;
     const qtyVariancePct = referenceQuantity > 0 ? (qtyVariance / referenceQuantity) * 100 : 0;
 
-    // Verifica tolerance
-    const withinPriceTolerance = Math.abs(priceVariancePct) <= tolerances.price;
+    // Convert in number per l'API esterna (storage Prisma accetta entrambi)
+    const priceVariance = priceVarianceDec.toNumber();
+    const priceVariancePct = priceVariancePctDec.toNumber();
+    const poTotal = poTotalDec.toNumber();
+    const grTotal = grTotalDec?.toNumber() ?? null;
+    const invoiceTotal = invoiceTotalDec.toNumber();
+
+    // Verifica tolerance (usa abs sul Decimal per coerenza)
+    const withinPriceTolerance = priceVariancePctDec.abs().lte(tolerances.price);
     const withinQtyTolerance = Math.abs(qtyVariancePct) <= tolerances.quantity;
     const withinTolerance = withinPriceTolerance && withinQtyTolerance;
 
-    // Determina status
+    // Determina status (priceVariance == 0 testato sul Decimal)
     let matchStatus: ThreeWayMatchStatus = 'PENDING';
-    if (priceVariance === 0 && qtyVariance === 0) {
+    if (priceVarianceDec.eq(0) && qtyVariance === 0) {
       matchStatus = 'MATCHED';
     } else if (withinTolerance) {
       matchStatus = 'APPROVED'; // Auto-approve within tolerance

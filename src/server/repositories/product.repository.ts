@@ -41,7 +41,8 @@ export class ProductRepository {
    * Find product by SKU
    */
   async findBySku(sku: string) {
-    return prisma.product.findUnique({
+    // SKU univoco per tenant - usa findFirst (il Prisma middleware aggiunge tenantId)
+    return prisma.product.findFirst({
       where: { sku },
       include: {
         variants: true,

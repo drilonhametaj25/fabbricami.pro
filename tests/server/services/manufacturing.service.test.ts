@@ -632,9 +632,8 @@ describe('ManufacturingService', () => {
 
       const newProduct = { ...sourceProduct, id: 'new', sku: 'CLONE', name: 'Cloned Product' };
 
-      prismaMock.product.findUnique
-        .mockResolvedValueOnce(null) // SKU check - not exists
-        .mockResolvedValueOnce(sourceProduct as any); // Get source
+      prismaMock.product.findFirst.mockResolvedValueOnce(null); // SKU check (findFirst) - not exists
+      prismaMock.product.findUnique.mockResolvedValueOnce(sourceProduct as any); // Get source by id
 
       prismaMock.product.create.mockResolvedValue(newProduct as any);
       prismaMock.manufacturingPhase.create.mockResolvedValue({ id: 'new-phase' } as any);
@@ -649,7 +648,7 @@ describe('ManufacturingService', () => {
     });
 
     it('should throw error if SKU already exists', async () => {
-      prismaMock.product.findUnique.mockResolvedValue({ id: 'existing', sku: 'EXISTING' } as any);
+      prismaMock.product.findFirst.mockResolvedValue({ id: 'existing', sku: 'EXISTING' } as any);
 
       await expect(
         manufacturingService.cloneProduct('source', 'EXISTING', 'Test')
@@ -657,9 +656,8 @@ describe('ManufacturingService', () => {
     });
 
     it('should throw error if source product not found', async () => {
-      prismaMock.product.findUnique
-        .mockResolvedValueOnce(null) // SKU check - not exists
-        .mockResolvedValueOnce(null); // Source not found
+      prismaMock.product.findFirst.mockResolvedValueOnce(null); // SKU check (findFirst) - not exists
+      prismaMock.product.findUnique.mockResolvedValueOnce(null); // Source not found
 
       await expect(
         manufacturingService.cloneProduct('invalid-source', 'NEW', 'Test')

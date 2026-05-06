@@ -1387,17 +1387,48 @@ class ReportsService {
       dpoBySupplier[supplierId].purchases += Number(inv.total);
     });
 
+    // Calcola trend mensile DSO/DPO sugli ultimi 6 mesi
+    const dsoTrend: Array<{ period: string; value: number }> = [];
+    const dpoTrend: Array<{ period: string; value: number }> = [];
+    for (let i = 5; i >= 0; i--) {
+      const monthStart = new Date(to.getFullYear(), to.getMonth() - i, 1);
+      const monthEnd = new Date(to.getFullYear(), to.getMonth() - i + 1, 0);
+      monthEnd.setHours(23, 59, 59, 999);
+      const daysInMonth = monthEnd.getDate();
+      const monthKey = `${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, '0')}`;
+
+      const monthSales = salesInvoices.filter(
+        (inv) => inv.issueDate >= monthStart && inv.issueDate <= monthEnd
+      );
+      const monthSalesTotal = monthSales.reduce((s, inv) => s + Number(inv.total), 0);
+      const monthSalesReceivables =
+        monthSales.reduce((s, inv) => s + (Number(inv.total) - Number(inv.paidAmount || 0)), 0) / 2;
+      const monthDSO =
+        monthSalesTotal > 0 ? (monthSalesReceivables / monthSalesTotal) * daysInMonth : 0;
+      dsoTrend.push({ period: monthKey, value: Math.round(monthDSO) });
+
+      const monthPurchases = purchaseInvoices.filter(
+        (inv) => inv.issueDate >= monthStart && inv.issueDate <= monthEnd
+      );
+      const monthPurchasesTotal = monthPurchases.reduce((s, inv) => s + Number(inv.total), 0);
+      const monthPurchasesPayables =
+        monthPurchases.reduce((s, inv) => s + (Number(inv.total) - Number(inv.paidAmount || 0)), 0) / 2;
+      const monthDPO =
+        monthPurchasesTotal > 0 ? (monthPurchasesPayables / monthPurchasesTotal) * daysInMonth : 0;
+      dpoTrend.push({ period: monthKey, value: Math.round(monthDPO) });
+    }
+
     return {
       dso: {
         current: Math.round(currentDSO),
-        trend: [], // TODO: calcolare trend mensile
+        trend: dsoTrend,
         byCustomerType: Object.fromEntries(
           Object.entries(dsoByCustomerType).map(([k, v]) => [k, Math.round(v)])
         ),
       },
       dpo: {
         current: Math.round(currentDPO),
-        trend: [],
+        trend: dpoTrend,
         bySupplier: Object.entries(dpoBySupplier)
           .map(([id, data]) => ({
             supplierId: id,

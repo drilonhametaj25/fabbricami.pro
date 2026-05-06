@@ -475,36 +475,39 @@ describe('WordPress Job', () => {
 
   describe('queue helper functions', () => {
     describe('queueProductSync', () => {
-      it('should add product sync job with delay', async () => {
+      it('should add product sync job with retry policy + delay', async () => {
         await queueProductSync('prod-123');
 
+        // Retry policy + delay: 5 attempts, exponential backoff, persist on fail
         expect(mockQueueAdd).toHaveBeenCalledWith(
           'sync-product-prod-123',
           { type: 'sync-single-product', productId: 'prod-123' },
           expect.objectContaining({
             delay: 1000,
-            removeOnComplete: true,
+            attempts: 5,
+            removeOnFail: false,
           })
         );
       });
     });
 
     describe('queueOrderStatusUpdate', () => {
-      it('should add order status update job', async () => {
+      it('should add order status update job with retry policy', async () => {
         await queueOrderStatusUpdate('order-123', 'shipped');
 
         expect(mockQueueAdd).toHaveBeenCalledWith(
           'update-order-order-123',
           { type: 'update-order-status', orderId: 'order-123', status: 'shipped' },
           expect.objectContaining({
-            removeOnComplete: true,
+            attempts: 5,
+            removeOnFail: false,
           })
         );
       });
     });
 
     describe('queueInventorySync', () => {
-      it('should add inventory sync for single product', async () => {
+      it('should add inventory sync for single product with retry policy', async () => {
         await queueInventorySync('prod-123');
 
         expect(mockQueueAdd).toHaveBeenCalledWith(
@@ -512,18 +515,21 @@ describe('WordPress Job', () => {
           { type: 'sync-single-product', productId: 'prod-123' },
           expect.objectContaining({
             delay: 500,
+            attempts: 5,
+            removeOnFail: false,
           })
         );
       });
 
-      it('should add full inventory sync when no productId', async () => {
+      it('should add full inventory sync when no productId, with retry policy', async () => {
         await queueInventorySync();
 
         expect(mockQueueAdd).toHaveBeenCalledWith(
           'immediate-inventory-sync',
           { type: 'sync-inventory' },
           expect.objectContaining({
-            removeOnComplete: true,
+            attempts: 5,
+            removeOnFail: false,
           })
         );
       });

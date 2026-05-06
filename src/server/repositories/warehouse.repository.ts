@@ -106,7 +106,8 @@ export class WarehouseRepository {
    */
   async findByCode(code: string) {
     try {
-      return await this.prisma.warehouse.findUnique({
+      // Codice univoco per tenant - usa findFirst (il Prisma middleware aggiunge tenantId)
+      return await this.prisma.warehouse.findFirst({
         where: { code },
       });
     } catch (error) {

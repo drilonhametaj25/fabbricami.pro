@@ -4,9 +4,30 @@ import { tenantMiddleware } from '../middleware/tenant.middleware';
 import { requirePlanLimit } from '../middleware/subscription.middleware';
 import productRepository from '../repositories/product.repository';
 import manufacturingService from '../services/manufacturing.service';
+import productVariantService from '../services/product-variant.service';
 import { parsePagination, paginatedResponse } from '../utils/response.util';
 import { createProductSchema, updateProductSchema } from '../schemas/product.schema';
 import { prisma } from '../config/database';
+import { z } from 'zod';
+
+const createVariantSchema = z.object({
+  sku: z.string().min(1).max(100),
+  name: z.string().min(1).max(200),
+  attributes: z.record(z.union([z.string(), z.number(), z.boolean()])),
+  barcode: z.string().optional(),
+  costDelta: z.number().optional(),
+  priceDelta: z.number().optional(),
+  weight: z.number().optional(),
+  dimensions: z
+    .object({ width: z.number(), height: z.number(), depth: z.number() })
+    .optional(),
+  webPrice: z.number().optional(),
+  webDescription: z.string().optional(),
+  mainImageUrl: z.string().url().optional(),
+  isActive: z.boolean().optional(),
+});
+
+const updateVariantSchema = createVariantSchema.partial();
 
 const productRoutes: FastifyPluginAsync = async (server) => {
   /**
@@ -2256,6 +2277,175 @@ const productRoutes: FastifyPluginAsync = async (server) => {
           success: false,
           error: error.message || 'Errore durante verifica disponibilita BOM',
         });
+      }
+    }
+  );
+
+  // ============================================
+  // PRODUCT VARIANTS
+  // ============================================
+
+  /**
+   * GET /:id/variants - Lista varianti del prodotto
+   */
+  server.get(
+    '/:id/variants',
+    { preHandler: [authenticate, tenantMiddleware] },
+    async (request, reply) => {
+      try {
+        const { id } = request.params as { id: string };
+        const variants = await productVariantService.listByProduct(id);
+        return reply.send({ success: true, data: variants });
+      } catch (error: any) {
+        return reply.status(400).send({ success: false, error: error.message });
+      }
+    }
+  );
+
+  /**
+   * POST /:id/variants - Crea variante
+   */
+  server.post(
+    '/:id/variants',
+    {
+      preHandler: [
+        authenticate,
+        tenantMiddleware,
+        authorize('ADMIN', 'MANAGER'),
+        requirePlanLimit('products'),
+      ],
+    },
+    async (request, reply) => {
+      try {
+        const { id: productId } = request.params as { id: string };
+        const body = createVariantSchema.parse(request.body);
+        const variant = await productVariantService.create({ productId, ...body });
+        return reply.status(201).send({ success: true, data: variant });
+      } catch (error: any) {
+        return reply.status(400).send({ success: false, error: error.message });
+      }
+    }
+  );
+
+  /**
+   * GET /variants/:variantId - Dettaglio variante
+   */
+  server.get(
+    '/variants/:variantId',
+    { preHandler: [authenticate, tenantMiddleware] },
+    async (request, reply) => {
+      try {
+        const { variantId } = request.params as { variantId: string };
+        const variant = await productVariantService.getById(variantId);
+        if (!variant) {
+          return reply.status(404).send({ success: false, error: 'Variante non trovata' });
+        }
+        return reply.send({ success: true, data: variant });
+      } catch (error: any) {
+        return reply.status(400).send({ success: false, error: error.message });
+      }
+    }
+  );
+
+  /**
+   * PATCH /variants/:variantId - Aggiorna variante
+   */
+  server.patch(
+    '/variants/:variantId',
+    {
+      preHandler: [authenticate, tenantMiddleware, authorize('ADMIN', 'MANAGER')],
+    },
+    async (request, reply) => {
+      try {
+        const { variantId } = request.params as { variantId: string };
+        const body = updateVariantSchema.parse(request.body);
+        const updated = await productVariantService.update(variantId, body);
+        return reply.send({ success: true, data: updated });
+      } catch (error: any) {
+        return reply.status(400).send({ success: false, error: error.message });
+      }
+    }
+  );
+
+  /**
+   * DELETE /variants/:variantId - Elimina variante
+   */
+  server.delete(
+    '/variants/:variantId',
+    {
+      preHandler: [authenticate, tenantMiddleware, authorize('ADMIN', 'MANAGER')],
+    },
+    async (request, reply) => {
+      try {
+        const { variantId } = request.params as { variantId: string };
+        await productVariantService.delete(variantId);
+        return reply.send({ success: true, data: { deleted: true } });
+      } catch (error: any) {
+        return reply.status(400).send({ success: false, error: error.message });
+      }
+    }
+  );
+
+  // ============================================
+  // ALIAS ROUTES per compatibilita con frontend ProductVariantsManager
+  // (formato: /:id/variants/:variantId con productId nel path)
+  // ============================================
+
+  /**
+   * PUT /:id/variants/:variantId - Update variante (alias)
+   */
+  server.put(
+    '/:id/variants/:variantId',
+    {
+      preHandler: [authenticate, tenantMiddleware, authorize('ADMIN', 'MANAGER')],
+    },
+    async (request, reply) => {
+      try {
+        const { variantId } = request.params as { id: string; variantId: string };
+        const body = updateVariantSchema.parse(request.body);
+        const updated = await productVariantService.update(variantId, body);
+        return reply.send({ success: true, data: updated });
+      } catch (error: any) {
+        return reply.status(400).send({ success: false, error: error.message });
+      }
+    }
+  );
+
+  /**
+   * PATCH /:id/variants/:variantId - Update variante (alias PATCH)
+   */
+  server.patch(
+    '/:id/variants/:variantId',
+    {
+      preHandler: [authenticate, tenantMiddleware, authorize('ADMIN', 'MANAGER')],
+    },
+    async (request, reply) => {
+      try {
+        const { variantId } = request.params as { id: string; variantId: string };
+        const body = updateVariantSchema.parse(request.body);
+        const updated = await productVariantService.update(variantId, body);
+        return reply.send({ success: true, data: updated });
+      } catch (error: any) {
+        return reply.status(400).send({ success: false, error: error.message });
+      }
+    }
+  );
+
+  /**
+   * DELETE /:id/variants/:variantId - Delete variante (alias)
+   */
+  server.delete(
+    '/:id/variants/:variantId',
+    {
+      preHandler: [authenticate, tenantMiddleware, authorize('ADMIN', 'MANAGER')],
+    },
+    async (request, reply) => {
+      try {
+        const { variantId } = request.params as { id: string; variantId: string };
+        await productVariantService.delete(variantId);
+        return reply.send({ success: true, data: { deleted: true } });
+      } catch (error: any) {
+        return reply.status(400).send({ success: false, error: error.message });
       }
     }
   );

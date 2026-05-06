@@ -396,7 +396,8 @@ class PriceListService {
           return item;
         }
         if (item.productSku) {
-          const product = await prisma.product.findUnique({
+          // SKU univoco per tenant - findFirst (middleware aggiunge tenantId)
+          const product = await prisma.product.findFirst({
             where: { sku: item.productSku },
           });
           if (product) {

@@ -20,7 +20,8 @@ class CustomerRepository {
    * Trova cliente per codice
    */
   async findByCode(code: string) {
-    return await prisma.customer.findUnique({
+    // Codice univoco per tenant - usa findFirst (il Prisma middleware aggiunge tenantId)
+    return await prisma.customer.findFirst({
       where: { code },
     });
   }

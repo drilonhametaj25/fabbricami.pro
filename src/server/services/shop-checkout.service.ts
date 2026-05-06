@@ -1,4 +1,7 @@
 import { PrismaClient, OrderStatus, PaymentStatus, Prisma } from '@prisma/client';
+import { emailService } from './email.service';
+import { logger } from '../config/logger';
+import { isCustomerNotifiable } from '../utils/order-state-machine';
 
 const prisma = new PrismaClient();
 
@@ -310,7 +313,36 @@ class ShopCheckoutService {
       },
     });
 
-    // TODO: Send status update email to customer
+    // Invia notifica al cliente se lo stato e' tra quelli "notifiable"
+    // (CONFIRMED/PROCESSING/SHIPPED/DELIVERED/CANCELLED/REFUNDED).
+    if (order.customer?.email && isCustomerNotifiable(status)) {
+      const statusLabels: Record<string, string> = {
+        CONFIRMED: 'Confermato',
+        PROCESSING: 'In lavorazione',
+        READY: 'Pronto per la spedizione',
+        SHIPPED: 'Spedito',
+        DELIVERED: 'Consegnato',
+        CANCELLED: 'Annullato',
+        REFUNDED: 'Rimborsato',
+      };
+      const customerName =
+        order.customer.businessName ||
+        `${order.customer.firstName || ''} ${order.customer.lastName || ''}`.trim() ||
+        'Cliente';
+
+      try {
+        await emailService.sendOrderStatusUpdate({
+          customerEmail: order.customer.email,
+          customerName,
+          orderNumber: order.orderNumber,
+          oldStatus: '',
+          newStatus: status,
+          statusLabel: statusLabels[status] || status,
+        });
+      } catch (err: any) {
+        logger.error(`Order status update email failed for ${orderId}: ${err.message}`);
+      }
+    }
 
     return order;
   }

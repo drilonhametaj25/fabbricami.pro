@@ -8,6 +8,8 @@ import {
 } from '../schemas/onboarding.schema';
 import { subscriptionService } from '../services/subscription.service';
 import { encryptSecret } from '../utils/crypto.util';
+import { logger } from '../config/logger';
+import { config } from '../config/environment';
 
 // ============================================
 // ONBOARDING STATUS TYPES
@@ -201,7 +203,7 @@ const onboardingRoutes: FastifyPluginAsync = async (server) => {
           data: companySettings,
         });
       } catch (error) {
-        console.error('Company settings error:', error);
+        logger.error('Company settings error:', error);
         return reply.status(400).send({
           success: false,
           error: error instanceof Error ? error.message : 'Errore salvataggio impostazioni',
@@ -267,7 +269,7 @@ const onboardingRoutes: FastifyPluginAsync = async (server) => {
             );
           } catch (subError) {
             // Se fallisce per subscription esistente, aggiorna solo i settings
-            console.log('Trial subscription creation note:', subError);
+            logger.warn('Trial subscription creation note: ' + String(subError));
           }
 
           // Mark billing as configured with trial
@@ -295,8 +297,18 @@ const onboardingRoutes: FastifyPluginAsync = async (server) => {
         } else {
           // Create Stripe Checkout session
           if (!subscriptionService.isStripeConfigured()) {
-            // Stripe non configurato - fallback a trial
-            console.warn('Stripe not configured - falling back to trial');
+            // SECURITY: in produzione, Stripe DEVE essere configurato. Niente fake trial.
+            if (config.isProduction) {
+              logger.error('Setup billing: Stripe is not configured in production');
+              return reply.status(500).send({
+                success: false,
+                error: 'Servizio di pagamento temporaneamente non disponibile. Riprova più tardi o contatta il supporto.',
+                code: 'STRIPE_NOT_CONFIGURED',
+              });
+            }
+
+            // In sviluppo: trial flagged come DEV-only (non upgradeabile a paid)
+            logger.warn('Setup billing: Stripe not configured (DEV mode) - activating dev trial');
             const newSettings = {
               ...currentSettings,
               billingConfigured: true,
@@ -306,6 +318,7 @@ const onboardingRoutes: FastifyPluginAsync = async (server) => {
                 trialStartedAt: new Date().toISOString(),
                 trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
                 planCode,
+                trialMode: 'DEV_ONLY',
                 stripeNotConfigured: true,
               },
             };
@@ -318,8 +331,9 @@ const onboardingRoutes: FastifyPluginAsync = async (server) => {
             return reply.send({
               success: true,
               data: {
-                message: 'Stripe non configurato - prova gratuita attivata',
+                message: '[DEV] Stripe non configurato - trial dev attivato (non upgradeable)',
                 fallbackToTrial: true,
+                trialMode: 'DEV_ONLY',
               },
             });
           }
@@ -342,7 +356,7 @@ const onboardingRoutes: FastifyPluginAsync = async (server) => {
           });
         }
       } catch (error) {
-        console.error('Setup billing error:', error);
+        logger.error('Setup billing error:', error);
         return reply.status(400).send({
           success: false,
           error: error instanceof Error ? error.message : 'Errore setup billing',
@@ -438,7 +452,7 @@ const onboardingRoutes: FastifyPluginAsync = async (server) => {
           data: warehouse,
         });
       } catch (error) {
-        console.error('Create warehouse error:', error);
+        logger.error('Create warehouse error:', error);
         return reply.status(400).send({
           success: false,
           error: error instanceof Error ? error.message : 'Errore creazione magazzino',
@@ -545,7 +559,7 @@ const onboardingRoutes: FastifyPluginAsync = async (server) => {
           data: { message: 'Configurazione WordPress salvata' },
         });
       } catch (error) {
-        console.error('WordPress integration error:', error);
+        logger.error('WordPress integration error:', error);
         return reply.status(400).send({
           success: false,
           error: error instanceof Error ? error.message : 'Errore salvataggio configurazione',
@@ -668,7 +682,7 @@ const onboardingRoutes: FastifyPluginAsync = async (server) => {
           });
         }
       } catch (error) {
-        console.error('WordPress test error:', error);
+        logger.error('WordPress test error:', error);
         return reply.send({
           success: true,
           data: {

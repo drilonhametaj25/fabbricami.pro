@@ -479,6 +479,34 @@ const sdiRoutes: FastifyPluginAsync = async (server) => {
   );
 
   /**
+   * POST /api/v1/sdi/invoices/:id/validate-xml
+   * Valida l'XML di una specifica fattura
+   */
+  server.post(
+    '/invoices/:id/validate-xml',
+    { preHandler: authenticate },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const { id } = request.params as { id: string };
+        const result = await sdiService.validateInvoiceXml(id);
+        return reply.send({
+          success: true,
+          data: {
+            valid: result.valid,
+            errors: result.errors,
+          },
+        });
+      } catch (error: unknown) {
+        const err = error as Error;
+        return reply.status(400).send({
+          success: false,
+          error: err.message || 'Errore validazione XML',
+        });
+      }
+    }
+  );
+
+  /**
    * POST /api/v1/sdi/invoices/:id/retry
    * Reinvia fattura fallita
    */

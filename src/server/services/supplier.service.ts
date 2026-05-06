@@ -246,8 +246,18 @@ class SupplierService {
       throw new Error('Fornitore non trovato');
     }
 
-    // Verifica che non ci siano ordini aperti
-    // TODO: Implementare controllo ordini attivi
+    // Verifica che non ci siano ordini aperti (DRAFT/SENT/CONFIRMED/PARTIAL)
+    const openPoCount = await prisma.purchaseOrder.count({
+      where: {
+        supplierId: id,
+        status: { in: ['DRAFT', 'SENT', 'CONFIRMED', 'PARTIALLY_RECEIVED'] },
+      },
+    });
+    if (openPoCount > 0) {
+      throw new Error(
+        `Impossibile disattivare fornitore: ${openPoCount} ordini di acquisto aperti. Chiudere o cancellare prima gli ordini.`
+      );
+    }
 
     const supplier = await supplierRepository.delete(id);
 

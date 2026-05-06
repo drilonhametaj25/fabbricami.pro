@@ -2,6 +2,7 @@
 import purchaseOrderRepository from '../repositories/purchase-order.repository';
 import supplierRepository from '../repositories/supplier.repository';
 import notificationService from './notification.service';
+import { emailService } from './email.service';
 import logger from '../config/logger';
 import { PurchaseOrderStatus, InventoryLocation } from '@prisma/client';
 import { prisma } from '../config/database';
@@ -368,7 +369,32 @@ class PurchaseOrderService {
 
     logger.info(`Confirmed purchase order: ${order.orderNumber}`);
 
-    // TODO: Invia email a fornitore
+    // Invia email a fornitore con dettagli ordine. Best-effort: errori
+    // non bloccano la conferma (l'ordine e' gia' SENT lato ERP).
+    try {
+      const fullOrder = await purchaseOrderRepository.findById(id);
+      const supplier = fullOrder?.supplier;
+      if (supplier?.email) {
+        await emailService.sendPurchaseOrderCreated({
+          supplierEmail: supplier.email,
+          supplierName: supplier.businessName,
+          orderNumber: order.orderNumber,
+          expectedDate: fullOrder?.expectedDate ?? undefined,
+          items: (fullOrder?.items || []).map((item: any) => ({
+            description: item.product?.name || item.material?.name || 'Articolo',
+            quantity: item.quantity,
+            unitPrice: Number(item.unitPrice),
+          })),
+          total: Number(fullOrder?.total || 0),
+          notes: fullOrder?.notes || undefined,
+        });
+        logger.info(`PO email sent to supplier ${supplier.businessName}`);
+      } else {
+        logger.warn(`PO ${order.orderNumber}: supplier non ha email, skip notifica`);
+      }
+    } catch (err: any) {
+      logger.error(`PO email to supplier failed: ${err.message}`);
+    }
 
     return updatedOrder;
   }

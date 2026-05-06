@@ -107,7 +107,9 @@
       "Bash(npx eslint:*)",
       "Bash(cmd /c \"set ESLINT_USE_FLAT_CONFIG=false && npx eslint src/client --ext .ts,.vue 2>&1\")",
       "Bash(npx cross-env:*)",
-      "Bash(Select-String -Pattern \"workspace|error\")"
+      "Bash(Select-String -Pattern \"workspace|error\")",
+      "Bash(npx next:*)",
+      "Bash(npx jest:*)"
     ]
   }
 }

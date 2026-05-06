@@ -294,6 +294,38 @@ describe('Tenant Middleware', () => {
 
       expect(reply.status).toHaveBeenCalledWith(400);
     });
+
+    // CRITICAL: regression test per il bug Promise wrapper che chiudeva il context immediatamente.
+    // Verifica che enterWith() sia stato chiamato con il context corretto (Jest ha quirks
+    // con la propagazione ALS attraverso await — issue jestjs/jest#12793 — quindi spy
+    // diretto invece di verifica del context post-chiamata).
+    it('should call tenantContext.enterWith with correct context (regression for promise-wrapper bug)', async () => {
+      const enterWithSpy = jest.spyOn(tenantContext, 'enterWith');
+      try {
+        const request = createMockRequest({
+          user: { userId: 'user-1', tenantId: 'tenant-iso' },
+        }) as any;
+        const reply = createMockReply();
+
+        mockPrisma.tenant.findUnique.mockResolvedValue({
+          id: 'tenant-iso',
+          slug: 'isolated',
+          status: 'ACTIVE',
+        });
+
+        await tenantMiddleware(request, reply);
+
+        expect(enterWithSpy).toHaveBeenCalledTimes(1);
+        expect(enterWithSpy).toHaveBeenCalledWith({
+          tenantId: 'tenant-iso',
+          tenantSlug: 'isolated',
+          tenantStatus: 'ACTIVE',
+        });
+        expect(reply.status).not.toHaveBeenCalled(); // No error response
+      } finally {
+        enterWithSpy.mockRestore();
+      }
+    });
   });
 
   // =============================================
