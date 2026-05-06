@@ -274,10 +274,42 @@ const transformToTreeSelectFormat = (categories: any[]): any[] => {
   }));
 };
 
-// Sync props → local
+// CRITICAL: due watcher deep speculari (props->local e local->emit) creavano
+// un loop infinito che esauriva la memoria del browser al cambio di un campo
+// (es. tipo prodotto):
+//   1) cambio campo -> localForm muta -> watch local emit { ...newVal }
+//   2) parent setta form.value = nuovo oggetto -> props.modelValue cambia
+//   3) watch props rifa localForm.value = { ...newVal } (nuovo oggetto)
+//   4) watch local scatta di nuovo (riferimento cambiato) -> emit -> loop
+//
+// Fix: shallow comparison field-per-field. Ogni watcher emette/copia solo
+// quando il contenuto e' realmente diverso, interrompendo il loop alla
+// prima iterazione di equilibrio.
+
+function shallowFormEqual(a: ProductForm, b: ProductForm): boolean {
+  if (!a || !b) return a === b;
+  const keys: (keyof ProductForm)[] = [
+    'id', 'sku', 'name', 'description', 'category', 'type', 'unit',
+    'barcode', 'weight', 'price', 'cost', 'minStockLevel',
+    'reorderQuantity', 'isActive', 'isSellable',
+  ];
+  for (const k of keys) {
+    if (a[k] !== b[k]) return false;
+  }
+  const aIds = a.categoryIds || [];
+  const bIds = b.categoryIds || [];
+  if (aIds.length !== bIds.length) return false;
+  for (let i = 0; i < aIds.length; i++) {
+    if (aIds[i] !== bIds[i]) return false;
+  }
+  return true;
+}
+
+// Sync props -> local (skip no-op per interrompere loop reattivo)
 watch(() => props.modelValue, (newVal) => {
+  if (!newVal) return;
+  if (shallowFormEqual(localForm.value, newVal)) return;
   localForm.value = { ...newVal };
-  // Se ci sono categoryIds, convertili per TreeSelect
   if (newVal.categoryIds?.length) {
     selectedCategories.value = newVal.categoryIds.reduce((acc: any, id: string) => {
       acc[id] = true;
@@ -286,19 +318,22 @@ watch(() => props.modelValue, (newVal) => {
   }
 }, { deep: true });
 
-// Sync local → emit
+// Sync local -> emit (skip no-op per interrompere loop reattivo)
 watch(localForm, (newVal) => {
+  if (shallowFormEqual(newVal, props.modelValue)) return;
   emit('update:modelValue', { ...newVal });
 }, { deep: true });
 
-// Sync selectedCategories → categoryIds
+// Sync selectedCategories -> categoryIds (skip se ids invariati)
 watch(selectedCategories, (newVal) => {
-  if (newVal) {
-    const ids = Object.keys(newVal).filter(key => newVal[key] === true);
-    localForm.value.categoryIds = ids;
-  } else {
-    localForm.value.categoryIds = [];
+  const ids = newVal
+    ? Object.keys(newVal).filter(key => newVal[key] === true)
+    : [];
+  const current = localForm.value.categoryIds || [];
+  if (current.length === ids.length && current.every((v, i) => v === ids[i])) {
+    return;
   }
+  localForm.value.categoryIds = ids;
 }, { deep: true });
 
 onMounted(() => {

@@ -82,8 +82,8 @@ const playBeep = () => {
 
     oscillator.start(audioContext.currentTime);
     oscillator.stop(audioContext.currentTime + 0.1);
-  } catch (e) {
-    console.log('Audio not supported');
+  } catch (_e) {
+    // Audio non supportato dal browser: silent fail (non e' un errore funzionale)
   }
 };
 

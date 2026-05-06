@@ -38,7 +38,7 @@
     </div>
 
     <div class="plan-features">
-      <div v-for="feature in plan.features" :key="feature" class="feature-item">
+      <div v-for="(feature, index) in plan.features" :key="`${plan.id}-feature-${index}`" class="feature-item">
         <i class="pi pi-check"></i>
         <span>{{ feature }}</span>
       </div>

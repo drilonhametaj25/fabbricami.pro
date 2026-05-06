@@ -79,10 +79,29 @@ jest.mock('@server/jobs/stock-alert.job', () => ({
   triggerPostShipmentCheck: jest.fn().mockResolvedValue(undefined),
 }));
 
+// Mock wordpress job (lazy importato in updateOrderStatus)
+jest.mock('@server/jobs/wordpress.job', () => ({
+  queueOrderStatusUpdate: jest.fn().mockResolvedValue(undefined),
+}));
+
+// Mock email service (lazy importato per notifiche cambio stato)
+jest.mock('@server/services/email.service', () => ({
+  __esModule: true,
+  emailService: {
+    sendOrderStatusUpdate: jest.fn().mockResolvedValue(true),
+  },
+}));
+
 // Mock logger
 jest.mock('@server/config/logger', () => ({
   __esModule: true,
   default: {
+    info: jest.fn(),
+    error: jest.fn(),
+    warn: jest.fn(),
+    debug: jest.fn(),
+  },
+  logger: {
     info: jest.fn(),
     error: jest.fn(),
     warn: jest.fn(),

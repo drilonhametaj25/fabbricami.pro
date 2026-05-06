@@ -67,21 +67,45 @@ export function HeroSection() {
 
   const currentSlideData = slides[currentSlide];
 
-  // Cleanup all GSAP animations and ScrollTriggers on unmount
+  // Cleanup all GSAP animations and ScrollTriggers on unmount.
+  // CRITICAL: NON usare gsap.killTweensOf('*') — invaliderebbe i tween di
+  // TUTTI gli altri componenti della pagina (NewArrivals, Featured, ecc.).
+  // Killare solo i tween dei nostri ref locali.
   useEffect(() => {
     return () => {
-      // Kill all ScrollTriggers associated with this section
+      // Kill ScrollTriggers solo se associati a questa section
       ScrollTrigger.getAll().forEach((trigger) => {
         const triggerElement = trigger.vars.trigger;
-        // Check if trigger is the section ref or if it's a Node contained within the section
-        if (triggerElement === sectionRef.current ||
-            (sectionRef.current && triggerElement instanceof Node && sectionRef.current.contains(triggerElement))) {
+        if (
+          triggerElement === sectionRef.current ||
+          (sectionRef.current &&
+            triggerElement instanceof Node &&
+            sectionRef.current.contains(triggerElement))
+        ) {
           trigger.kill();
         }
       });
-      // Kill all GSAP animations
-      gsap.killTweensOf('*');
-      // Reset title innerHTML to prevent DOM conflicts
+
+      // Kill solo i tween dei ref di questo componente.
+      // gsap.killTweensOf accetta un array di target: filtriamo i null.
+      const allTargets: Array<HTMLElement | null> = [
+        titleRef.current,
+        subtitleRef.current,
+        taglineRef.current,
+        ctaRef.current,
+        scrollIndicatorRef.current,
+        parallaxShape1Ref.current,
+        parallaxShape2Ref.current,
+        parallaxShape3Ref.current,
+      ];
+      const localTargets: HTMLElement[] = allTargets.filter(
+        (el): el is HTMLElement => el !== null
+      );
+      if (localTargets.length > 0) {
+        gsap.killTweensOf(localTargets);
+      }
+
+      // Reset title innerHTML solo se ancora mounted
       if (titleRef.current) {
         titleRef.current.innerHTML = '';
       }

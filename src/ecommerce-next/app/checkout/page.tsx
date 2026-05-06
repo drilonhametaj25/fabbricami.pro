@@ -124,29 +124,64 @@ export default function CheckoutPage() {
     }
   };
 
-  const validateStep = (step: CheckoutStep): boolean => {
+  // Regex italiane per validation precisa (CAP 5 cifre, provincia 2 char, telefono IT/intl)
+  const EMAIL_RX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const ITALIAN_POSTAL_RX = /^\d{5}$/;
+  const PROVINCE_RX = /^[A-Za-z]{2}$/;
+  const PHONE_RX = /^\+?[\d\s\-()]{7,20}$/;
+
+  const validateStep = (step: CheckoutStep): { valid: boolean; errors: string[] } => {
+    const errors: string[] = [];
     switch (step) {
       case 'info':
-        return !!(
-          formData.email &&
-          formData.firstName &&
-          formData.lastName &&
-          formData.address &&
-          formData.city &&
-          formData.postalCode &&
-          formData.country
-        );
+        if (!formData.email?.trim()) errors.push('Email obbligatoria');
+        else if (!EMAIL_RX.test(formData.email)) errors.push('Email non valida');
+        if (!formData.firstName?.trim()) errors.push('Nome obbligatorio');
+        if (!formData.lastName?.trim()) errors.push('Cognome obbligatorio');
+        if (!formData.address?.trim()) errors.push('Indirizzo obbligatorio');
+        if (!formData.city?.trim()) errors.push('Citta obbligatoria');
+        if (!formData.postalCode?.trim()) errors.push('CAP obbligatorio');
+        else if (formData.country === 'IT' && !ITALIAN_POSTAL_RX.test(formData.postalCode))
+          errors.push('CAP italiano deve essere di 5 cifre');
+        if (!formData.country?.trim()) errors.push('Paese obbligatorio');
+        if (formData.country === 'IT' && formData.province && !PROVINCE_RX.test(formData.province))
+          errors.push('Provincia: usa la sigla a 2 lettere (es. MI, RM)');
+        if (formData.phone && !PHONE_RX.test(formData.phone))
+          errors.push('Telefono non valido');
+        // Billing alternativo
+        if (formData.billingDifferent) {
+          if (!formData.billingFirstName?.trim()) errors.push('Nome fatturazione obbligatorio');
+          if (!formData.billingLastName?.trim()) errors.push('Cognome fatturazione obbligatorio');
+          if (!formData.billingAddress?.trim()) errors.push('Indirizzo fatturazione obbligatorio');
+          if (!formData.billingCity?.trim()) errors.push('Citta fatturazione obbligatoria');
+          if (!formData.billingPostalCode?.trim()) errors.push('CAP fatturazione obbligatorio');
+          else if (formData.billingCountry === 'IT' && !ITALIAN_POSTAL_RX.test(formData.billingPostalCode))
+            errors.push('CAP fatturazione italiano deve essere di 5 cifre');
+        }
+        break;
       case 'shipping':
-        return !!formData.shippingMethodId;
+        if (!formData.shippingMethodId) errors.push('Seleziona un metodo di spedizione');
+        break;
       case 'payment':
-        return !!formData.paymentMethod;
-      default:
-        return false;
+        if (!formData.paymentMethod) errors.push('Seleziona un metodo di pagamento');
+        break;
     }
+    return { valid: errors.length === 0, errors };
   };
 
+  // Helper boolean per UI buttons (compat con codice esistente che usa !!validateStep(...))
+  const isStepValid = (step: CheckoutStep): boolean => validateStep(step).valid;
+
   const handleSubmitOrder = async () => {
-    if (!validateStep('payment')) return;
+    // Valida tutti gli step prima di submit (info, shipping, payment)
+    const infoCheck = validateStep('info');
+    const shippingCheck = validateStep('shipping');
+    const paymentCheck = validateStep('payment');
+    const allErrors = [...infoCheck.errors, ...shippingCheck.errors, ...paymentCheck.errors];
+    if (allErrors.length > 0) {
+      setError(allErrors.join(' · '));
+      return;
+    }
 
     setIsSubmitting(true);
     setError('');
@@ -186,19 +221,23 @@ export default function CheckoutPage() {
         notes: formData.notes,
       };
 
-      const response = await api.post<{ orderId: string; paymentUrl?: string }>(
-        '/shop/checkout',
-        orderData
-      );
+      // Defensive response unwrap: il backend ritorna { success, data: {...} }
+      // ma in passato qualche endpoint restituiva l'oggetto direttamente.
+      // Usiamo unknown + narrowing per coprire entrambi i casi.
+      const response = await api.post<unknown>('/shop/checkout', orderData);
+      const respObj = (response ?? {}) as Record<string, unknown>;
+      const dataField = respObj.data as Record<string, unknown> | undefined;
+      const orderId = (dataField?.orderId as string | undefined) ?? (respObj.orderId as string | undefined);
+      const paymentUrl = (dataField?.paymentUrl as string | undefined) ?? (respObj.paymentUrl as string | undefined);
 
-      if (response.orderId) {
+      if (orderId) {
         // If there's a payment URL (Stripe/PayPal), redirect to it
-        if (response.paymentUrl) {
-          window.location.href = response.paymentUrl;
+        if (paymentUrl) {
+          window.location.href = paymentUrl;
         } else {
           // Clear cart and redirect to confirmation
           clearCart();
-          router.push(`/checkout/confirmation?orderId=${response.orderId}`);
+          router.push(`/checkout/confirmation?orderId=${orderId}`);
         }
       } else {
         throw new Error('Failed to create order');
@@ -486,7 +525,7 @@ export default function CheckoutPage() {
                   <div className="flex justify-end">
                     <button
                       onClick={handleNextStep}
-                      disabled={!validateStep('info')}
+                      disabled={!isStepValid('info')}
                       className="btn-primary btn-large"
                     >
                       Continua
@@ -576,7 +615,7 @@ export default function CheckoutPage() {
                     </button>
                     <button
                       onClick={handleNextStep}
-                      disabled={!validateStep('shipping')}
+                      disabled={!isStepValid('shipping')}
                       className="btn-primary btn-large"
                     >
                       Continua
@@ -696,7 +735,7 @@ export default function CheckoutPage() {
                     </button>
                     <button
                       onClick={handleSubmitOrder}
-                      disabled={!validateStep('payment') || isSubmitting}
+                      disabled={!isStepValid('payment') || isSubmitting}
                       className="btn-primary btn-large"
                     >
                       {isSubmitting ? (

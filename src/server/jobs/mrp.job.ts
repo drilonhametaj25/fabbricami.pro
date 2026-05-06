@@ -1,6 +1,8 @@
 import queueManager from '../services/queue.service';
 import { mrpService } from '../services/mrp.service';
 import { capacityPlanningService } from '../services/capacity-planning.service';
+import { prisma } from '../config/database';
+import { tenantContext } from '../middleware/tenant.middleware';
 import logger from '../config/logger';
 
 /**
@@ -11,22 +13,55 @@ import logger from '../config/logger';
  */
 
 /**
+ * Itera tutti i tenant ACTIVE ed esegue `fn` dentro lo scope tenant context
+ * (`tenantContext.run`) cosi' le query Prisma sono auto-scoped dal `$use`
+ * middleware. CRITICAL: i BullMQ worker NON ereditano AsyncLocalStorage
+ * dalla request, devono settarlo manualmente.
+ */
+async function forEachActiveTenant(
+  fn: (tenantId: string, tenantSlug: string) => Promise<void>
+): Promise<void> {
+  const tenants = await prisma.tenant.findMany({
+    where: { status: 'ACTIVE' },
+    select: { id: true, slug: true, status: true },
+  });
+
+  for (const tenant of tenants) {
+    await tenantContext.run(
+      { tenantId: tenant.id, tenantSlug: tenant.slug, tenantStatus: tenant.status },
+      async () => {
+        try {
+          await fn(tenant.id, tenant.slug);
+        } catch (err: any) {
+          logger.error(`Job failed for tenant ${tenant.slug}: ${err.message}`);
+          // Continua con il prossimo tenant; l'errore di uno non blocca gli altri.
+        }
+      }
+    );
+  }
+}
+
+/**
  * Ricalcola fabbisogni MRP per ordini confermati. Notifica:
  * - shortage critici (CRITICAL priority)
  * - bottleneck capacita > 95% picco utilization
+ *
+ * Itera per ogni tenant attivo (job globali NON ereditano tenant context).
  */
 export async function recalculateMrpJob(_job: unknown): Promise<void> {
-  try {
-    logger.info('MRP nightly recalculation started...');
+  logger.info('MRP nightly recalculation started (multi-tenant)...');
 
-    // 1. Calcola requirements
+  await forEachActiveTenant(async (tenantId, tenantSlug) => {
+    logger.info(`MRP recalculation for tenant ${tenantSlug}...`);
+
+    // 1. Calcola requirements (scoped a questo tenant via context)
     const requirements = await mrpService.calculateRequirementsForOrders();
 
     logger.info(
-      `MRP: ${requirements.summary.totalMaterials} materials checked, ${requirements.summary.criticalShortages} critical shortages`
+      `[${tenantSlug}] MRP: ${requirements.summary.totalMaterials} materials, ${requirements.summary.criticalShortages} critical shortages`
     );
 
-    // 2. Notifica shortage critici (lazy import per evitare cicli)
+    // 2. Notifica shortage critici
     if (requirements.summary.criticalShortages > 0) {
       try {
         const { default: notify } = await import('../services/notification.service');
@@ -40,7 +75,7 @@ export async function recalculateMrpJob(_job: unknown): Promise<void> {
           }
         );
       } catch (err: any) {
-        logger.warn(`MRP notification failed: ${err.message}`);
+        logger.warn(`[${tenantSlug}] MRP notification failed: ${err.message}`);
       }
     }
 
@@ -62,29 +97,32 @@ export async function recalculateMrpJob(_job: unknown): Promise<void> {
           }
         );
       } catch (err: any) {
-        logger.warn(`Capacity bottleneck notification failed: ${err.message}`);
+        logger.warn(`[${tenantSlug}] Capacity bottleneck notification failed: ${err.message}`);
       }
     }
 
-    logger.info('MRP nightly recalculation completed');
-  } catch (error: any) {
-    logger.error(`MRP recalculation failed: ${error.message}`);
-    throw error;
-  }
+    void tenantId;
+  });
+
+  logger.info('MRP nightly recalculation completed for all active tenants');
 }
 
 /**
- * Check rapido carenze critiche durante la giornata.
+ * Check rapido carenze critiche durante la giornata, multi-tenant.
  */
 export async function checkCriticalShortagesJob(_job: unknown): Promise<void> {
-  try {
-    logger.info('MRP critical shortage check...');
+  logger.info('MRP critical shortage check (multi-tenant)...');
+  let totalNotified = 0;
+
+  await forEachActiveTenant(async (_tenantId, tenantSlug) => {
     const notifiedCount = await mrpService.notifyCriticalShortages();
-    logger.info(`MRP critical shortage check: ${notifiedCount} items notified`);
-  } catch (error: any) {
-    logger.error(`MRP critical shortage check failed: ${error.message}`);
-    throw error;
-  }
+    totalNotified += notifiedCount;
+    if (notifiedCount > 0) {
+      logger.info(`[${tenantSlug}] critical shortage: ${notifiedCount} items notified`);
+    }
+  });
+
+  logger.info(`MRP critical shortage check: ${totalNotified} items notified across all tenants`);
 }
 
 /**

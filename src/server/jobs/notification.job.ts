@@ -159,37 +159,75 @@ export async function checkOverdueTasksJob(_job: unknown): Promise<void> {
 }
 
 /**
- * Controlla reminder calendario e invia notifiche
+ * Controlla reminder calendario e invia notifiche.
+ * Multi-tenant: itera per ogni tenant attivo.
  */
 export async function checkCalendarRemindersJob(_job: unknown): Promise<void> {
-  try {
-    logger.info('Checking calendar reminders...');
+  logger.info('Checking calendar reminders (multi-tenant)...');
 
-    const now = new Date();
-    const in15Minutes = new Date(now.getTime() + 15 * 60000);
+  const { tenantContext } = await import('../middleware/tenant.middleware');
+  const tenants = await prisma.tenant.findMany({
+    where: { status: 'ACTIVE' },
+    select: { id: true, slug: true, status: true },
+  });
 
-    const upcomingEvents = await prisma.calendarEvent.findMany({
-      where: {
-        startDate: {
-          gte: now,
-          lte: in15Minutes,
-        },
-        reminderMinutes: { not: null },
-      },
-    });
+  const now = new Date();
+  const in15Minutes = new Date(now.getTime() + 15 * 60000);
 
-    logger.info(`Found ${upcomingEvents.length} upcoming events with reminders`);
+  let totalNotified = 0;
 
-    for (const event of upcomingEvents) {
-      // TODO: Invia notifica agli utenti interessati
-      logger.info(`Reminder for event: ${event.title}`);
-    }
+  for (const tenant of tenants) {
+    await tenantContext.run(
+      { tenantId: tenant.id, tenantSlug: tenant.slug, tenantStatus: tenant.status },
+      async () => {
+        try {
+          // Query auto-scoped al tenant via Prisma $use middleware
+          const upcomingEvents = await prisma.calendarEvent.findMany({
+            where: {
+              startDate: {
+                gte: now,
+                lte: in15Minutes,
+              },
+              reminderMinutes: { not: null },
+            },
+          });
 
-    logger.info('Calendar reminders check completed');
-  } catch (error: any) {
-    logger.error(`Calendar reminders check failed: ${error.message}`);
-    throw error;
+          if (upcomingEvents.length === 0) return;
+
+          // Trova utenti del tenant da notificare (admin/manager/operatori)
+          const users = await prisma.user.findMany({
+            where: {
+              isActive: true,
+              role: { in: ['ADMIN', 'MANAGER', 'OPERATORE', 'COMMERCIALE'] },
+            },
+            select: { id: true },
+          });
+
+          if (users.length === 0) return;
+
+          const { default: notify } = await import('../services/notification.service');
+          for (const event of upcomingEvents) {
+            const startTime = event.startDate.toLocaleTimeString('it-IT', {
+              hour: '2-digit',
+              minute: '2-digit',
+            });
+            await notify.notifyMultipleUsers({
+              userIds: users.map((u) => u.id),
+              type: 'CALENDAR_EVENT',
+              title: `Promemoria evento: ${event.title}`,
+              message: `Inizia alle ${startTime}${event.location ? ` - ${event.location}` : ''}`,
+              link: '/calendar',
+            });
+            totalNotified++;
+          }
+        } catch (err: any) {
+          logger.error(`[${tenant.slug}] calendar reminders failed: ${err.message}`);
+        }
+      }
+    );
   }
+
+  logger.info(`Calendar reminders check completed: ${totalNotified} events notified`);
 }
 
 /**

@@ -443,7 +443,10 @@ const onOrderSaved = () => {
 // Handle optimization action
 const onOptimizationAction = (suggestion: any) => {
   // Se l'utente vuole vedere gli ordini suggeriti, potremmo filtrare
-  console.log('Optimization action:', suggestion);
+  if (import.meta.env.DEV) {
+    // eslint-disable-next-line no-console
+    console.log('Optimization action:', suggestion);
+  }
 
   // Per ora mostriamo un messaggio informativo
   // In futuro potremmo implementare azioni dirette come:

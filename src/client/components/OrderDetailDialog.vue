@@ -222,8 +222,12 @@ const loadOrder = async () => {
   loading.value = true;
   try {
     const response = await api.get(`/orders/${props.orderId}/full`);
-    console.log('[OrderDetailDialog] Full API response:', response);
-    console.log('[OrderDetailDialog] order.attachments:', response.data?.attachments);
+    if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
+      console.log('[OrderDetailDialog] Full API response:', response);
+      // eslint-disable-next-line no-console
+      console.log('[OrderDetailDialog] order.attachments:', response.data?.attachments);
+    }
     // Ensure attachments is always an array
     if (response.data) {
       response.data.attachments = response.data.attachments || [];
@@ -241,9 +245,42 @@ const loadOrder = async () => {
   }
 };
 
-// Watch for dialog open
+// Reset stato locale alla chiusura per evitare che dati di un ordine
+// precedente "sopravvivano" alla riapertura su altro ordine.
+function resetDialogState() {
+  activeTab.value = 0;
+  order.value = null;
+  newNote.value = { type: 'INTERNAL', content: '', isVisibleToCustomer: false };
+  showRefundForm.value = false;
+  refundData.value = { reason: '', restockItems: true, items: [] };
+  processingRefund.value = false;
+  showRecordPaymentDialog.value = false;
+  showPaymentHistoryDialog.value = false;
+  selectedPaymentDue.value = null;
+  addingAttachment.value = false;
+  newAttachment.value = { name: '', url: '', type: 'PDF' };
+  showShipmentDialog.value = false;
+  showCancelConfirm.value = false;
+  changingStatus.value = false;
+  saving.value = false;
+}
+
+// Watch for dialog open/close
 watch(() => props.modelValue, (val) => {
   if (val && props.orderId) {
+    // Apertura: reset state precedente, poi carica nuovo ordine
+    resetDialogState();
+    loadOrder();
+  } else if (!val) {
+    // Chiusura: reset per non lasciare dati visibili al prossimo open
+    resetDialogState();
+  }
+});
+
+// Reset anche se cambia orderId mentre dialog e' aperto
+watch(() => props.orderId, (newId, oldId) => {
+  if (props.modelValue && newId && newId !== oldId) {
+    resetDialogState();
     loadOrder();
   }
 });

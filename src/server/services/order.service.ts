@@ -591,6 +591,39 @@ class OrderService {
       }
     }
 
+    // Notifica email cliente per stati visibili (CONFIRMED, PROCESSING, SHIPPED, DELIVERED, CANCELLED, REFUNDED)
+    if (updatedOrder && (updatedOrder as any).customer?.email) {
+      try {
+        const { isCustomerNotifiable } = await import('../utils/order-state-machine');
+        if (isCustomerNotifiable(data.status as any)) {
+          const { emailService } = await import('./email.service');
+          const statusLabels: Record<string, string> = {
+            CONFIRMED: 'Confermato',
+            PROCESSING: 'In lavorazione',
+            READY: 'Pronto per la spedizione',
+            SHIPPED: 'Spedito',
+            DELIVERED: 'Consegnato',
+            CANCELLED: 'Annullato',
+            REFUNDED: 'Rimborsato',
+          };
+          const customerName =
+            (updatedOrder.customer as any).businessName ||
+            `${(updatedOrder.customer as any).firstName || ''} ${(updatedOrder.customer as any).lastName || ''}`.trim() ||
+            'Cliente';
+          await emailService.sendOrderStatusUpdate({
+            customerEmail: (updatedOrder.customer as any).email as string,
+            customerName,
+            orderNumber: updatedOrder.orderNumber,
+            oldStatus: order.status,
+            newStatus: data.status,
+            statusLabel: statusLabels[data.status] || data.status,
+          });
+        }
+      } catch (error: any) {
+        logger.warn(`Could not send order status email for ${id}: ${error.message}`);
+      }
+    }
+
     return updatedOrder;
   }
 

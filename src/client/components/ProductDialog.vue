@@ -207,6 +207,7 @@
             icon="pi pi-cloud-upload"
             class="p-button-outlined p-button-help"
             :loading="syncingWordPress"
+            :disabled="syncingWordPress || loading || !product?.id"
             @click="syncToWordPress"
           />
         </div>
@@ -467,7 +468,45 @@ const syncToWordPress = async () => {
   }
 };
 
+// Validazione minima client-side prima dell'emit. Lo schema completo Zod
+// e' lato server (`src/server/schemas/product.schema.ts`); qui blocchiamo
+// solo i casi piu' comuni per UX rapida (toast immediato).
+function validateProductForm(): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+  const f = form.value;
+
+  if (!f.sku || !String(f.sku).trim()) errors.push('SKU obbligatorio');
+  else if (String(f.sku).length > 100) errors.push('SKU max 100 caratteri');
+
+  if (!f.name || !String(f.name).trim()) errors.push('Nome prodotto obbligatorio');
+  else if (String(f.name).length > 200) errors.push('Nome max 200 caratteri');
+
+  if (f.price === null || f.price === undefined || isNaN(Number(f.price)) || Number(f.price) < 0) {
+    errors.push('Prezzo non valido (>= 0)');
+  }
+  if (f.cost !== null && f.cost !== undefined && (isNaN(Number(f.cost)) || Number(f.cost) < 0)) {
+    errors.push('Costo non valido (>= 0)');
+  }
+
+  const validTypes = ['SIMPLE', 'WITH_VARIANTS', 'DIGITAL', 'RAW_MATERIAL'];
+  if (!validTypes.includes(f.type)) errors.push('Tipo prodotto non valido');
+
+  return { valid: errors.length === 0, errors };
+}
+
 const save = () => {
+  // Valida prima di emettere. Mostra toast con elenco errori se invalido.
+  const validation = validateProductForm();
+  if (!validation.valid) {
+    toast.add({
+      severity: 'warn',
+      summary: 'Dati non validi',
+      detail: validation.errors.join(' · '),
+      life: 5000,
+    });
+    return;
+  }
+
   loading.value = true;
 
   // Unisci i campi web nel form principale

@@ -1,6 +1,7 @@
 import queueManager from '../services/queue.service';
 import { prisma } from '../config/database';
 import { emailService } from '../services/email.service';
+import { tenantContext } from '../middleware/tenant.middleware';
 import logger from '../config/logger';
 
 /**
@@ -36,21 +37,45 @@ const DUNNING_INTERVALS_DAYS = [0, 7, 14, 30, 60]; // dunningLevel target -> gio
 
 /**
  * Job principale: invia reminder + esegue dunning escalation.
+ * CRITICAL: itera per ogni tenant attivo settando l'AsyncLocalStorage
+ * context cosi' le query Prisma restano scoped al singolo tenant.
  */
 export async function paymentDueReminderJob(_job: unknown): Promise<void> {
-  try {
-    logger.info('Payment due reminder & dunning job started...');
+  logger.info('Payment due reminder & dunning job started (multi-tenant)...');
 
-    const sentReminders = await sendUpcomingReminders();
-    const dunningSent = await sendDunningEscalation();
+  let totalReminders = 0;
+  let totalDunning = 0;
 
-    logger.info(
-      `Payment due reminders: ${sentReminders} reminder + ${dunningSent} dunning escalation`
+  const tenants = await prisma.tenant.findMany({
+    where: { status: 'ACTIVE' },
+    select: { id: true, slug: true, status: true },
+  });
+
+  for (const tenant of tenants) {
+    await tenantContext.run(
+      { tenantId: tenant.id, tenantSlug: tenant.slug, tenantStatus: tenant.status },
+      async () => {
+        try {
+          const sentReminders = await sendUpcomingReminders();
+          const dunningSent = await sendDunningEscalation();
+          totalReminders += sentReminders;
+          totalDunning += dunningSent;
+          if (sentReminders + dunningSent > 0) {
+            logger.info(
+              `[${tenant.slug}] Payment due: ${sentReminders} reminder + ${dunningSent} dunning`
+            );
+          }
+        } catch (err: any) {
+          logger.error(`[${tenant.slug}] Payment due reminder failed: ${err.message}`);
+          // Non rilanciare: continua con il prossimo tenant
+        }
+      }
     );
-  } catch (error: any) {
-    logger.error(`Payment due reminder job failed: ${error.message}`);
-    throw error;
   }
+
+  logger.info(
+    `Payment due reminders TOTAL: ${totalReminders} reminder + ${totalDunning} dunning across ${tenants.length} tenants`
+  );
 }
 
 /**

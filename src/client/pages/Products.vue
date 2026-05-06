@@ -430,7 +430,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
 import Button from 'primevue/button';
@@ -463,7 +463,15 @@ const sortOrder = ref('desc');
 const showDialog = ref(false);
 const showWizard = ref(false);
 const showDetailDialog = ref(false);
-const selectedProduct = ref(null);
+
+// Ref dialog isolati per prevenire state cross-contamination tra
+// edit/view/wizard dialog (es. apri view, chiudi, apri edit -> non
+// deve vedere il prodotto del view).
+const editingProduct = ref<any>(null);
+const viewingProduct = ref<any>(null);
+// `selectedProduct` mantenuto come computed legacy per compatibilita'
+// con il template del DetailDialog (che usa selectedProduct in molti posti).
+const selectedProduct = computed(() => viewingProduct.value || editingProduct.value);
 
 const stats = ref({
   costValue: 0,       // Valore a costo
@@ -571,14 +579,15 @@ const loadProducts = async () => {
   try {
     loading.value = true;
 
-    const params = new URLSearchParams({
+    const paramsObj: Record<string, string> = {
       page: page.value.toString(),
       limit: '20',
       sortBy: sortBy.value,
       sortOrder: sortOrder.value,
-      ...(search.value && { search: search.value }),
-      ...(selectedCategory.value && { category: selectedCategory.value }),
-    });
+    };
+    if (search.value) paramsObj.search = search.value;
+    if (selectedCategory.value) paramsObj.category = selectedCategory.value;
+    const params = new URLSearchParams(paramsObj);
 
     const response = await api.get(`/products?${params.toString()}`);
 
@@ -610,17 +619,23 @@ const onSort = (event: any) => {
 };
 
 const openCreateDialog = () => {
-  selectedProduct.value = null;
+  // Reset di entrambi gli slot: wizard e' modalita' "create"
+  editingProduct.value = null;
+  viewingProduct.value = null;
   showWizard.value = true;
 };
 
 const viewProduct = (product: any) => {
-  selectedProduct.value = product;
+  // Apertura dettaglio: usa slot dedicato, non interferisce con edit
+  viewingProduct.value = product;
+  editingProduct.value = null;
   showDetailDialog.value = true;
 };
 
 const editProduct = (product: any) => {
-  selectedProduct.value = product;
+  // Apertura edit: usa slot dedicato
+  editingProduct.value = product;
+  viewingProduct.value = null;
   showDialog.value = true;
 };
 
@@ -656,8 +671,8 @@ const deleteProduct = (product: any) => {
 
 const handleSave = async (productData: any) => {
   try {
-    if (selectedProduct.value?.id) {
-      await api.patch(`/products/${selectedProduct.value.id}`, productData);
+    if (editingProduct.value?.id) {
+      await api.patch(`/products/${editingProduct.value.id}`, productData);
       toast.add({
         severity: 'success',
         summary: 'Aggiornato',

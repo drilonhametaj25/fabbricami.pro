@@ -452,6 +452,24 @@ class ShopCheckoutService {
         }
       });
 
+      // 5. Trigger email confirmation ordine (best-effort, fuori transazione)
+      try {
+        const { queueOrderConfirmation } = await import('../jobs/email.job');
+        await queueOrderConfirmation(orderId);
+      } catch (err: any) {
+        logger.error(`Failed to queue order confirmation email for ${orderId}: ${err.message}`);
+      }
+
+      // 6. Sync order status a WordPress se ordine collegato a WP
+      if (order.wordpressId) {
+        try {
+          const { queueOrderStatusUpdate } = await import('../jobs/wordpress.job');
+          await queueOrderStatusUpdate(orderId, 'CONFIRMED');
+        } catch (err: any) {
+          logger.error(`Failed to queue WP order status sync for ${orderId}: ${err.message}`);
+        }
+      }
+
     } else if (paymentStatus === PaymentStatus.FAILED) {
       // Payment failed - cancel order (no stock to restore since we didn't decrement)
       await prisma.order.update({
@@ -470,6 +488,25 @@ class ShopCheckoutService {
           await prisma.shoppingCart.delete({ where: { id: cartId } });
         } catch {
           // Ignore cart deletion errors
+        }
+      }
+
+      // Notifica cliente del pagamento fallito (se email customer)
+      if (order.customer?.email) {
+        try {
+          const customerName =
+            order.customer.businessName ||
+            `${order.customer.firstName || ''} ${order.customer.lastName || ''}`.trim() ||
+            'Cliente';
+          await emailService.sendOrderPaymentFailed({
+            customerEmail: order.customer.email,
+            customerName,
+            orderNumber: order.orderNumber,
+            amount: Number(order.total),
+            reason: 'Il pagamento non e\' stato autorizzato',
+          });
+        } catch (err: any) {
+          logger.error(`Failed to send payment failed email for ${orderId}: ${err.message}`);
         }
       }
     }

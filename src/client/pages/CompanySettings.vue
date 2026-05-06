@@ -451,9 +451,8 @@ const loadSettings = async () => {
       if (data.bank) Object.assign(bank.value, data.bank);
       if (data.branding) Object.assign(branding.value, data.branding);
     }
-  } catch (error) {
-    // Settings might not exist yet, that's OK
-    console.log('No existing settings found');
+  } catch (_error) {
+    // Settings might not exist yet, that's OK (silent: e' un caso normale al primo avvio)
   }
 };
 

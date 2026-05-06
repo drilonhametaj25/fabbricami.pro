@@ -225,7 +225,7 @@ class AccountingService {
     const invoiceNumber = await this.generateInvoiceNumber(data.type);
     const dueDate = data.dueDate || this.calculateDueDate(new Date(data.issueDate), 30);
 
-    return await prisma.invoice.create({
+    const invoice = await prisma.invoice.create({
       data: {
         ...data,
         invoiceNumber,
@@ -236,6 +236,32 @@ class AccountingService {
         customer: true,
       },
     });
+
+    // Best-effort: invia email al cliente con notifica fattura emessa.
+    // Errore non blocca la creazione (il record fattura e' gia' persistito).
+    if (invoice.customer?.email) {
+      try {
+        const { emailService } = await import('./email.service');
+        const customerName =
+          (invoice.customer as any).businessName ||
+          `${(invoice.customer as any).firstName || ''} ${(invoice.customer as any).lastName || ''}`.trim() ||
+          'Cliente';
+        await emailService.sendInvoiceGenerated({
+          customerEmail: invoice.customer.email,
+          customerName,
+          invoiceNumber: invoice.invoiceNumber,
+          issueDate: invoice.issueDate,
+          dueDate: invoice.dueDate,
+          total: Number(invoice.total),
+          pdfPath: invoice.pdfFilePath || undefined,
+        });
+      } catch (err: any) {
+        const { logger } = await import('../config/logger');
+        logger.error(`Failed to send invoice generated email for ${invoice.id}: ${err.message}`);
+      }
+    }
+
+    return invoice;
   }
 
   /**

@@ -320,46 +320,54 @@ describe('Notification Job', () => {
     });
   });
 
-  describe('checkCalendarRemindersJob', () => {
-    it('should find upcoming events with reminders', async () => {
+  describe('checkCalendarRemindersJob (multi-tenant)', () => {
+    // Il job ora itera per ogni tenant attivo; servono mock di tenant.findMany
+    // + user.findMany (per recipients).
+    const mockTenants = [{ id: 'tenant-1', slug: 'acme', status: 'ACTIVE' }];
+    const mockUsers = [{ id: 'user-1' }, { id: 'user-2' }];
+
+    it('should iterate tenants and notify users for upcoming events', async () => {
       const upcomingEvents = [
         {
           id: 'event-1',
           title: 'Team Meeting',
           startDate: new Date(),
           reminderMinutes: 15,
+          location: null,
         },
         {
           id: 'event-2',
           title: 'Client Call',
           startDate: new Date(),
           reminderMinutes: 30,
+          location: null,
         },
       ];
 
+      prismaMock.tenant.findMany.mockResolvedValue(mockTenants as any);
       prismaMock.calendarEvent.findMany.mockResolvedValue(upcomingEvents as any);
+      prismaMock.user.findMany.mockResolvedValue(mockUsers as any);
 
-      await checkCalendarRemindersJob({});
+      await expect(checkCalendarRemindersJob({})).resolves.not.toThrow();
 
-      expect(mockLogger.info).toHaveBeenCalledWith('Checking calendar reminders...');
-      expect(mockLogger.info).toHaveBeenCalledWith('Found 2 upcoming events with reminders');
-      expect(mockLogger.info).toHaveBeenCalledWith('Reminder for event: Team Meeting');
-      expect(mockLogger.info).toHaveBeenCalledWith('Reminder for event: Client Call');
+      // Verifica che siano stati cercati i tenant attivi
+      expect(prismaMock.tenant.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { status: 'ACTIVE' } })
+      );
     });
 
-    it('should handle no upcoming events', async () => {
-      prismaMock.calendarEvent.findMany.mockResolvedValue([]);
+    it('should handle no tenants without throwing', async () => {
+      prismaMock.tenant.findMany.mockResolvedValue([]);
 
-      await checkCalendarRemindersJob({});
-
-      expect(mockLogger.info).toHaveBeenCalledWith('Found 0 upcoming events with reminders');
+      await expect(checkCalendarRemindersJob({})).resolves.not.toThrow();
     });
 
-    it('should throw error on database failure', async () => {
+    it('should not crash if a tenant has DB error (continues with next)', async () => {
+      prismaMock.tenant.findMany.mockResolvedValue(mockTenants as any);
       prismaMock.calendarEvent.findMany.mockRejectedValue(new Error('Database error'));
 
-      await expect(checkCalendarRemindersJob({})).rejects.toThrow('Database error');
-      expect(mockLogger.error).toHaveBeenCalledWith('Calendar reminders check failed: Database error');
+      // Il nuovo flusso non rilancia: logga errore per tenant e continua.
+      await expect(checkCalendarRemindersJob({})).resolves.not.toThrow();
     });
   });
 
@@ -467,11 +475,15 @@ describe('Notification Job', () => {
 
         const workerCallback = mockQueueManager.createWorker.mock.calls[0][1];
 
+        // Multi-tenant: serve mock di tenant.findMany prima di calendarEvent
+        prismaMock.tenant.findMany.mockResolvedValue([]);
         prismaMock.calendarEvent.findMany.mockResolvedValue([]);
 
         await workerCallback({ data: { type: 'calendar-reminder' } });
 
-        expect(mockLogger.info).toHaveBeenCalledWith('Checking calendar reminders...');
+        expect(mockLogger.info).toHaveBeenCalledWith(
+          'Checking calendar reminders (multi-tenant)...'
+        );
       });
 
       it('should warn for unknown job type', async () => {

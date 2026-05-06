@@ -141,14 +141,65 @@ function handleDashboardUpdate(data: any) {
 }
 
 /**
- * Inizializza WebSocket routes
+ * Inizializza WebSocket routes.
+ *
+ * Auth: il browser non puo' settare header custom su `new WebSocket(url)`.
+ * Estraiamo il JWT da query string `?token=...` (es. da `?token=${authStore.token}`).
+ * In alternativa accettiamo il token via Sec-WebSocket-Protocol (compat con piu' setup).
+ * Token invalido o mancante -> close con codice 4401.
  */
 export function initWebSocket(server: FastifyInstance) {
-  (server.get as any)('/ws', { websocket: true }, (socket: SocketConnection, request: FastifyRequest): void => {
+  (server.get as any)('/ws', { websocket: true }, async (socket: SocketConnection, request: FastifyRequest): Promise<void> => {
     const clientId = Math.random().toString(36).substring(7);
-    const userId = (request as FastifyRequest & { user?: { id: string } }).user?.id || 'anonymous';
 
-    logger.info(`WebSocket client connected: ${clientId} (User: ${userId})`);
+    // 1. Estrai token: query ?token=... oppure Sec-WebSocket-Protocol header
+    const url = new URL(request.url || '/', 'http://placeholder');
+    const queryToken = url.searchParams.get('token');
+    const protocolHeader = request.headers['sec-websocket-protocol'] as string | undefined;
+    const protocolToken =
+      typeof protocolHeader === 'string'
+        ? protocolHeader.split(',').map((s) => s.trim()).find((p) => p.startsWith('Bearer.'))?.slice(7)
+        : undefined;
+    const token = queryToken || protocolToken;
+
+    if (!token) {
+      logger.warn(`WS reject ${clientId}: no token provided`);
+      try {
+        socket.socket.close(4401, 'Missing auth token');
+      } catch {
+        // ignore
+      }
+      return;
+    }
+
+    // 2. Verifica JWT
+    let userId: string;
+    let tenantId: string | undefined;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const jwt = require('jsonwebtoken') as typeof import('jsonwebtoken');
+      const { config } = await import('../config/environment');
+      const decoded = jwt.verify(token, config.jwt.secret) as {
+        userId?: string;
+        id?: string;
+        tenantId?: string;
+      };
+      userId = decoded.userId || decoded.id || '';
+      tenantId = decoded.tenantId;
+      if (!userId) {
+        throw new Error('Invalid token payload (no userId)');
+      }
+    } catch (err: any) {
+      logger.warn(`WS reject ${clientId}: invalid token - ${err.message}`);
+      try {
+        socket.socket.close(4401, 'Invalid auth token');
+      } catch {
+        // ignore
+      }
+      return;
+    }
+
+    logger.info(`WebSocket client connected: ${clientId} (User: ${userId}, Tenant: ${tenantId || 'none'})`);
 
     const client: WebSocketClient = {
       id: clientId,

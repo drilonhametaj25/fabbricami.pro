@@ -121,7 +121,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onUnmounted } from 'vue';
 import Dialog from 'primevue/dialog';
 import Dropdown from 'primevue/dropdown';
 import InputNumber from 'primevue/inputnumber';
@@ -314,14 +314,32 @@ const saveAll = async () => {
 };
 
 // Activate scanner when dialog opens
+// CRITICAL: setTimeout deve essere tracciato e cancellato per evitare
+// memory leak su open/close ripetuto (race condition + handler accumulati).
+let scannerActivationTimeout: ReturnType<typeof setTimeout> | null = null;
+
 watch(visible, (isVisible) => {
+  // Cancella timeout pending da una precedente apertura
+  if (scannerActivationTimeout) {
+    clearTimeout(scannerActivationTimeout);
+    scannerActivationTimeout = null;
+  }
+
   if (isVisible) {
     // Small delay to ensure DOM is ready
-    setTimeout(() => {
+    scannerActivationTimeout = setTimeout(() => {
       scannerActive.value = true;
+      scannerActivationTimeout = null;
     }, 500);
   } else {
     scannerActive.value = false;
+  }
+});
+
+onUnmounted(() => {
+  if (scannerActivationTimeout) {
+    clearTimeout(scannerActivationTimeout);
+    scannerActivationTimeout = null;
   }
 });
 </script>
