@@ -162,10 +162,17 @@ jobs:
             echo ">>> Health check - testing backend API..."
             # HARDENING: retry health check up to 6 times (1 minute) before
             # giving up. Fail the deploy if the backend never responds 2xx.
+            #
+            # Note: the backend container does NOT publish port 3000 on the
+            # host (only Traefik:443 is exposed), so a host-side
+            # `curl localhost:3000/...` cannot reach it. We instead probe
+            # the same /health endpoint that the Dockerfile HEALTHCHECK
+            # already uses, executing `wget` *inside* the container.
             HEALTH_OK=0
             for attempt in 1 2 3 4 5 6; do
               sleep 10
-              if curl -sf http://localhost:3000/api/health; then
+              if docker compose -f docker-compose.prod.yml exec -T backend \
+                   wget -q --spider http://127.0.0.1:3000/health; then
                 echo "Backend healthy on attempt $attempt!"
                 HEALTH_OK=1
                 break
@@ -174,6 +181,9 @@ jobs:
             done
             if [ "$HEALTH_OK" -ne 1 ]; then
               echo "!!! Backend is not healthy after 60s — aborting deploy"
+              echo ">>> Docker healthcheck state:"
+              docker compose -f docker-compose.prod.yml ps backend || true
+              echo ">>> Recent backend logs:"
               docker compose -f docker-compose.prod.yml logs backend --tail 50 || true
               exit 1
             fi
