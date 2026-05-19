@@ -1,9 +1,8 @@
-import { PrismaClient, OrderStatus, PaymentStatus, Prisma } from '@prisma/client';
+import { OrderStatus, PaymentStatus, Prisma } from '@prisma/client';
 import { emailService } from './email.service';
 import { logger } from '../config/logger';
 import { isCustomerNotifiable } from '../utils/order-state-machine';
-
-const prisma = new PrismaClient();
+import { prisma } from '../config/database';
 
 export interface CheckoutData {
   cartId: string;

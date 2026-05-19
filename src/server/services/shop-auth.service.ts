@@ -1,11 +1,10 @@
-import { PrismaClient, Customer } from '@prisma/client';
+import { Customer } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { randomBytes } from 'crypto';
 import { emailService } from './email.service';
 import { config } from '../config/environment';
-
-const prisma = new PrismaClient();
+import { prisma } from '../config/database';
 
 const JWT_SECRET = config.jwt.secret;
 const JWT_EXPIRES_IN = config.jwt.expiresIn;

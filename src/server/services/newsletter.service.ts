@@ -1,7 +1,5 @@
-import { PrismaClient } from '@prisma/client';
 import { randomBytes, createHash } from 'crypto';
-
-const prisma = new PrismaClient();
+import { prisma } from '../config/database';
 
 // Mailchimp configuration
 const MAILCHIMP_API_KEY = process.env.MAILCHIMP_API_KEY || '';

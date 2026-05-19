@@ -90,7 +90,7 @@ const TENANT_SCOPED_MODELS: Prisma.ModelName[] = [
 // ============================================
 
 // Configurazione Prisma con logging
-const prisma = new PrismaClient({
+const basePrisma = new PrismaClient({
   log: config.isDevelopment
     ? ['query', 'info', 'warn', 'error']
     : ['error'],
@@ -111,74 +111,157 @@ const prisma = new PrismaClient({
  *
  * Questo assicura che ogni tenant veda solo i propri dati
  */
-prisma.$use(async (params, next) => {
-  const tenantId = getCurrentTenantId();
+// Mode strict: se TENANT_STRICT_MODE=true, una query verso un modello tenant-scoped
+// SENZA tenantContext attivo lancia un'eccezione (con stack trace) invece di
+// procedere unfiltered. Utile per debug/produzione per scoprire route che hanno
+// bypassato il setup del context.
+const TENANT_STRICT_MODE = process.env.TENANT_STRICT_MODE === 'true';
 
-  // Se non c'è contesto tenant o il modello non è tenant-scoped, procedi normalmente
+// Log diagnostico minimale: stampa ogni query tenant-scoped con tenantId iniettato
+const TENANT_DEBUG_MODE = process.env.TENANT_DEBUG_MODE === 'true';
+
+basePrisma.$use(async (params, next) => {
+  const tenantId = getCurrentTenantId();
+  const isTenantScoped = !!params.model && TENANT_SCOPED_MODELS.includes(params.model as Prisma.ModelName);
+
+  if (TENANT_DEBUG_MODE && isTenantScoped) {
+    // eslint-disable-next-line no-console
+    console.error(`[TENANT_MW $use] ${params.model}.${params.action} tenantId=${tenantId ?? '<NONE>'}`);
+  }
+
+  if (!tenantId && isTenantScoped) {
+    if (TENANT_STRICT_MODE) {
+      const err = new Error(
+        `[TENANT_STRICT] Query ${params.model}.${params.action} eseguita senza tenantContext. ` +
+        `Questo è un data leak: aggiungi authenticate/tenantMiddleware al route o wrappa in runWithTenant().`
+      );
+      // eslint-disable-next-line no-console
+      console.error(err.stack);
+      throw err;
+    }
+    // eslint-disable-next-line no-console
+    console.error(`[TENANT_LEAK_WARN $use] ${params.model}.${params.action} senza tenantContext — query NON filtrata!`);
+  }
+
   if (!tenantId || !params.model || !TENANT_SCOPED_MODELS.includes(params.model as Prisma.ModelName)) {
     return next(params);
   }
 
-  // Azioni di lettura - aggiungi tenantId al filtro WHERE
   if (['findMany', 'findFirst', 'findUnique', 'findFirstOrThrow', 'findUniqueOrThrow', 'count', 'aggregate', 'groupBy'].includes(params.action)) {
     params.args = params.args || {};
-    params.args.where = {
-      ...params.args.where,
-      tenantId,
-    };
+    params.args.where = { ...params.args.where, tenantId };
   }
 
-  // Azioni di creazione - aggiungi tenantId ai dati
   if (params.action === 'create') {
     params.args = params.args || {};
-    params.args.data = {
-      ...params.args.data,
-      tenantId,
-    };
+    params.args.data = { ...params.args.data, tenantId };
   }
 
   if (params.action === 'createMany') {
     params.args = params.args || {};
     if (Array.isArray(params.args.data)) {
-      params.args.data = params.args.data.map((item: Record<string, unknown>) => ({
-        ...item,
-        tenantId,
-      }));
+      params.args.data = params.args.data.map((item: Record<string, unknown>) => ({ ...item, tenantId }));
     } else {
-      params.args.data = {
-        ...params.args.data,
-        tenantId,
-      };
+      params.args.data = { ...params.args.data, tenantId };
     }
   }
 
-  // Azioni di aggiornamento - aggiungi tenantId al filtro WHERE
   if (['update', 'updateMany', 'upsert'].includes(params.action)) {
     params.args = params.args || {};
-    params.args.where = {
-      ...params.args.where,
-      tenantId,
-    };
-    // Per upsert, aggiungi tenantId anche ai dati create
+    params.args.where = { ...params.args.where, tenantId };
     if (params.action === 'upsert' && params.args.create) {
-      params.args.create = {
-        ...params.args.create,
-        tenantId,
-      };
+      params.args.create = { ...params.args.create, tenantId };
     }
   }
 
-  // Azioni di eliminazione - aggiungi tenantId al filtro WHERE
   if (['delete', 'deleteMany'].includes(params.action)) {
     params.args = params.args || {};
-    params.args.where = {
-      ...params.args.where,
-      tenantId,
-    };
+    params.args.where = { ...params.args.where, tenantId };
   }
 
   return next(params);
 });
+
+// ============================================
+// DOPPIO LIVELLO DI ISOLAMENTO TENANT (Prisma 5+)
+// ============================================
+// `$use` è deprecato in Prisma 5 e potrebbe NON essere applicato correttamente
+// dipendendo dalla versione/configurazione. `$extends` è l'API ufficiale e
+// sicura: intercetta ogni query e applica il filtro tenant.
+// Usiamo ENTRAMBI come belt-and-suspenders — sono idempotenti (settare
+// tenantId due volte produce lo stesso WHERE).
+const READ_ACTIONS = new Set([
+  'findMany', 'findFirst', 'findUnique', 'findFirstOrThrow',
+  'findUniqueOrThrow', 'count', 'aggregate', 'groupBy',
+]);
+const UPDATE_ACTIONS = new Set(['update', 'updateMany', 'upsert']);
+const DELETE_ACTIONS = new Set(['delete', 'deleteMany']);
+
+// L'extended client ha un tipo diverso da PrismaClient. Per non rompere centinaia
+// di call site (firme di transazioni, repository, ecc.) lo castiamo dietro lo
+// stesso tipo del base client. A runtime intercetta correttamente; a compile
+// time appare come PrismaClient normale.
+const extendedPrisma = basePrisma.$extends({
+  name: 'tenantIsolation',
+  query: {
+    $allModels: {
+      async $allOperations({ model, operation, args, query }: { model?: string; operation: string; args: any; query: (a: any) => Promise<any> }) {
+        const tenantId = getCurrentTenantId();
+        const isTenantScoped = !!model && TENANT_SCOPED_MODELS.includes(model as Prisma.ModelName);
+
+        if (TENANT_DEBUG_MODE && isTenantScoped) {
+          // eslint-disable-next-line no-console
+          console.error(`[TENANT_MW $extends] ${model}.${operation} tenantId=${tenantId ?? '<NONE>'}`);
+        }
+
+        if (!tenantId && isTenantScoped) {
+          if (TENANT_STRICT_MODE) {
+            const err = new Error(
+              `[TENANT_STRICT $extends] Query ${model}.${operation} senza tenantContext. ` +
+              `Aggiungi authenticate/tenantMiddleware al route o wrappa in runWithTenant().`
+            );
+            // eslint-disable-next-line no-console
+            console.error(err.stack);
+            throw err;
+          }
+          // eslint-disable-next-line no-console
+          console.error(`[TENANT_LEAK_WARN $extends] ${model}.${operation} senza tenantContext — query NON filtrata!`);
+        }
+
+        if (!tenantId || !isTenantScoped) {
+          return query(args);
+        }
+
+        const a: any = args ?? {};
+
+        if (READ_ACTIONS.has(operation)) {
+          a.where = { ...(a.where ?? {}), tenantId };
+        } else if (operation === 'create') {
+          a.data = { ...(a.data ?? {}), tenantId };
+        } else if (operation === 'createMany') {
+          if (Array.isArray(a.data)) {
+            a.data = a.data.map((item: Record<string, unknown>) => ({ ...item, tenantId }));
+          } else {
+            a.data = { ...(a.data ?? {}), tenantId };
+          }
+        } else if (UPDATE_ACTIONS.has(operation)) {
+          a.where = { ...(a.where ?? {}), tenantId };
+          if (operation === 'upsert' && a.create) {
+            a.create = { ...a.create, tenantId };
+          }
+        } else if (DELETE_ACTIONS.has(operation)) {
+          a.where = { ...(a.where ?? {}), tenantId };
+        }
+
+        return query(a);
+      },
+    },
+  },
+});
+
+// Cast back al tipo di basePrisma per mantenere compatibilità coi call site
+// esistenti (transazioni, repository, ecc.). Runtime usa l'extended client.
+const prisma = extendedPrisma as unknown as typeof basePrisma;
 
 // ============================================
 // GESTIONE CONNESSIONE

@@ -17,9 +17,8 @@ import {
   shippingMethodsSchema,
   validateCouponSchema,
 } from '../schemas/shop-checkout.schema';
-import { PrismaClient, ShopShippingMethod } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import { ShopShippingMethod } from '@prisma/client';
+import { prisma } from '../config/database';
 
 // Extend FastifyRequest to include customer
 declare module 'fastify' {

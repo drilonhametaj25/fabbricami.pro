@@ -1,8 +1,6 @@
-import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
-
-const prisma = new PrismaClient();
+import { prisma } from '../config/database';
 
 export interface PluginCredential {
   id: string;

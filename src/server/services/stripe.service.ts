@@ -1,12 +1,11 @@
-import { PrismaClient, PaymentStatus } from '@prisma/client';
+import { PaymentStatus } from '@prisma/client';
+import { prisma } from '../config/database';
 import Stripe from 'stripe';
 import { shopCheckoutService } from './shop-checkout.service';
 import { subscriptionService } from './subscription.service';
 import { config } from '../config/environment';
 import { logger } from '../config/logger';
 import redisClient from '../config/redis';
-
-const prisma = new PrismaClient();
 
 // Webhook idempotency TTL (7 days in seconds)
 const WEBHOOK_IDEMPOTENCY_TTL = 7 * 24 * 60 * 60;
