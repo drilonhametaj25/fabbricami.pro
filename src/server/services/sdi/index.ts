@@ -39,7 +39,6 @@ export { ficSdiService } from './fic-sdi.service';
 export { fatturaPaValidatorService } from './fatturapa-validator.service';
 
 import { fatturaPaValidatorService } from './fatturapa-validator.service';
-import { XsdValidationResult } from './sdi-provider.interface';
 
 /**
  * Directory per salvataggio file XML
@@ -746,6 +745,32 @@ class SdiService {
 
   async validateInvoiceXml(_invoiceId: string): Promise<{ valid: boolean; errors?: string[] }> {
     return { valid: true };
+  }
+
+  /**
+   * Valida una stringa XML FatturaPA contro lo schema XSD ufficiale.
+   * Wrapper sincrono sopra fatturaPaValidatorService.validateXml che converte gli
+   * errori dettagliati nella forma piatta `string[]` esposta dalla route.
+   */
+  validateXmlString(xml: string): { valid: boolean; errors?: string[] } {
+    const result = fatturaPaValidatorService.validateXml(xml);
+    return {
+      valid: result.valid,
+      errors: result.errors?.map((e) =>
+        [e.line ? `riga ${e.line}` : '', e.message].filter(Boolean).join(': ')
+      ),
+    };
+  }
+
+  /**
+   * Stub: il retry automatico delle fatture fallite è stato disabilitato; la
+   * route/job restano nel grafo per non rompere consumer esterni, ma rispondono
+   * con `success: false`. Riattivare quando si ripristina la pipeline SDI completa.
+   */
+  async retryFailedInvoice(
+    _invoiceId: string
+  ): Promise<{ success: boolean; error?: string; sdiId?: string }> {
+    return { success: false, error: 'retryFailedInvoice non implementato' };
   }
 }
 

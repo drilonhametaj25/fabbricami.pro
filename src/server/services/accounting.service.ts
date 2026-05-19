@@ -1993,9 +1993,19 @@ class AccountingService {
       const grossProfit = revenue - cogs;
       const grossMarginPct = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
 
+      results.push({
+        productId: product.id,
+        productSku: product.sku,
+        productName: product.name,
+        revenue,
+        cogs,
+        grossProfit,
+        grossMarginPct,
+        unitsSold,
+      });
     }
 
-    return { processed: results.length, results };
+    return results.sort((a, b) => b.grossProfit - a.grossProfit).slice(0, limit);
   }
 }
 

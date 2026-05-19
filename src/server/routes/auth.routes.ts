@@ -941,6 +941,8 @@ const authRoutes: FastifyPluginAsync = async (server) => {
             slug: user.tenant.slug,
             name: user.tenant.name,
           } : null,
+          accessToken: token,
+          refreshToken,
         },
       });
     } catch (error) {

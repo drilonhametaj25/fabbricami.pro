@@ -3,6 +3,7 @@ import { SaasSubscriptionStatus } from '@prisma/client';
 import Stripe from 'stripe';
 import { emailService } from './email.service';
 import { config } from '../config/environment';
+import { logger } from '../config/logger';
 
 // ============================================
 // STRIPE CONFIGURATION (BUG-003 fix: use centralized config)
@@ -288,7 +289,11 @@ class SubscriptionService {
   /**
    * Start a trial subscription (without Stripe)
    */
-  async createTrialSubscription(tenantId: string, planCode: string): Promise<SubscriptionInfo> {
+  async createTrialSubscription(
+    tenantId: string,
+    planCode: string,
+    billingCycle: 'monthly' | 'annual' | 'yearly' = 'monthly'
+  ): Promise<SubscriptionInfo> {
     const plan = await prisma.subscriptionPlan.findUnique({
       where: { code: planCode },
     });
@@ -300,12 +305,14 @@ class SubscriptionService {
     const now = new Date();
     const trialDays = parseInt(process.env.DEFAULT_TRIAL_DAYS || '14');
     const trialEndsAt = new Date(now.getTime() + trialDays * 24 * 60 * 60 * 1000);
+    const billingInterval = billingCycle === 'annual' || billingCycle === 'yearly' ? 'yearly' : 'monthly';
 
     const subscription = await prisma.saasSubscription.create({
       data: {
         tenantId,
         planId: plan.id,
         status: 'TRIALING',
+        billingInterval,
         currentPeriodStart: now,
         currentPeriodEnd: trialEndsAt,
         trialEndsAt,

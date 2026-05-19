@@ -51,8 +51,6 @@ import billingRoutes from './routes/billing.routes';
 import adminRoutes from './routes/admin.routes';
 import { initQueueSystem, shutdownSystems } from './config/features';
 import { validateStripeConfig } from './config/stripe.config';
-import { authenticate } from './middleware/auth.middleware';
-import { requireFeature } from './middleware/subscription.middleware';
 
 // Shop/E-commerce routes (public)
 import shopCartRoutes from './routes/shop-cart.routes';

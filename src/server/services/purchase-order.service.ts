@@ -272,9 +272,9 @@ class PurchaseOrderService {
         await tx.purchaseOrder.update({
           where: { id },
           data: {
-            subtotalAmount: Number(subtotal.toFixed(2)),
-            taxAmount: Number(taxAmount.toFixed(2)),
-            totalAmount: Number(totalAmount.toFixed(2)),
+            subtotal: Number(subtotal.toFixed(2)),
+            tax: Number(taxAmount.toFixed(2)),
+            total: Number(totalAmount.toFixed(2)),
           },
         });
       });

@@ -182,6 +182,7 @@ export async function runSubscriptionGate(
       features: modules,
     },
     trialEndsAt: subscription.trialEndsAt || undefined,
+    currentPeriodEnd: subscription.currentPeriodEnd,
     cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
   };
 

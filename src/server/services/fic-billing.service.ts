@@ -175,7 +175,6 @@ export async function issueSaasInvoiceFromStripe(stripeInvoice: Stripe.Invoice):
       id: true,
       name: true,
       slug: true,
-      companySettings: true,
       members: {
         where: { role: 'ADMIN' },
         include: { user: { select: { email: true } } },
@@ -187,8 +186,11 @@ export async function issueSaasInvoiceFromStripe(stripeInvoice: Stripe.Invoice):
     return { attempted: true, success: false, error: `Tenant ${tenantId} non trovato` };
   }
 
-  // Estrai dati anagrafici dal CompanySettings (se presente) oppure dal tenant
-  const cs = (tenant as any).companySettings || {};
+  // CompanySettings non è una relazione diretta su Tenant: si recupera via tenantId
+  const cs =
+    (await prisma.companySettings
+      .findFirst({ where: { tenantId } })
+      .catch(() => null)) || ({} as Record<string, any>);
   const billingData = {
     id: tenant.id,
     name: cs.companyName || tenant.name,

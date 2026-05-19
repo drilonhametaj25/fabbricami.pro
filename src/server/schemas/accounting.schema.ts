@@ -243,4 +243,7 @@ export const paymentDueQuerySchemaV2 = z.object({
 });
 
 export type CreateInvoiceInput = z.infer<typeof createInvoiceSchema>;
+export type UpdateInvoiceInput = z.infer<typeof updateInvoiceSchema>;
 export type CreatePaymentInput = z.infer<typeof createPaymentSchema>;
+export type CreateOverheadCostInput = z.infer<typeof createOverheadCostSchema>;
+export type UpdateOverheadCostInput = z.infer<typeof updateOverheadCostSchema>;
