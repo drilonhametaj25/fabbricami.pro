@@ -4397,4 +4397,16 @@ model Ticket {
   type        TicketType
   priority    TicketPriority @default(NORMAL)
   status      TicketStatus   @default(OPEN)
- 
+  title       String
+  description String
+  adminNotes  String?        @map("admin_notes")
+  resolvedAt  DateTime?      @map("resolved_at")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  @@index([tenantId, status])
+  @@index([type])
+  @@index([priority])
+  @@index([createdById])
+  @@map("tickets")
+}
