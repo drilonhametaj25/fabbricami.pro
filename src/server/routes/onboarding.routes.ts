@@ -215,6 +215,14 @@ const onboardingRoutes: FastifyPluginAsync = async (server) => {
   /**
    * GET /onboarding/company-settings
    * Get current company settings
+   *
+   * Mappa i campi DB ai nomi attesi dal form di onboarding:
+   * - DB.address     -> form.street
+   * - DB.bic         -> form.swift
+   * - DB.logoUrl     -> form.logo
+   * Senza questo mapping il form torna vuoto al re-render anche con record
+   * presente in DB, perché il POST scrive su address/bic/logoUrl ma il GET
+   * restituiva la riga grezza.
    */
   server.get(
     '/company-settings',
@@ -226,9 +234,31 @@ const onboardingRoutes: FastifyPluginAsync = async (server) => {
         where: { tenantId: tenantRequest.tenant.tenantId },
       });
 
+      if (!companySettings) {
+        return reply.send({ success: true, data: null });
+      }
+
       return reply.send({
         success: true,
-        data: companySettings,
+        data: {
+          companyName: companySettings.companyName,
+          legalName: companySettings.legalName,
+          vatNumber: companySettings.vatNumber,
+          fiscalCode: companySettings.fiscalCode,
+          street: companySettings.address,
+          city: companySettings.city,
+          province: companySettings.province,
+          postalCode: companySettings.postalCode,
+          country: companySettings.country,
+          phone: companySettings.phone,
+          email: companySettings.email,
+          pec: companySettings.pec,
+          sdiCode: companySettings.sdiCode,
+          bankName: companySettings.bankName,
+          iban: companySettings.iban,
+          swift: companySettings.bic,
+          logo: companySettings.logoUrl,
+        },
       });
     }
   );

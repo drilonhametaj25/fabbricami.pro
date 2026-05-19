@@ -875,15 +875,22 @@ export interface TenantWithSubscription extends Tenant {
 
 export type SaasSubscriptionStatus = 'TRIALING' | 'ACTIVE' | 'PAST_DUE' | 'CANCELLED' | 'PAUSED';
 
+export interface PlanFeatures {
+  modules: string[];
+  capabilities: string[];
+}
+
 export interface SubscriptionPlan {
-  id: string;
+  id?: string;
   code: string;
   name: string;
   priceMonthly: number;
   priceYearly: number;
-  features: string[];
+  // Il backend restituisce { modules, capabilities }. La forma string[] resta
+  // accettata per retrocompatibilità con codice legacy / mock.
+  features: PlanFeatures | string[];
   limits: PlanLimits;
-  isActive: boolean;
+  isActive?: boolean;
 }
 
 export interface PlanLimits {

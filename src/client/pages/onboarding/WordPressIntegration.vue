@@ -33,7 +33,7 @@
           <div class="field">
             <label for="siteUrl">
               <i class="pi pi-globe"></i>
-              URL del sito WordPress
+              URL del sito WordPress *
             </label>
             <InputText
               id="siteUrl"
@@ -47,7 +47,7 @@
           <div class="field">
             <label for="consumerKey">
               <i class="pi pi-key"></i>
-              Consumer Key
+              Consumer Key *
             </label>
             <InputText
               id="consumerKey"
@@ -60,7 +60,7 @@
           <div class="field">
             <label for="consumerSecret">
               <i class="pi pi-lock"></i>
-              Consumer Secret
+              Consumer Secret *
             </label>
             <Password
               id="consumerSecret"

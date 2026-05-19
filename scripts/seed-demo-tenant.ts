@@ -58,6 +58,9 @@ async function cleanDemoData() {
     .deleteMany({ where: { tenantId: DEMO_TENANT_ID } })
     .catch(() => null);
 
+  // CompanySettings: deleteMany via tenantId (no cascade da Tenant)
+  await prisma.companySettings.deleteMany({ where: { tenantId: DEMO_TENANT_ID } });
+
   await prisma.tenantMember.deleteMany({ where: { tenantId: DEMO_TENANT_ID } });
   await prisma.saasSubscription.deleteMany({ where: { tenantId: DEMO_TENANT_ID } });
 
@@ -80,12 +83,22 @@ async function createDemoTenant() {
       name: 'Demo Azienda Srl',
       slug: 'demo',
       status: 'ACTIVE',
+      // I flag billingConfigured/wordpressSkipped/onboardingComplete sono
+      // letti da /api/v1/onboarding/status per saltare il wizard di
+      // onboarding: l'utente demo deve atterrare direttamente sulla
+      // dashboard, non sul wizard.
       settings: {
         currency: 'EUR',
         language: 'it',
         timezone: 'Europe/Rome',
         vatNumber: 'IT12345678901',
         fiscalCode: '12345678901',
+        billingConfigured: true,
+        billingSkipped: false,
+        wordpressConfigured: false,
+        wordpressSkipped: true,
+        onboardingComplete: true,
+        onboardingCompletedAt: new Date().toISOString(),
       },
     },
   });
@@ -114,6 +127,28 @@ async function createDemoTenant() {
     },
   });
   console.log(`✅ Utente demo creato: ${DEMO_USER_EMAIL}`);
+
+  // CompanySettings: necessario perché /onboarding/status verifica la
+  // presenza di un record per marcare lo step 'company-settings' come
+  // completato. Senza, la demo finirebbe sul wizard invece che sulla dashboard.
+  await prisma.companySettings.create({
+    data: {
+      tenantId: DEMO_TENANT_ID,
+      companyName: 'Demo Azienda Srl',
+      legalName: 'Demo Azienda S.r.l.',
+      vatNumber: 'IT12345678901',
+      fiscalCode: '12345678901',
+      address: 'Via Roma 123',
+      city: 'Milano',
+      province: 'MI',
+      postalCode: '20100',
+      country: 'IT',
+      phone: '+39 02 1234567',
+      email: 'info@demo-azienda.example',
+      taxRegime: 'RF01',
+    },
+  });
+  console.log('✅ CompanySettings demo create');
 
   // Subscription opzionale: solo se esiste già un piano PRO seedato.
   // Il login non dipende dalla subscription, quindi se manca semplicemente

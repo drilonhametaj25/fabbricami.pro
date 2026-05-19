@@ -38,7 +38,7 @@
     </div>
 
     <div class="plan-features">
-      <div v-for="(feature, index) in plan.features" :key="`${plan.id}-feature-${index}`" class="feature-item">
+      <div v-for="(feature, index) in featureList" :key="`${plan.id || plan.code}-feature-${index}`" class="feature-item">
         <i class="pi pi-check"></i>
         <span>{{ feature }}</span>
       </div>
@@ -132,6 +132,20 @@ function formatLimit(value: number): string {
   if (value === -1) return 'Illimitati';
   return value.toLocaleString('it-IT');
 }
+
+// L'API restituisce features come { modules, capabilities } (struttura nuova)
+// o come string[] (legacy). Flat per iterazione uniforme nel template.
+const featureList = computed<string[]>(() => {
+  const f = (props.plan as any)?.features;
+  if (Array.isArray(f)) return f;
+  if (f && typeof f === 'object') {
+    return [
+      ...(Array.isArray(f.modules) ? f.modules : []),
+      ...(Array.isArray(f.capabilities) ? f.capabilities : []),
+    ];
+  }
+  return [];
+});
 </script>
 
 <style scoped>

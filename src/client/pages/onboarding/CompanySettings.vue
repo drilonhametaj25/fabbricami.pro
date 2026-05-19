@@ -105,7 +105,7 @@
           </div>
 
           <div class="form-field">
-            <label for="country">Paese *</label>
+            <label for="country">Paese</label>
             <Dropdown
               id="country"
               v-model="form.country"

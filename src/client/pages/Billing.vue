@@ -129,7 +129,7 @@
           </div>
 
           <ul class="plan-card-features">
-            <li v-for="feature in plan.features.slice(0, 5)" :key="feature">
+            <li v-for="feature in planFeatureList(plan).slice(0, 5)" :key="feature">
               <i class="pi pi-check"></i>
               {{ feature }}
             </li>
@@ -517,6 +517,20 @@ function isPlanUpgrade(plan: SubscriptionPlan): boolean {
   const currentPlan = subscriptionStore.currentPlan;
   if (!currentPlan) return true;
   return plan.priceMonthly > currentPlan.priceMonthly;
+}
+
+// L'API restituisce features come { modules, capabilities } (struttura nuova)
+// o come string[] (legacy). Appiattiamo in modo da poter iterare uniformemente.
+function planFeatureList(plan: SubscriptionPlan | null | undefined): string[] {
+  const f = (plan as any)?.features;
+  if (Array.isArray(f)) return f;
+  if (f && typeof f === 'object') {
+    return [
+      ...(Array.isArray(f.modules) ? f.modules : []),
+      ...(Array.isArray(f.capabilities) ? f.capabilities : []),
+    ];
+  }
+  return [];
 }
 
 function selectPlan(plan: SubscriptionPlan) {
