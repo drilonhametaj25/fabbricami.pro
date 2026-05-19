@@ -384,7 +384,10 @@ describe('PurchaseOrderService', () => {
       const order = createMockPurchaseOrder({ status: 'DRAFT' });
       const updatedOrder = { ...order, notes: 'Updated notes' };
 
-      mockPurchaseOrderRepository.findById.mockResolvedValue(order);
+      // Il service chiama findById prima (validazione status) e dopo (per il return)
+      mockPurchaseOrderRepository.findById
+        .mockResolvedValueOnce(order)
+        .mockResolvedValueOnce(updatedOrder);
       mockPurchaseOrderRepository.update.mockResolvedValue(updatedOrder);
 
       const result = await purchaseOrderService.updatePurchaseOrder('po-1', {

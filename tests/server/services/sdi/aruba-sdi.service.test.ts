@@ -93,13 +93,14 @@ describe('ArubaSdiService', () => {
       expect(arubaSdiService.isConfigured()).toBe(false);
     });
 
-    it('should return false when missing api credentials', () => {
+    it('should return true with username and password only (apiKey optional)', () => {
+      // Aruba SDI usa l'endpoint di default; apiKey non è più richiesto da isConfigured
       arubaSdiService.configure({
         username: 'user',
         password: 'pass',
       });
 
-      expect(arubaSdiService.isConfigured()).toBe(false);
+      expect(arubaSdiService.isConfigured()).toBe(true);
     });
 
     it('should return true with full configuration', () => {

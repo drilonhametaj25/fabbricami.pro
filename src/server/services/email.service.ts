@@ -145,6 +145,11 @@ class EmailService {
 
     this.transporter = nodemailer.createTransport(config);
 
+    if (!this.transporter) {
+      logger.warn('SMTP transporter creation returned null, email disabilitate');
+      return;
+    }
+
     // Verifica connessione (asincrono - non blocca startup)
     this.transporter.verify((error) => {
       if (error) {

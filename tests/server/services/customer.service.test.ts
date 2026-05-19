@@ -115,6 +115,8 @@ describe('CustomerService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockReset(prismaMock);
+    // listCustomers ora aggrega `totalSpent`/`totalOrders` runtime tramite order.groupBy
+    (prismaMock.order.groupBy as unknown as jest.Mock).mockResolvedValue([]);
   });
 
   // ============================================
