@@ -78,6 +78,12 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
+    # Carica tutto il .env nel container — necessario per Stripe (sk_/pk_/whsec_),
+    # SMTP (Aruba), COMPANY_* (template email), FIC, ecc. Le chiavi elencate sotto
+    # in `environment:` hanno la precedenza su quelle del file (es. DATABASE_URL
+    # che è costruita programmaticamente).
+    env_file:
+      - .env
     environment:
       NODE_ENV: production
       PORT: 3000
