@@ -571,11 +571,11 @@ class GoodsReceiptService {
     // product whose stock changed. Best-effort: log and swallow errors so
     // the receipt completion isn't blocked by a transient WP outage.
     // Skipped in test env to avoid loading BullMQ/Redis from unit tests.
-    if (productIdsTouched.length > 0 && process.env.NODE_ENV !== 'test') {
+    if (productIdsTouched.length > 0 && receipt.tenantId && process.env.NODE_ENV !== 'test') {
       try {
         const { queueInventorySync } = await import('../jobs/wordpress.job');
         for (const productId of productIdsTouched) {
-          await queueInventorySync(productId);
+          await queueInventorySync(receipt.tenantId, productId);
         }
       } catch (err: any) {
         // Don't fail the receipt — the 5-min batch sync will catch up.

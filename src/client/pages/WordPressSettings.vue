@@ -104,6 +104,48 @@
               </div>
             </div>
           </div>
+
+          <!-- Webhook URLs per il tenant: il cliente deve copiarli nel pannello
+               Woo (Settings → Avanzate → Webhook) per ogni evento -->
+          <div v-if="wooConfig.webhookUrls" class="webhook-urls">
+            <h4 class="webhook-title">
+              <i class="pi pi-link"></i>
+              Webhook URL del tuo account
+            </h4>
+            <p class="webhook-help">
+              Copia questi URL nel pannello Woo
+              <strong>Impostazioni → Avanzate → Webhook</strong>. Ogni webhook è
+              univoco per il tuo tenant (<code>{{ wooConfig.tenantSlug }}</code>):
+              eventi da Woo di altri clienti non possono finire nel tuo
+              account.
+            </p>
+            <div class="webhook-row" v-for="(url, key) in {
+              'Ordine creato': wooConfig.webhookUrls.order,
+              'Ordine aggiornato': wooConfig.webhookUrls.orderUpdated,
+              'Stock aggiornato': wooConfig.webhookUrls.stockUpdate,
+            }" :key="key">
+              <label class="webhook-label">{{ key }}</label>
+              <div class="webhook-field">
+                <code class="webhook-url">{{ url }}</code>
+                <Button
+                  icon="pi pi-copy"
+                  class="p-button-text p-button-sm"
+                  aria-label="Copia URL"
+                  @click="copyToClipboard(url)"
+                />
+              </div>
+            </div>
+            <p class="webhook-plugin-base">
+              <strong>Plugin custom</strong>: configura il base URL del plugin
+              su <code>{{ wooConfig.webhookUrls.pluginBase }}</code>
+              <Button
+                icon="pi pi-copy"
+                class="p-button-text p-button-sm"
+                aria-label="Copia plugin base URL"
+                @click="copyToClipboard(wooConfig.webhookUrls!.pluginBase)"
+              />
+            </p>
+          </div>
         </div>
       </section>
 
@@ -1179,6 +1221,16 @@ const wooConfig = reactive({
   consumerSecret: '',
   isConfigured: false,
   hasExistingKeys: false,
+  tenantSlug: '' as string | null,
+  // URL endpoint tenant-specifici (popolati dal backend in /wordpress/settings).
+  // Sono quelli che il cliente deve copiare nel pannello Woo per configurare i
+  // webhook e il plugin custom.
+  webhookUrls: null as null | {
+    order: string;
+    orderUpdated: string;
+    stockUpdate: string;
+    pluginBase: string;
+  },
 });
 const testingConnection = ref(false);
 const savingConfig = ref(false);
@@ -1423,6 +1475,8 @@ const loadWooSettings = async () => {
       wooConfig.consumerSecret = '';
       wooConfig.isConfigured = response.data.isConfigured || false;
       wooConfig.hasExistingKeys = response.data.isConfigured || false;
+      wooConfig.tenantSlug = response.data.tenantSlug || null;
+      wooConfig.webhookUrls = response.data.webhookUrls || null;
     }
   } catch (error) {
     console.error('Error loading WooCommerce settings:', error);

@@ -550,7 +550,7 @@ describe('CustomerService', () => {
         createMockCustomer({ wordpressId: 123, syncStatus: 'SYNCED' }) as any
       );
 
-      const result = await customerService.importFromWordPress({
+      const result = await customerService.importFromWordPress('tenant-test', {
         wordpressId: 123,
         email: 'wp@test.com',
         firstName: 'WP',
@@ -569,7 +569,7 @@ describe('CustomerService', () => {
         createMockCustomer({ wordpressId: 123, firstName: 'Updated', syncStatus: 'SYNCED' }) as any
       );
 
-      const result = await customerService.importFromWordPress({
+      const result = await customerService.importFromWordPress('tenant-test', {
         wordpressId: 123,
         email: 'wp@test.com',
         firstName: 'Updated',
@@ -592,7 +592,7 @@ describe('CustomerService', () => {
         }) as any
       );
 
-      const result = await customerService.importFromWordPress({
+      const result = await customerService.importFromWordPress('tenant-test', {
         wordpressId: 123,
         email: 'wp@test.com',
         firstName: 'WP',

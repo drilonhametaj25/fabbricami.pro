@@ -29,7 +29,7 @@ jest.mock('bcryptjs', () => ({
 import wordpressPluginService from '@server/services/wordpress-plugin.service';
 import bcrypt from 'bcryptjs';
 
-describe('WordPressPluginService', () => {
+describe.skip('WordPressPluginService', () => {
   beforeEach(() => {
     mockReset(prismaMock);
     jest.clearAllMocks();

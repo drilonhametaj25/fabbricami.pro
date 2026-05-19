@@ -54,12 +54,13 @@ model Tenant {
   updatedAt DateTime     @updatedAt @map("updated_at")
 
   // Relations
-  members      TenantMember[]
-  invites      TenantInvite[]
-  subscription SaasSubscription?
-  User         User[]
-  Supplier     Supplier[]
-  Order        Order[]
+  members         TenantMember[]
+  invites         TenantInvite[]
+  subscription    SaasSubscription?
+  User            User[]
+  Supplier        Supplier[]
+  Order           Order[]
+  wordpressConfig WordPressTenantConfig?
 
   @@map("tenants")
 }
@@ -513,9 +514,9 @@ model Product {
   maxStock     Int? @map("max_stock") // Scorta massima
   reorderPoint Int  @default(0) @map("reorder_point") // Punto di riordino
 
-  // WordPress/WooCommerce - Identificatori
-  wordpressId   Int?      @unique @map("wordpress_id")
-  woocommerceId Int?      @unique @map("woocommerce_id")
+  // WordPress/WooCommerce - Identificatori (unicità per-tenant tramite composite, vedi @@unique in fondo)
+  wordpressId   Int?      @map("wordpress_id")
+  woocommerceId Int?      @map("woocommerce_id")
   syncStatus    String    @default("NOT_SYNCED") @map("sync_status") // NOT_SYNCED, SYNCED, PENDING, ERROR
   lastSyncAt    DateTime? @map("last_sync_at")
 
@@ -654,6 +655,8 @@ model Product {
 
   @@unique([tenantId, sku], name: "product_tenant_sku_unique")
   @@unique([tenantId, barcode], name: "product_tenant_barcode_unique")
+  @@unique([tenantId, wordpressId], name: "product_tenant_wordpress_unique")
+  @@unique([tenantId, woocommerceId], name: "product_tenant_woocommerce_unique")
   @@index([sku])
   @@index([barcode])
   @@index([type])
@@ -1136,8 +1139,8 @@ model Customer {
   // Stato
   isActive Boolean @default(true) @map("is_active")
 
-  // WooCommerce integration
-  wordpressId        Int?      @unique @map("wordpress_id")
+  // WooCommerce integration (unicità per-tenant via composite, vedi @@unique in fondo)
+  wordpressId        Int?      @map("wordpress_id")
   wcUsername         String?   @map("wc_username") // Username WooCommerce
   wcAvatarUrl        String?   @map("wc_avatar_url") // Avatar URL
   wcRole             String?   @map("wc_role") // customer, subscriber, etc
@@ -1187,6 +1190,7 @@ model Customer {
 
   @@unique([tenantId, code], name: "customer_tenant_code_unique")
   @@unique([tenantId, taxId], name: "customer_tenant_taxid_unique")
+  @@unique([tenantId, wordpressId], name: "customer_tenant_wordpress_unique")
   @@index([type])
   @@index([code])
   @@index([wordpressId])
@@ -1361,8 +1365,8 @@ model Order {
   shippedDate   DateTime? @map("shipped_date")
   deliveredDate DateTime? @map("delivered_date")
 
-  // WooCommerce integration
-  wordpressId        Int?      @unique @map("wordpress_id")
+  // WooCommerce integration (unicità per-tenant via composite, vedi @@unique in fondo)
+  wordpressId        Int?      @map("wordpress_id")
   wcNumber           String?   @map("wc_number") // Numero ordine WC (può differire da orderNumber)
   wcStatus           String?   @map("wc_status") // Stato originale WC
   wcDateCreated      DateTime? @map("wc_date_created")
@@ -1438,6 +1442,7 @@ model Order {
   tenant           Tenant?           @relation(fields: [tenantId], references: [id])
 
   @@unique([tenantId, orderNumber], name: "order_tenant_number_unique")
+  @@unique([tenantId, wordpressId], name: "order_tenant_wordpress_unique")
   @@index([tenantId])
   @@index([customerId])
   @@index([status])
@@ -2770,11 +2775,11 @@ model SystemSetting {
 // WORDPRESS INTEGRATION
 // ============================================
 
-// Credenziali Basic Auth per plugin WordPress
+// Credenziali Basic Auth per plugin WordPress (per-tenant)
 model WordPressPluginAuth {
   id        String    @id @default(uuid())
   tenantId  String?   @map("tenant_id")
-  username  String    @unique
+  username  String // unicità per-tenant via composite (vedi @@unique sotto)
   password  String // Password hashata con bcrypt
   label     String? // Descrizione (es. "Plugin Sito Principale")
   isActive  Boolean   @default(true) @map("is_active")
@@ -2782,8 +2787,32 @@ model WordPressPluginAuth {
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
 
+  @@unique([tenantId, username], name: "wpauth_tenant_username_unique")
   @@index([tenantId])
   @@map("wordpress_plugin_auth")
+}
+
+// Configurazione integrazione WordPress per-tenant.
+// Sostituisce il single-row globale `SystemSetting{key:"wordpress_config"}`.
+// I secret (consumer_key/secret, webhook_secret) sono cifrati AES-256-CBC con
+// SETTINGS_ENCRYPTION_KEY prima di essere persistiti.
+model WordPressTenantConfig {
+  id             String    @id @default(uuid())
+  tenantId       String    @unique @map("tenant_id")
+  url            String // URL del sito WP (https://example.com)
+  consumerKey    String    @map("consumer_key") @db.Text // cifrato
+  consumerSecret String    @map("consumer_secret") @db.Text // cifrato
+  webhookSecret  String    @map("webhook_secret") @db.Text // cifrato
+  syncEnabled    Boolean   @default(false) @map("sync_enabled")
+  syncInterval   Int       @default(300000) @map("sync_interval") // ms
+  lastSyncAt     DateTime? @map("last_sync_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([syncEnabled])
+  @@map("wordpress_tenant_config")
 }
 
 // Log sincronizzazione WordPress

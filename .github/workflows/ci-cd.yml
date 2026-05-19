@@ -188,6 +188,14 @@ jobs:
               exit 1
             fi
 
+            echo ">>> Reseeding demo tenant (demo.fabbricami.pro)..."
+            # Il seed e' idempotente (cancella + ricrea il tenant demo).
+            # Non deve far fallire il deploy se va in errore: il resto
+            # della piattaforma resta funzionante anche senza demo.
+            docker compose -f docker-compose.prod.yml exec -T backend \
+              npx tsx scripts/seed-demo-tenant.ts || \
+              echo "!!! Demo seed failed - check logs above. Deploy continues."
+
             echo "=========================================="
             echo "DEPLOY COMPLETED at $(date)"
             echo "=========================================="

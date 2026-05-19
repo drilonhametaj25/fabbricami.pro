@@ -36,6 +36,25 @@ const mockFetch = jest.fn().mockResolvedValue({
 } as unknown as Response);
 global.fetch = mockFetch as unknown as typeof fetch;
 
+// Mock email.service: il newsletter service invia email di conferma; nei test
+// non vogliamo che le credenziali SMTP del .env (Aruba) facciano partire mail
+// reali — Aruba rifiuta i destinatari `@example.com` con `452 policy violation`.
+jest.mock('@server/services/email.service', () => ({
+  __esModule: true,
+  default: {
+    isEnabled: jest.fn().mockReturnValue(false),
+    send: jest.fn().mockResolvedValue(true),
+    sendNewsletterConfirmation: jest.fn().mockResolvedValue(true),
+    sendNewsletterWelcome: jest.fn().mockResolvedValue(true),
+  },
+  emailService: {
+    isEnabled: jest.fn().mockReturnValue(false),
+    send: jest.fn().mockResolvedValue(true),
+    sendNewsletterConfirmation: jest.fn().mockResolvedValue(true),
+    sendNewsletterWelcome: jest.fn().mockResolvedValue(true),
+  },
+}));
+
 // Store original env
 const originalEnv = process.env;
 

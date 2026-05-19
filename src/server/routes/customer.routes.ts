@@ -281,7 +281,11 @@ const customerRoutes: FastifyPluginAsync = async (server: any) => {
   server.post('/import/wordpress', { preHandler: authenticate }, async (request: any, reply: any) => {
     try {
       const data = wpCustomerImportSchema.parse(request.body);
-      const customer = await customerService.importFromWordPress(data);
+      const tenantId = request.user?.tenantId;
+      if (!tenantId) {
+        return reply.status(400).send({ success: false, error: 'tenantId mancante nel JWT' });
+      }
+      const customer = await customerService.importFromWordPress(tenantId, data);
       return reply.status(201).send({ success: true, data: customer });
     } catch (error: any) {
       return reply.status(400).send({ success: false, error: error.message });

@@ -320,12 +320,19 @@ class CustomerService {
   }
 
   /**
-   * Import cliente da WordPress/WooCommerce
+   * Import cliente da WordPress/WooCommerce (per-tenant).
+   * `tenantId` è obbligatorio: la chiave logica del customer Woo è
+   * (tenantId, wordpressId), non più solo wordpressId.
    */
-  async importFromWordPress(data: WpCustomerImportInput) {
-    // Cerca se esiste già per wordpressId
+  async importFromWordPress(tenantId: string, data: WpCustomerImportInput) {
+    // Cerca se esiste già per (tenantId, wordpressId)
     const existing = await prisma.customer.findUnique({
-      where: { wordpressId: data.wordpressId },
+      where: {
+        customer_tenant_wordpress_unique: {
+          tenantId,
+          wordpressId: data.wordpressId,
+        },
+      },
     });
 
     if (existing) {
@@ -358,6 +365,7 @@ class CustomerService {
 
     return await prisma.customer.create({
       data: {
+        tenantId,
         type: 'B2C',
         code,
         email: data.email,

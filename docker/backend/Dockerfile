@@ -43,9 +43,9 @@ COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
 # Copia src per il seed (usa import da src/server/utils)
 COPY --from=build /app/src ./src
 
-# Copy migration scripts
-COPY scripts/smart-migrate.sh /app/scripts/smart-migrate.sh
-RUN chmod +x /app/scripts/smart-migrate.sh
+# Copy operational scripts (migrations, demo seed, stripe sync, etc.)
+COPY scripts ./scripts
+RUN chmod +x /app/scripts/*.sh
 
 RUN npx prisma generate
 

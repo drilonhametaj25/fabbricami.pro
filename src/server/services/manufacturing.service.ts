@@ -1136,10 +1136,10 @@ class ManufacturingService {
     // Post-commit: real-time WP stock sync for the produced product so the
     // shop sees the new finished-goods quantity immediately.
     // Skipped in test env to avoid loading BullMQ/Redis from unit tests.
-    if (productIdToSync && process.env.NODE_ENV !== 'test') {
+    if (productIdToSync && order.tenantId && process.env.NODE_ENV !== 'test') {
       try {
         const { queueInventorySync } = await import('../jobs/wordpress.job');
-        await queueInventorySync(productIdToSync);
+        await queueInventorySync(order.tenantId, productIdToSync);
       } catch (err: any) {
         logger.warn(
           `Production ${orderId}: failed to queue WP inventory sync: ${err?.message || err}`

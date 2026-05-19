@@ -536,10 +536,11 @@ class OrderService {
           }
         }
 
-        // Auto-sync CONFIRMED status to WooCommerce
-        if (order.wordpressId) {
+        // Auto-sync CONFIRMED status to WooCommerce (solo se l'ordine ha
+        // tenantId — il job sync è scoped per tenant).
+        if (order.wordpressId && order.tenantId) {
           try {
-            await queueOrderStatusUpdate(id, 'CONFIRMED');
+            await queueOrderStatusUpdate(order.tenantId, id, 'CONFIRMED');
             logger.info(`Queued WooCommerce status sync for order ${id} -> CONFIRMED`);
           } catch (error: any) {
             logger.warn(`Could not queue WooCommerce status sync for order ${id}: ${error.message}`);
@@ -557,13 +558,15 @@ class OrderService {
                 .filter((pid): pid is string => !!pid)
             )
           );
-          for (const productId of productIds) {
-            await queueInventorySync(productId);
-          }
-          if (productIds.length > 0) {
-            logger.info(
-              `Queued real-time inventory sync to WP for ${productIds.length} product(s) after order ${id} CONFIRMED`
-            );
+          if (order.tenantId) {
+            for (const productId of productIds) {
+              await queueInventorySync(order.tenantId, productId);
+            }
+            if (productIds.length > 0) {
+              logger.info(
+                `Queued real-time inventory sync to WP for ${productIds.length} product(s) after order ${id} CONFIRMED`
+              );
+            }
           }
         } catch (error: any) {
           logger.warn(
@@ -606,10 +609,10 @@ class OrderService {
       },
     });
 
-    // Auto-sync status to WooCommerce if order has wordpressId
-    if (order.wordpressId) {
+    // Auto-sync status to WooCommerce if order has wordpressId (per-tenant)
+    if (order.wordpressId && order.tenantId) {
       try {
-        await queueOrderStatusUpdate(id, data.status);
+        await queueOrderStatusUpdate(order.tenantId, id, data.status);
         logger.info(`Queued WooCommerce status sync for order ${id} -> ${data.status}`);
       } catch (error: any) {
         logger.warn(`Could not queue WooCommerce status sync for order ${id}: ${error.message}`);

@@ -514,11 +514,11 @@ class ShopCheckoutService {
         logger.error(`Failed to queue order confirmation email for ${orderId}: ${err.message}`);
       }
 
-      // 6. Sync order status a WordPress se ordine collegato a WP
-      if (order.wordpressId) {
+      // 6. Sync order status a WordPress se ordine collegato a WP (per-tenant)
+      if (order.wordpressId && order.tenantId) {
         try {
           const { queueOrderStatusUpdate } = await import('../jobs/wordpress.job');
-          await queueOrderStatusUpdate(orderId, 'CONFIRMED');
+          await queueOrderStatusUpdate(order.tenantId, orderId, 'CONFIRMED');
         } catch (err: any) {
           logger.error(`Failed to queue WP order status sync for ${orderId}: ${err.message}`);
         }
@@ -528,7 +528,7 @@ class ShopCheckoutService {
       // so the shop on WooCommerce reflects the new InventoryItem WEB level
       // immediately (instead of waiting for the 5-min batch sync).
       // Skipped in test env to avoid loading BullMQ/Redis from unit tests.
-      if (process.env.NODE_ENV !== 'test') {
+      if (order.tenantId && process.env.NODE_ENV !== 'test') {
         try {
           const { queueInventorySync } = await import('../jobs/wordpress.job');
           const productIds = Array.from(
@@ -539,7 +539,7 @@ class ShopCheckoutService {
             )
           );
           for (const productId of productIds) {
-            await queueInventorySync(productId);
+            await queueInventorySync(order.tenantId, productId);
           }
         } catch (err: any) {
           logger.error(

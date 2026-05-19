@@ -1,14 +1,20 @@
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../config/database';
 import { logger } from '../config/logger';
 import * as crypto from 'crypto';
 
-const prisma = new PrismaClient();
-
-// Chiave per cifratura (in produzione usare una chiave sicura da env)
+// Chiave per cifratura. In produzione setta SETTINGS_ENCRYPTION_KEY a una
+// stringa random >= 32 byte. Il default è solo un fallback per development e
+// stampa un warning all'avvio del servizio.
 const ENCRYPTION_KEY = process.env.SETTINGS_ENCRYPTION_KEY || 'ecommerceerp-default-key-32byte';
+if (!process.env.SETTINGS_ENCRYPTION_KEY) {
+  logger.warn(
+    'SETTINGS_ENCRYPTION_KEY non impostata: i secret WordPress sono cifrati con la chiave di default. ' +
+      'NON adatto a produzione — sovrascrivi con `openssl rand -base64 32` nel .env.'
+  );
+}
 const IV_LENGTH = 16;
 
-interface WordPressSettings {
+export interface WordPressSettings {
   url: string;
   consumerKey: string;
   consumerSecret: string;
@@ -17,10 +23,20 @@ interface WordPressSettings {
   syncInterval: number;
 }
 
-const SETTINGS_KEY = 'wordpress_config';
+export interface WordPressSettingsForUI {
+  url: string;
+  consumerKey: string;
+  hasConsumerSecret: boolean;
+  hasWebhookSecret: boolean;
+  syncEnabled: boolean;
+  syncInterval: number;
+  isConfigured: boolean;
+}
 
 /**
- * Cifra un valore sensibile
+ * Cifra un valore sensibile con AES-256-CBC. Il risultato include l'IV
+ * prefissato (hex), separato da `:`. Il caller deve usare `decrypt()` con la
+ * stessa SETTINGS_ENCRYPTION_KEY.
  */
 function encrypt(text: string): string {
   if (!text) return '';
@@ -33,7 +49,9 @@ function encrypt(text: string): string {
 }
 
 /**
- * Decifra un valore sensibile
+ * Decifra un valore prodotto da `encrypt()`. Se il formato è invalido o la
+ * chiave è sbagliata logga l'errore e ritorna stringa vuota (per non rompere
+ * caller che si aspettano sempre un valore).
  */
 function decrypt(text: string): string {
   if (!text || !text.includes(':')) return text;
@@ -47,61 +65,68 @@ function decrypt(text: string): string {
     decrypted += decipher.final('utf8');
     return decrypted;
   } catch (error) {
-    logger.error('Errore decifratura:', error);
+    logger.error('Errore decifratura settings WordPress:', error);
     return '';
   }
 }
 
+/**
+ * Service per la configurazione WordPress per-tenant.
+ *
+ * Tutte le operazioni sono scoped a un tenantId: nessuna API "globale".
+ * Le credenziali sono persistite in `wordpress_tenant_config`, con i secret
+ * cifrati AES-256-CBC tramite SETTINGS_ENCRYPTION_KEY.
+ *
+ * Ritorna `null` quando il tenant non ha mai configurato WP; i caller decidono
+ * come gestire il caso "non configurato" (es. skippare sync, restituire 404).
+ */
 class WordPressSettingsService {
   /**
-   * Ottieni le impostazioni WordPress
-   * Prima cerca nel DB, poi fallback su variabili d'ambiente
+   * Settings effettive (con secret in chiaro). Usare SOLO server-side per
+   * costruire chiamate verso Woo. NON esporre mai questo payload via API REST.
    */
-  async getSettings(): Promise<WordPressSettings> {
-    try {
-      const setting = await prisma.systemSetting.findUnique({
-        where: { key: SETTINGS_KEY },
-      });
-
-      if (setting?.value) {
-        const stored = setting.value as any;
-        return {
-          url: stored.url || process.env.WORDPRESS_URL || '',
-          consumerKey: decrypt(stored.consumerKey) || process.env.WORDPRESS_API_KEY || '',
-          consumerSecret: decrypt(stored.consumerSecret) || process.env.WORDPRESS_CONSUMER_SECRET || '',
-          webhookSecret: decrypt(stored.webhookSecret) || process.env.WORDPRESS_WEBHOOK_SECRET || '',
-          syncEnabled: stored.syncEnabled ?? (process.env.WORDPRESS_SYNC_ENABLED === 'true'),
-          syncInterval: stored.syncInterval ?? parseInt(process.env.WORDPRESS_SYNC_INTERVAL || '300000'),
-        };
-      }
-    } catch (error) {
-      logger.error('Errore lettura settings WordPress:', error);
+  async getSettings(tenantId: string): Promise<WordPressSettings | null> {
+    if (!tenantId) {
+      throw new Error('tenantId obbligatorio per WordPressSettingsService.getSettings');
     }
+    try {
+      const row = await prisma.wordPressTenantConfig.findUnique({
+        where: { tenantId },
+      });
+      if (!row) return null;
 
-    // Fallback su variabili d'ambiente
-    return {
-      url: process.env.WORDPRESS_URL || '',
-      consumerKey: process.env.WORDPRESS_API_KEY || '',
-      consumerSecret: process.env.WORDPRESS_CONSUMER_SECRET || '',
-      webhookSecret: process.env.WORDPRESS_WEBHOOK_SECRET || '',
-      syncEnabled: process.env.WORDPRESS_SYNC_ENABLED === 'true',
-      syncInterval: parseInt(process.env.WORDPRESS_SYNC_INTERVAL || '300000'),
-    };
+      return {
+        url: row.url,
+        consumerKey: decrypt(row.consumerKey),
+        consumerSecret: decrypt(row.consumerSecret),
+        webhookSecret: decrypt(row.webhookSecret),
+        syncEnabled: row.syncEnabled,
+        syncInterval: row.syncInterval,
+      };
+    } catch (error) {
+      logger.error(`Errore lettura settings WordPress (tenant=${tenantId}):`, error);
+      return null;
+    }
   }
 
   /**
-   * Ottieni settings per UI (senza secrets in chiaro)
+   * Settings sanitizzate per la UI: mostra `consumerKey` mascherata e flag
+   * "hasX" sui secret, mai i secret in chiaro.
    */
-  async getSettingsForUI(): Promise<{
-    url: string;
-    consumerKey: string;
-    hasConsumerSecret: boolean;
-    hasWebhookSecret: boolean;
-    syncEnabled: boolean;
-    syncInterval: number;
-    isConfigured: boolean;
-  }> {
-    const settings = await this.getSettings();
+  async getSettingsForUI(tenantId: string): Promise<WordPressSettingsForUI> {
+    const settings = await this.getSettings(tenantId);
+
+    if (!settings) {
+      return {
+        url: '',
+        consumerKey: '',
+        hasConsumerSecret: false,
+        hasWebhookSecret: false,
+        syncEnabled: false,
+        syncInterval: 300000,
+        isConfigured: false,
+      };
+    }
 
     return {
       url: settings.url,
@@ -115,54 +140,103 @@ class WordPressSettingsService {
   }
 
   /**
-   * Salva le impostazioni WordPress
+   * Upsert delle settings. I campi assenti dal payload mantengono il valore
+   * corrente; i secret (consumer key/secret, webhook secret) vengono cifrati
+   * prima di essere scritti. Se non esiste alcuna riga per il tenant, viene
+   * creata con i default per i campi mancanti.
    */
-  async saveSettings(settings: Partial<WordPressSettings>): Promise<void> {
+  async saveSettings(tenantId: string, settings: Partial<WordPressSettings>): Promise<void> {
+    if (!tenantId) {
+      throw new Error('tenantId obbligatorio per WordPressSettingsService.saveSettings');
+    }
     try {
-      const current = await this.getSettings();
+      const current = (await this.getSettings(tenantId)) ?? {
+        url: '',
+        consumerKey: '',
+        consumerSecret: '',
+        webhookSecret: '',
+        syncEnabled: false,
+        syncInterval: 300000,
+      };
 
-      // Prepara dati per salvataggio (cifra secrets)
-      const dataToSave = {
+      const merged = {
         url: settings.url ?? current.url,
-        consumerKey: settings.consumerKey ? encrypt(settings.consumerKey) : encrypt(current.consumerKey),
-        consumerSecret: settings.consumerSecret ? encrypt(settings.consumerSecret) : encrypt(current.consumerSecret),
-        webhookSecret: settings.webhookSecret ? encrypt(settings.webhookSecret) : encrypt(current.webhookSecret),
+        consumerKey: encrypt(settings.consumerKey ?? current.consumerKey),
+        consumerSecret: encrypt(settings.consumerSecret ?? current.consumerSecret),
+        webhookSecret: encrypt(settings.webhookSecret ?? current.webhookSecret),
         syncEnabled: settings.syncEnabled ?? current.syncEnabled,
         syncInterval: settings.syncInterval ?? current.syncInterval,
       };
 
-      await prisma.systemSetting.upsert({
-        where: { key: SETTINGS_KEY },
-        create: {
-          key: SETTINGS_KEY,
-          value: dataToSave,
-          description: 'Configurazione integrazione WordPress/WooCommerce',
-        },
-        update: {
-          value: dataToSave,
-        },
+      await prisma.wordPressTenantConfig.upsert({
+        where: { tenantId },
+        create: { tenantId, ...merged },
+        update: merged,
       });
 
-      logger.info('Impostazioni WordPress salvate');
+      logger.info(`Settings WordPress salvate (tenant=${tenantId})`);
     } catch (error) {
-      logger.error('Errore salvataggio settings WordPress:', error);
+      logger.error(`Errore salvataggio settings WordPress (tenant=${tenantId}):`, error);
       throw error;
     }
   }
 
   /**
-   * Testa la connessione WooCommerce
+   * Aggiorna `lastSyncAt` al timestamp corrente. Idempotente, non fallisce se
+   * il tenant non ha una config (no-op).
    */
-  async testConnection(settings?: Partial<WordPressSettings>): Promise<{
+  async markSyncRun(tenantId: string): Promise<void> {
+    try {
+      await prisma.wordPressTenantConfig.update({
+        where: { tenantId },
+        data: { lastSyncAt: new Date() },
+      });
+    } catch (error) {
+      // Tenant senza config = niente da aggiornare, non è un errore
+      logger.debug(`markSyncRun no-op per tenant=${tenantId}: ${(error as Error).message}`);
+    }
+  }
+
+  /**
+   * Lista tutti i tenant con sync abilitata. Usato dallo scheduler per fanout
+   * dei job sync verso ogni tenant attivo.
+   */
+  async listTenantsWithSyncEnabled(): Promise<string[]> {
+    const rows = await prisma.wordPressTenantConfig.findMany({
+      where: { syncEnabled: true },
+      select: { tenantId: true },
+    });
+    return rows.map((r) => r.tenantId);
+  }
+
+  /**
+   * Test connection contro l'endpoint WooCommerce. Se `overrideSettings` è
+   * fornito (caso "Salva e testa" dalla UI prima del commit), usa quello,
+   * altrimenti legge dal DB.
+   */
+  async testConnection(
+    tenantId: string,
+    overrideSettings?: Partial<WordPressSettings>
+  ): Promise<{
     success: boolean;
     message: string;
     details?: any;
   }> {
-    const config = settings?.url && settings?.consumerKey && settings?.consumerSecret
-      ? settings as WordPressSettings
-      : await this.getSettings();
+    let config: WordPressSettings | null;
+    if (overrideSettings?.url && overrideSettings.consumerKey && overrideSettings.consumerSecret) {
+      config = {
+        url: overrideSettings.url,
+        consumerKey: overrideSettings.consumerKey,
+        consumerSecret: overrideSettings.consumerSecret,
+        webhookSecret: overrideSettings.webhookSecret ?? '',
+        syncEnabled: overrideSettings.syncEnabled ?? false,
+        syncInterval: overrideSettings.syncInterval ?? 300000,
+      };
+    } else {
+      config = await this.getSettings(tenantId);
+    }
 
-    if (!config.url || !config.consumerKey || !config.consumerSecret) {
+    if (!config || !config.url || !config.consumerKey || !config.consumerSecret) {
       return {
         success: false,
         message: 'Configurazione incompleta. Inserisci URL, Consumer Key e Consumer Secret.',
@@ -170,13 +244,11 @@ class WordPressSettingsService {
     }
 
     try {
-      // Costruisci header Basic Auth
       const auth = Buffer.from(`${config.consumerKey}:${config.consumerSecret}`).toString('base64');
-
       const response = await fetch(`${config.url}/wp-json/wc/v3/system_status`, {
         method: 'GET',
         headers: {
-          'Authorization': `Basic ${auth}`,
+          Authorization: `Basic ${auth}`,
           'Content-Type': 'application/json',
         },
       });
@@ -205,16 +277,17 @@ class WordPressSettingsService {
         };
       }
     } catch (error: any) {
-      logger.error('Test connessione WooCommerce fallito:', error);
+      logger.error(`Test connessione WooCommerce fallito (tenant=${tenantId}):`, error);
       return {
         success: false,
-        message: error.message || 'Errore di connessione. Verifica l\'URL.',
+        message: error.message || "Errore di connessione. Verifica l'URL.",
       };
     }
   }
 
   /**
-   * Genera un nuovo webhook secret
+   * Genera un webhook secret random (32 byte → 64 hex char). Esposto come
+   * helper per la UI che vuole pre-popolare il campo.
    */
   generateWebhookSecret(): string {
     return crypto.randomBytes(32).toString('hex');

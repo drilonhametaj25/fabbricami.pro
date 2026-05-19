@@ -2,7 +2,9 @@ import { Job, Worker, Queue } from 'bullmq';
 import { logger } from '../config/logger';
 import { config } from '../config/environment';
 import { wordpressService } from '../services/wordpress.service';
+import wordpressSettingsService from '../services/wordpress-settings.service';
 import { importJobService } from '../services/import-job.service';
+import { runWithTenant } from '../utils/tenant-context';
 
 const connection = {
   host: config.redis.host,
@@ -47,7 +49,7 @@ async function moveToDlq(job: Job<WordPressJobData>, err: Error): Promise<void> 
   }
 }
 
-// Tipi di job WordPress
+// Tipi di job WordPress (tenant-specifici: richiedono tenantId nel payload).
 type WordPressJobType =
   | 'sync-inventory'
   | 'sync-products'
@@ -56,8 +58,17 @@ type WordPressJobType =
   | 'update-order-status'
   | 'import-customers';
 
+// Tipi di job "meta" (eseguiti dallo scheduler, NON tenant-specifici): fanno
+// fanout enumerando i tenant con sync abilitata e enqueuando un job
+// tenant-specifico per ciascuno.
+type WordPressMetaJobType = 'sync-inventory-fanout' | 'sync-products-fanout';
+
+type AnyWordPressJobType = WordPressJobType | WordPressMetaJobType;
+
 interface WordPressJobData {
-  type: WordPressJobType;
+  type: AnyWordPressJobType;
+  /** Obbligatorio per i job tenant-specifici; assente per i fanout meta-job. */
+  tenantId?: string;
   productId?: string;
   orderId?: string;
   status?: string;
@@ -74,47 +85,102 @@ interface WordPressJobData {
 }
 
 /**
- * Processor principale per job WordPress
+ * Processor principale per job WordPress.
+ *
+ * Tutto il body viene eseguito dentro `runWithTenant(tenantId, ...)`: il
+ * wordpressService legge automaticamente le credenziali del tenant corretto
+ * tramite tenant context (AsyncLocalStorage), senza dover passare tenantId
+ * lungo la catena di chiamate.
  */
 export async function processWordPressJob(job: Job<WordPressJobData>) {
-  const { type, productId, orderId, status } = job.data;
+  const { type, tenantId, productId, orderId, status } = job.data;
 
-  logger.info(`Processing WordPress job: ${type}`, { jobId: job.id });
-
-  try {
-    switch (type) {
-      case 'sync-inventory':
-        return await syncInventoryJob();
-
-      case 'sync-products':
-        return await syncProductsJob();
-
-      case 'sync-single-product':
-        if (!productId) throw new Error('productId richiesto');
-        return await syncSingleProductJob(productId);
-
-      case 'update-order-status':
-        if (!orderId || !status) throw new Error('orderId e status richiesti');
-        return await updateOrderStatusJob(orderId, status);
-
-      case 'import-customers':
-        return await importCustomersJob(job);
-
-      default:
-        throw new Error(`Tipo job WordPress sconosciuto: ${type}`);
-    }
-  } catch (error: any) {
-    logger.error(`WordPress job ${type} failed:`, error);
-    throw error;
+  // I "meta" job sono eseguiti dallo scheduler senza tenant context: fanno
+  // fanout enumerando i tenant con sync abilitata.
+  if (type === 'sync-inventory-fanout' || type === 'sync-products-fanout') {
+    return fanoutScheduledJob(type);
   }
+
+  if (!tenantId) {
+    logger.error(`WordPress job ${job.id} (${type}) senza tenantId — rifiutato`);
+    throw new Error('tenantId obbligatorio nel payload del job WordPress');
+  }
+
+  logger.info(`Processing WordPress job: ${type} (tenant=${tenantId})`, { jobId: job.id });
+
+  return runWithTenant(tenantId, async () => {
+    try {
+      switch (type) {
+        case 'sync-inventory':
+          return await syncInventoryJob();
+
+        case 'sync-products':
+          return await syncProductsJob();
+
+        case 'sync-single-product':
+          if (!productId) throw new Error('productId richiesto');
+          return await syncSingleProductJob(productId);
+
+        case 'update-order-status':
+          if (!orderId || !status) throw new Error('orderId e status richiesti');
+          return await updateOrderStatusJob(orderId, status);
+
+        case 'import-customers':
+          return await importCustomersJob(job);
+
+        default:
+          throw new Error(`Tipo job WordPress sconosciuto: ${type}`);
+      }
+    } catch (error: any) {
+      logger.error(`WordPress job ${type} (tenant=${tenantId}) failed:`, error);
+      throw error;
+    }
+  });
 }
 
 /**
- * Sync tutte le giacenze verso WooCommerce
+ * Fanout di un job meta dello scheduler: enumera tutti i tenant con sync
+ * abilitata e enqueua un job tenant-specifico per ciascuno. Idempotente:
+ * lo scheduler ri-esegue il meta ogni N min, e il fanout enqueua sempre N
+ * nuovi job tenant-specifici (i job duplicati per lo stesso tenant nello
+ * stesso slot vengono evitati tramite jobId deterministico).
+ */
+async function fanoutScheduledJob(metaType: WordPressMetaJobType) {
+  const childType: WordPressJobType =
+    metaType === 'sync-inventory-fanout' ? 'sync-inventory' : 'sync-products';
+
+  const tenantIds = await wordpressSettingsService.listTenantsWithSyncEnabled();
+  if (tenantIds.length === 0) {
+    logger.debug(`[${metaType}] Nessun tenant con sync abilitata`);
+    return { fanout: metaType, tenants: 0 };
+  }
+
+  for (const tenantId of tenantIds) {
+    // jobId deterministico per slot orario: evita duplicati se il meta job
+    // viene processato due volte ravvicinate.
+    const slot = Math.floor(Date.now() / 60_000); // 1-min slot
+    const jobId = `${childType}-${tenantId}-${slot}`;
+    await wordpressQueue.add(
+      childType,
+      { type: childType, tenantId },
+      {
+        jobId,
+        removeOnComplete: 50,
+        removeOnFail: 20,
+      }
+    );
+  }
+
+  logger.info(`[${metaType}] Enqueued ${tenantIds.length} child job (${childType})`);
+  return { fanout: metaType, tenants: tenantIds.length };
+}
+
+/**
+ * Sync tutte le giacenze verso WooCommerce per il tenant corrente.
  */
 async function syncInventoryJob() {
-  if (!wordpressService.isConfigured()) {
-    logger.warn('WordPress non configurato, skip sync giacenze');
+  if (!(await wordpressService.isConfigured())) {
+    logger.warn('WordPress non configurato per il tenant corrente, skip sync giacenze');
     return { skipped: true };
   }
 
@@ -124,11 +190,11 @@ async function syncInventoryJob() {
 }
 
 /**
- * Sync tutti i prodotti verso WooCommerce
+ * Sync tutti i prodotti verso WooCommerce per il tenant corrente.
  */
 async function syncProductsJob() {
-  if (!wordpressService.isConfigured()) {
-    logger.warn('WordPress non configurato, skip sync prodotti');
+  if (!(await wordpressService.isConfigured())) {
+    logger.warn('WordPress non configurato per il tenant corrente, skip sync prodotti');
     return { skipped: true };
   }
 
@@ -138,10 +204,10 @@ async function syncProductsJob() {
 }
 
 /**
- * Sync singolo prodotto verso WooCommerce
+ * Sync singolo prodotto verso WooCommerce.
  */
 async function syncSingleProductJob(productId: string) {
-  if (!wordpressService.isConfigured()) {
+  if (!(await wordpressService.isConfigured())) {
     return { skipped: true };
   }
 
@@ -151,10 +217,10 @@ async function syncSingleProductJob(productId: string) {
 }
 
 /**
- * Aggiorna stato ordine su WooCommerce
+ * Aggiorna stato ordine su WooCommerce.
  */
 async function updateOrderStatusJob(orderId: string, status: string) {
-  if (!wordpressService.isConfigured()) {
+  if (!(await wordpressService.isConfigured())) {
     return { skipped: true };
   }
 
@@ -168,8 +234,8 @@ async function updateOrderStatusJob(orderId: string, status: string) {
  * Processa pagina per pagina con progress tracking e persistenza DB
  */
 async function importCustomersJob(job: Job<WordPressJobData>) {
-  if (!wordpressService.isConfigured()) {
-    logger.warn('WordPress non configurato, skip import clienti');
+  if (!(await wordpressService.isConfigured())) {
+    logger.warn('WordPress non configurato per il tenant corrente, skip import clienti');
     return { skipped: true };
   }
 
@@ -331,11 +397,15 @@ async function importCustomersJob(job: Job<WordPressJobData>) {
  * Avvia job import clienti in background
  * Crea record nel database e poi avvia job BullMQ
  */
-export async function startCustomerImportJob(userId?: string): Promise<{ jobId: string; dbJobId: string }> {
+export async function startCustomerImportJob(tenantId: string, userId?: string): Promise<{ jobId: string; dbJobId: string }> {
+  if (!tenantId) {
+    throw new Error('startCustomerImportJob: tenantId obbligatorio');
+  }
   const bullmqJob = await wordpressQueue.add(
     'import-customers',
     {
       type: 'import-customers',
+      tenantId,
       importCustomers: {
         currentPage: 1,
         totalCustomers: 0,
@@ -628,47 +698,49 @@ export async function getDlqStats() {
  * Schedula job periodici WordPress
  */
 export async function scheduleWordPressJobs() {
-  if (!config.wordpress.syncEnabled) {
-    logger.info('WordPress sync automatico disabilitato');
-    return;
-  }
+  // Lo scheduler enqueua job "meta" (sync-inventory-fanout / sync-products-fanout)
+  // che NON eseguono direttamente la sync: enumerano i tenant con sync
+  // abilitata in `wordpress_tenant_config.sync_enabled = true` e enqueano un
+  // job tenant-specifico per ciascuno. In questo modo:
+  //   - lo scheduler è UNA volta a livello piattaforma (non per-tenant)
+  //   - aggiungere/rimuovere tenant non richiede ri-schedulare crontab
+  //   - il sync-interval globale è settabile da env / default 5min
+  const syncIntervalMs = parseInt(process.env.WORDPRESS_SCHEDULER_INTERVAL_MS || '300000');
 
-  // Sync giacenze ogni 5 minuti (configurabile)
   await wordpressQueue.add(
-    'scheduled-inventory-sync',
-    { type: 'sync-inventory' },
+    'scheduled-inventory-sync-fanout',
+    { type: 'sync-inventory-fanout' },
     {
-      repeat: {
-        every: config.wordpress.syncInterval,
-      },
+      repeat: { every: syncIntervalMs },
       removeOnComplete: 100,
       removeOnFail: 50,
     }
   );
 
-  // Sync prodotti ogni ora
   await wordpressQueue.add(
-    'scheduled-products-sync',
-    { type: 'sync-products' },
+    'scheduled-products-sync-fanout',
+    { type: 'sync-products-fanout' },
     {
-      repeat: {
-        pattern: '0 * * * *', // Ogni ora
-      },
+      repeat: { pattern: '0 * * * *' }, // Ogni ora
       removeOnComplete: 50,
       removeOnFail: 20,
     }
   );
 
-  logger.info('WordPress scheduled jobs configurati');
+  logger.info(
+    `WordPress scheduled jobs configurati (fanout multi-tenant ogni ${syncIntervalMs}ms)`
+  );
 }
 
 /**
  * Aggiunge job sync singolo prodotto alla coda con retry esponenziali e DLQ.
+ * Richiede tenantId per associare il job al tenant corretto.
  */
-export async function queueProductSync(productId: string) {
+export async function queueProductSync(tenantId: string, productId: string) {
+  if (!tenantId) throw new Error('queueProductSync: tenantId obbligatorio');
   await wordpressQueue.add(
-    `sync-product-${productId}`,
-    { type: 'sync-single-product', productId },
+    `sync-product-${tenantId}-${productId}`,
+    { type: 'sync-single-product', tenantId, productId },
     {
       ...WP_JOB_RETRY_OPTS,
       delay: 1000, // Ritardo 1s per evitare duplicati
@@ -679,10 +751,11 @@ export async function queueProductSync(productId: string) {
 /**
  * Aggiunge job update stato ordine alla coda con retry esponenziali e DLQ.
  */
-export async function queueOrderStatusUpdate(orderId: string, status: string) {
+export async function queueOrderStatusUpdate(tenantId: string, orderId: string, status: string) {
+  if (!tenantId) throw new Error('queueOrderStatusUpdate: tenantId obbligatorio');
   await wordpressQueue.add(
-    `update-order-${orderId}`,
-    { type: 'update-order-status', orderId, status },
+    `update-order-${tenantId}-${orderId}`,
+    { type: 'update-order-status', tenantId, orderId, status },
     WP_JOB_RETRY_OPTS
   );
 }
@@ -690,11 +763,12 @@ export async function queueOrderStatusUpdate(orderId: string, status: string) {
 /**
  * Aggiunge job sync giacenze immediato con retry esponenziali e DLQ.
  */
-export async function queueInventorySync(productId?: string) {
+export async function queueInventorySync(tenantId: string, productId?: string) {
+  if (!tenantId) throw new Error('queueInventorySync: tenantId obbligatorio');
   if (productId) {
     await wordpressQueue.add(
-      `sync-inventory-${productId}`,
-      { type: 'sync-single-product', productId },
+      `sync-inventory-${tenantId}-${productId}`,
+      { type: 'sync-single-product', tenantId, productId },
       {
         ...WP_JOB_RETRY_OPTS,
         delay: 500,
@@ -702,8 +776,8 @@ export async function queueInventorySync(productId?: string) {
     );
   } else {
     await wordpressQueue.add(
-      'immediate-inventory-sync',
-      { type: 'sync-inventory' },
+      `immediate-inventory-sync-${tenantId}`,
+      { type: 'sync-inventory', tenantId },
       WP_JOB_RETRY_OPTS
     );
   }

@@ -53,18 +53,28 @@ class WordPressPluginService {
   }
 
   /**
-   * Crea nuove credenziali per il plugin WordPress
+   * Crea nuove credenziali per il plugin WordPress (per-tenant).
+   *
+   * `tenantId` è obbligatorio: la chiave logica delle credenziali è
+   * (tenantId, username), non più solo `username`. Due tenant possono avere lo
+   * stesso username (es. il default "wp_plugin_<rand>") senza collisioni.
    */
-  async createCredentials(input: CreateCredentialInput): Promise<{ credential: PluginCredential; plainPassword: string }> {
+  async createCredentials(input: CreateCredentialInput & { tenantId: string }): Promise<{ credential: PluginCredential; plainPassword: string }> {
     const { username, password, label, tenantId } = input;
 
-    // Verifica che username non esista già
+    if (!tenantId) {
+      throw new Error('tenantId obbligatorio per createCredentials');
+    }
+
+    // Verifica che (tenantId, username) non esista già
     const existing = await prisma.wordPressPluginAuth.findUnique({
-      where: { username },
+      where: {
+        wpauth_tenant_username_unique: { tenantId, username },
+      },
     });
 
     if (existing) {
-      throw new Error('Username già esistente');
+      throw new Error('Username già esistente per questo tenant');
     }
 
     // Hash della password
@@ -75,7 +85,7 @@ class WordPressPluginService {
         username,
         password: hashedPassword,
         label: label || null,
-        tenantId: tenantId || null,
+        tenantId,
         isActive: true,
       },
     });
@@ -94,9 +104,10 @@ class WordPressPluginService {
   }
 
   /**
-   * Genera e crea credenziali automatiche
+   * Genera e crea credenziali automatiche per un tenant specifico.
+   * Il username include il tenantId per maggiore leggibilità nei log Woo.
    */
-  async generateCredentials(label?: string, tenantId?: string): Promise<{ credential: PluginCredential; username: string; password: string }> {
+  async generateCredentials(tenantId: string, label?: string): Promise<{ credential: PluginCredential; username: string; password: string }> {
     const username = `wp_plugin_${crypto.randomBytes(4).toString('hex')}`;
     const password = this.generateSecurePassword(32);
 
@@ -115,15 +126,30 @@ class WordPressPluginService {
   }
 
   /**
-   * Valida le credenziali Basic Auth
+   * Valida le credenziali Basic Auth contro un tenant specifico.
+   *
+   * Il tenantId viene dedotto dal middleware a partire da:
+   *   - URL slug `/plugin/:tenantSlug/...` (raccomandato)
+   *   - header `X-Tenant-Slug`
+   * Senza tenantId non c'è modo sicuro di disambiguare username uguali tra
+   * tenant diversi: il return è `null` (auth rifiutata).
    */
-  async validateCredentials(username: string, password: string): Promise<boolean> {
+  async validateCredentials(
+    tenantId: string,
+    username: string,
+    password: string
+  ): Promise<{ valid: boolean; credentialId?: string }> {
+    if (!tenantId) {
+      return { valid: false };
+    }
     const credential = await prisma.wordPressPluginAuth.findUnique({
-      where: { username },
+      where: {
+        wpauth_tenant_username_unique: { tenantId, username },
+      },
     });
 
     if (!credential || !credential.isActive) {
-      return false;
+      return { valid: false };
     }
 
     const isValid = await bcrypt.compare(password, credential.password);
@@ -136,7 +162,7 @@ class WordPressPluginService {
       });
     }
 
-    return isValid;
+    return { valid: isValid, credentialId: isValid ? credential.id : undefined };
   }
 
   /**

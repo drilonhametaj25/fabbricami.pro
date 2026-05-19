@@ -1,10 +1,10 @@
 import { prisma } from '../config/database';
-import { config } from '../config/environment';
 import { logger } from '../config/logger';
 import redisClient from '../config/redis';
 import notificationService from './notification.service';
 // inventoryService import removed - unused
-import wordpressSettingsService from './wordpress-settings.service';
+import wordpressSettingsService, { WordPressSettings } from './wordpress-settings.service';
+import { requireCurrentTenant, getCurrentTenant } from '../utils/tenant-context';
 import crypto from 'crypto';
 
 // Webhook idempotency TTL (24 hours in seconds)
@@ -333,63 +333,58 @@ const BATCH_CONFIG = {
   RETRY_DELAY: 3000,
 };
 
+// Cache TTL per tenant config in memoria (ms). Tenere basso per non lasciare
+// credenziali stale in giro più del necessario, ma alto abbastanza da non
+// martellare il DB ad ogni request della stessa sync.
+const TENANT_CONFIG_CACHE_TTL_MS = 60_000;
+
+interface CachedTenantConfig {
+  config: WordPressSettings;
+  fetchedAt: number;
+}
+
 class WordPressService {
-  private baseUrl: string;
-  private consumerKey: string;
-  private consumerSecret: string;
-  private webhookSecret: string;
-  private settingsLoaded: boolean = false;
-  private settingsLoadPromise: Promise<void> | null = null;
-
-  constructor() {
-    // Carica settings iniziali da env (poi verranno sovrascritte da DB)
-    this.baseUrl = config.wordpress.url;
-    this.consumerKey = config.wordpress.apiKey;
-    this.consumerSecret = process.env.WORDPRESS_CONSUMER_SECRET || '';
-    this.webhookSecret = config.wordpress.webhookSecret;
-
-    // Carica settings dal DB in modo asincrono
-    this.settingsLoadPromise = this.loadSettingsFromDB();
-  }
+  // Cache delle config per-tenant. Sostituisce il vecchio singleton state
+  // (this.baseUrl/consumerKey/consumerSecret/webhookSecret), che era una leak
+  // multi-tenant: il primo tenant a chiamare un metodo settava lo stato per
+  // TUTTI i tenant successivi finché il processo non si riavviava.
+  private tenantCache: Map<string, CachedTenantConfig> = new Map();
 
   /**
-   * Carica le impostazioni dal database
+   * Carica la config del tenant corrente (via AsyncLocalStorage tenant
+   * context), con cache TTL. Throwa se nessun tenant è attivo o se il tenant
+   * non ha configurato WordPress.
    */
-  private async loadSettingsFromDB(): Promise<void> {
-    try {
-      const settings = await wordpressSettingsService.getSettings();
-      if (settings.url) this.baseUrl = settings.url;
-      if (settings.consumerKey) this.consumerKey = settings.consumerKey;
-      if (settings.consumerSecret) this.consumerSecret = settings.consumerSecret;
-      if (settings.webhookSecret) this.webhookSecret = settings.webhookSecret;
-      this.settingsLoaded = true;
-      logger.info('WordPress settings caricati dal database');
-    } catch (error) {
-      logger.warn('Impossibile caricare WordPress settings dal DB, uso env:', error);
-      this.settingsLoaded = true; // Segna come caricato anche se fallito (usa env)
+  private async getTenantConfig(): Promise<WordPressSettings> {
+    const tenantId = requireCurrentTenant();
+    const cached = this.tenantCache.get(tenantId);
+    if (cached && Date.now() - cached.fetchedAt < TENANT_CONFIG_CACHE_TTL_MS) {
+      return cached.config;
     }
+
+    const cfg = await wordpressSettingsService.getSettings(tenantId);
+    if (!cfg || !cfg.url || !cfg.consumerKey || !cfg.consumerSecret) {
+      throw new Error(
+        `WordPress non configurato per il tenant ${tenantId}. Configura prima url/consumerKey/consumerSecret.`
+      );
+    }
+    this.tenantCache.set(tenantId, { config: cfg, fetchedAt: Date.now() });
+    return cfg;
   }
 
   /**
-   * Assicura che le impostazioni siano caricate prima di procedere
-   */
-  private async ensureSettingsLoaded(): Promise<void> {
-    if (!this.settingsLoaded && this.settingsLoadPromise) {
-      await this.settingsLoadPromise;
-    }
-    // Se ancora non caricate (caso edge), ricarica
-    if (!this.settingsLoaded) {
-      await this.loadSettingsFromDB();
-    }
-  }
-
-  /**
-   * Ricarica le impostazioni (chiamato dopo salvataggio)
+   * Invalida la cache per il tenant corrente. Chiamato dopo
+   * saveSettings/reloadSettings per forzare un refresh al prossimo accesso.
    */
   async reloadSettings(): Promise<void> {
-    this.settingsLoaded = false;
-    this.settingsLoadPromise = this.loadSettingsFromDB();
-    await this.settingsLoadPromise;
+    const tenantId = getCurrentTenant();
+    if (tenantId) {
+      this.tenantCache.delete(tenantId);
+    } else {
+      // Se chiamato fuori da un context, invalida tutta la cache (e.g. CLI
+      // admin tools, test cleanup).
+      this.tenantCache.clear();
+    }
   }
 
   // =============================================
@@ -424,23 +419,38 @@ class WordPressService {
   }
 
   /**
-   * Verifica se WordPress è configurato
+   * Verifica se WordPress è configurato per il tenant corrente.
+   *
+   * BREAKING: in passato sync; ora async perché serve I/O verso DB. I caller
+   * devono awaitare. Ritorna false anche se non c'è alcun tenant context (per
+   * non rompere callers che lo invocano in scenari "best-effort").
    */
-  isConfigured(): boolean {
-    return !!(this.baseUrl && this.consumerKey && this.consumerSecret);
+  async isConfigured(): Promise<boolean> {
+    const tenantId = getCurrentTenant();
+    if (!tenantId) return false;
+    try {
+      const cfg = await wordpressSettingsService.getSettings(tenantId);
+      return !!(cfg && cfg.url && cfg.consumerKey && cfg.consumerSecret);
+    } catch {
+      return false;
+    }
   }
 
   /**
-   * Genera Authorization header per WooCommerce API
+   * Genera Authorization header per WooCommerce API a partire dalle credenziali
+   * del tenant corrente.
    */
-  private getAuthHeader(): string {
-    const credentials = Buffer.from(`${this.consumerKey}:${this.consumerSecret}`).toString('base64');
+  private getAuthHeader(cfg: WordPressSettings): string {
+    const credentials = Buffer.from(`${cfg.consumerKey}:${cfg.consumerSecret}`).toString('base64');
     return `Basic ${credentials}`;
   }
 
   /**
    * Chiamata API a WooCommerce
    * Timeout configurabile (default 120 secondi per operazioni bulk)
+   *
+   * Le credenziali sono lette dal tenant context corrente (getTenantConfig).
+   * Il caller DEVE essere wrappato in `runWithTenant(tenantId, ...)`.
    */
   private async wooCommerceRequest<T>(
     endpoint: string,
@@ -448,14 +458,8 @@ class WordPressService {
     data?: any,
     timeoutMs: number = BATCH_CONFIG.REQUEST_TIMEOUT
   ): Promise<T> {
-    // Assicurati che le impostazioni siano caricate dal DB
-    await this.ensureSettingsLoaded();
-
-    if (!this.isConfigured()) {
-      throw new Error('WordPress/WooCommerce non configurato');
-    }
-
-    const url = `${this.baseUrl}/wp-json/wc/v3/${endpoint}`;
+    const cfg = await this.getTenantConfig();
+    const url = `${cfg.url}/wp-json/wc/v3/${endpoint}`;
     let lastError: Error | null = null;
 
     // Retry loop con exponential backoff
@@ -467,7 +471,7 @@ class WordPressService {
       const options: RequestInit = {
         method,
         headers: {
-          'Authorization': this.getAuthHeader(),
+          'Authorization': this.getAuthHeader(cfg),
           'Content-Type': 'application/json',
         },
         signal: controller.signal,
@@ -545,23 +549,33 @@ class WordPressService {
   // =============================================
 
   /**
-   * Valida firma webhook WooCommerce
+   * Valida firma webhook WooCommerce per un tenant specifico.
+   *
+   * `tenantId` viene passato esplicitamente perché i webhook inbound da Woo
+   * risolvono il tenant tramite lo slug nell'URL della route, fuori dal
+   * tenant context AsyncLocalStorage (è la route che lo setta DOPO avere
+   * validato la firma).
    */
-  validateWebhookSignature(payload: string, signature: string): boolean {
-    // Reject if no webhook secret configured (security requirement)
-    if (!this.webhookSecret) {
-      logger.error('Webhook secret non configurato - RIFIUTATO per sicurezza');
+  async validateWebhookSignature(
+    tenantId: string,
+    payload: string,
+    signature: string
+  ): Promise<boolean> {
+    if (!signature) {
+      logger.warn(`Webhook signature header mancante (tenant=${tenantId})`);
       return false;
     }
 
-    // Reject if no signature provided
-    if (!signature) {
-      logger.warn('Webhook signature header mancante');
+    const cfg = await wordpressSettingsService.getSettings(tenantId);
+    if (!cfg || !cfg.webhookSecret) {
+      logger.error(
+        `Webhook secret non configurato per tenant=${tenantId} - RIFIUTATO per sicurezza`
+      );
       return false;
     }
 
     const expectedSignature = crypto
-      .createHmac('sha256', this.webhookSecret)
+      .createHmac('sha256', cfg.webhookSecret)
       .update(payload)
       .digest('base64');
 
@@ -571,7 +585,7 @@ class WordPressService {
         Buffer.from(expectedSignature)
       );
     } catch (error) {
-      logger.warn('Errore validazione signature webhook:', error);
+      logger.warn(`Errore validazione signature webhook (tenant=${tenantId}):`, error);
       return false;
     }
   }
@@ -719,7 +733,8 @@ class WordPressService {
    * Import prodotti da WooCommerce
    */
   async importProductsFromWooCommerce(status?: 'publish' | 'draft' | 'any'): Promise<{ imported: number; updated: number; errors: number }> {
-    await this.ensureSettingsLoaded();
+    // Il vecchio ensureSettingsLoaded() singleton è stato rimosso: ora
+    // ogni metodo legge le credenziali tenant-specifiche tramite getTenantConfig().
     const results = { imported: 0, updated: 0, errors: 0 };
 
     try {
@@ -1563,7 +1578,8 @@ class WordPressService {
     const results = { imported: 0, updated: 0, errors: 0, hasMore: true, processedCount: 0 };
 
     try {
-      await this.ensureSettingsLoaded();
+      // Il vecchio ensureSettingsLoaded() singleton è stato rimosso: ora
+    // ogni metodo legge le credenziali tenant-specifiche tramite getTenantConfig().
 
       logger.info(`[ImportCustomersPage] Fetching pagina ${page}...`);
       const customers = await this.wooCommerceRequest<WooCommerceCustomer[]>(
@@ -1660,14 +1676,14 @@ class WordPressService {
    */
   async getWooCommerceCustomersCount(): Promise<number> {
     try {
-      await this.ensureSettingsLoaded();
+      const cfg = await this.getTenantConfig();
 
       // Usa HEAD request o una richiesta con per_page=1 per ottenere il totale dall'header
       const response = await fetch(
-        `${this.baseUrl}/wp-json/wc/v3/customers?per_page=1`,
+        `${cfg.url}/wp-json/wc/v3/customers?per_page=1`,
         {
           headers: {
-            'Authorization': this.getAuthHeader(),
+            'Authorization': this.getAuthHeader(cfg),
           },
         }
       );
@@ -1684,7 +1700,8 @@ class WordPressService {
    * Import ordini da WooCommerce
    */
   async importOrdersFromWooCommerce(status?: string): Promise<{ imported: number; updated: number; errors: number }> {
-    await this.ensureSettingsLoaded();
+    // Il vecchio ensureSettingsLoaded() singleton è stato rimosso: ora
+    // ogni metodo legge le credenziali tenant-specifiche tramite getTenantConfig().
     const results = { imported: 0, updated: 0, errors: 0 };
 
     try {
@@ -2024,7 +2041,8 @@ class WordPressService {
   async healthCheck(): Promise<{ connected: boolean; version?: string; error?: string }> {
     try {
       // Assicurati che le impostazioni siano caricate dal DB
-      await this.ensureSettingsLoaded();
+      // Il vecchio ensureSettingsLoaded() singleton è stato rimosso: ora
+    // ogni metodo legge le credenziali tenant-specifiche tramite getTenantConfig().
 
       if (!this.isConfigured()) {
         return { connected: false, error: 'WordPress non configurato' };
@@ -3319,8 +3337,7 @@ class WordPressService {
       orders: number;
     };
   }> {
-    // Assicurati che le impostazioni siano caricate dal DB
-    await this.ensureSettingsLoaded();
+    const cfg = await this.getTenantConfig();
 
     // Conta su WooCommerce
     let wooProducts = 0;
@@ -3330,30 +3347,30 @@ class WordPressService {
     try {
       // WooCommerce usa header X-WP-Total per il conteggio totale
       const productsResponse = await fetch(
-        `${this.baseUrl}/wp-json/wc/v3/products?per_page=1`,
+        `${cfg.url}/wp-json/wc/v3/products?per_page=1`,
         {
           headers: {
-            'Authorization': this.getAuthHeader(),
+            'Authorization': this.getAuthHeader(cfg),
           },
         }
       );
       wooProducts = parseInt(productsResponse.headers.get('X-WP-Total') || '0');
 
       const customersResponse = await fetch(
-        `${this.baseUrl}/wp-json/wc/v3/customers?per_page=1`,
+        `${cfg.url}/wp-json/wc/v3/customers?per_page=1`,
         {
           headers: {
-            'Authorization': this.getAuthHeader(),
+            'Authorization': this.getAuthHeader(cfg),
           },
         }
       );
       wooCustomers = parseInt(customersResponse.headers.get('X-WP-Total') || '0');
 
       const ordersResponse = await fetch(
-        `${this.baseUrl}/wp-json/wc/v3/orders?per_page=1`,
+        `${cfg.url}/wp-json/wc/v3/orders?per_page=1`,
         {
           headers: {
-            'Authorization': this.getAuthHeader(),
+            'Authorization': this.getAuthHeader(cfg),
           },
         }
       );
@@ -3405,7 +3422,8 @@ class WordPressService {
     };
   }> {
     // Assicurati che le impostazioni siano caricate dal DB
-    await this.ensureSettingsLoaded();
+    // Il vecchio ensureSettingsLoaded() singleton è stato rimosso: ora
+    // ogni metodo legge le credenziali tenant-specifiche tramite getTenantConfig().
 
     const health = await this.healthCheck();
 
@@ -3430,7 +3448,7 @@ class WordPressService {
     ]);
 
     return {
-      configured: this.isConfigured(),
+      configured: await this.isConfigured(),
       connected: health.connected,
       lastSync: lastSyncedProduct?.lastSyncAt || null,
       stats: {

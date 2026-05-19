@@ -5,6 +5,8 @@ import wordpressSettingsService from '../services/wordpress-settings.service';
 import { authenticateWordPressPlugin } from '../middleware/wordpress-plugin-auth.middleware';
 import { authenticate } from '../middleware/auth.middleware';
 import { logger } from '../config/logger';
+import { prisma } from '../config/database';
+import { runWithTenant, enterTenant } from '../utils/tenant-context';
 import { z } from 'zod';
 import {
   startCustomerImportJob,
@@ -20,6 +22,20 @@ import {
 import { importJobService } from '../services/import-job.service';
 import { authorize } from '../middleware/auth.middleware';
 
+/**
+ * Risolve tenantSlug (dall'URL della route) in tenantId.
+ * Ritorna null se lo slug non corrisponde ad alcun tenant attivo.
+ */
+async function resolveTenantBySlug(slug: string): Promise<string | null> {
+  if (!slug) return null;
+  const t = await prisma.tenant.findUnique({
+    where: { slug },
+    select: { id: true, status: true },
+  });
+  if (!t || t.status !== 'ACTIVE') return null;
+  return t.id;
+}
+
 // Schema validazione
 const syncProductSchema = z.object({
   productId: z.string().uuid().optional(),
@@ -30,6 +46,21 @@ const syncInventorySchema = z.object({
 });
 
 const wordpressRoutes: FastifyPluginAsync = async (server: any) => {
+  // Hook globale per propagare tenantId nel context AsyncLocalStorage.
+  // Le route admin usano `authenticate` (che setta request.user.tenantId);
+  // le route plugin usano `authenticateWordPressPlugin` (che setta
+  // request.wordpressPlugin.tenantId); le route webhook fanno il proprio
+  // resolveTenantBySlug. Questo hook copre i primi due casi senza dover
+  // wrappare manualmente ~40 handler in runWithTenant.
+  server.addHook('preHandler', async (request: FastifyRequest) => {
+    const user = (request as any).user;
+    const plugin = (request as any).wordpressPlugin;
+    const tenantId = plugin?.tenantId || user?.tenantId;
+    if (tenantId) {
+      enterTenant(tenantId);
+    }
+  });
+
   // =============================================
   // HEALTH CHECK
   // =============================================
@@ -51,22 +82,33 @@ const wordpressRoutes: FastifyPluginAsync = async (server: any) => {
   // =============================================
 
   /**
-   * POST /wordpress/webhook/order
-   * Riceve webhook ordini da WooCommerce
+   * POST /wordpress/webhook/:tenantSlug/order
+   * Riceve webhook ordini da WooCommerce.
+   *
+   * Il `tenantSlug` nell'URL identifica il tenant proprietario del Woo da cui
+   * arriva l'evento (ogni tenant configura il proprio webhook su Woo con il
+   * suo slug). La signature è validata contro il webhook secret del tenant
+   * risolto, non un secret globale.
    */
-  server.post('/webhook/order', {
+  server.post('/webhook/:tenantSlug/order', {
     config: {
       rawBody: true, // Per validazione firma
     },
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
-      // Valida firma webhook
+      const { tenantSlug } = request.params as { tenantSlug: string };
+      const tenantId = await resolveTenantBySlug(tenantSlug);
+      if (!tenantId) {
+        return reply.status(404).send({ success: false, error: 'Tenant non trovato' });
+      }
+
+      // Valida firma webhook contro il webhook_secret del tenant
       const signature = request.headers['x-wc-webhook-signature'] as string;
       const rawBody = (request as any).rawBody || JSON.stringify(request.body);
 
-      // Validate webhook signature (required for security)
-      if (!wordpressService.validateWebhookSignature(rawBody, signature)) {
-        logger.warn('Webhook signature non valida o mancante');
+      const sigValid = await wordpressService.validateWebhookSignature(tenantId, rawBody, signature);
+      if (!sigValid) {
+        logger.warn(`Webhook signature non valida (tenant=${tenantSlug})`);
         return reply.status(401).send({
           success: false,
           error: 'Invalid or missing webhook signature',
@@ -89,8 +131,11 @@ const wordpressRoutes: FastifyPluginAsync = async (server: any) => {
         });
       }
 
-      // Processa ordine
-      const result = await wordpressService.processOrderWebhook(orderData);
+      // Processa ordine dentro al tenant context (così wordpressService legge
+      // le credenziali e scrive sui modelli filtrando per tenantId)
+      const result = await runWithTenant(tenantId, () =>
+        wordpressService.processOrderWebhook(orderData)
+      );
 
       if (result.success) {
         return reply.send({
@@ -117,16 +162,22 @@ const wordpressRoutes: FastifyPluginAsync = async (server: any) => {
   });
 
   /**
-   * POST /wordpress/webhook/order-updated
-   * Riceve webhook aggiornamento ordini da WooCommerce
+   * POST /wordpress/webhook/:tenantSlug/order-updated
+   * Riceve webhook aggiornamento ordini da WooCommerce (per-tenant).
    */
-  server.post('/webhook/order-updated', async (request: FastifyRequest, reply: FastifyReply) => {
+  server.post('/webhook/:tenantSlug/order-updated', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
+      const { tenantSlug } = request.params as { tenantSlug: string };
+      const tenantId = await resolveTenantBySlug(tenantSlug);
+      if (!tenantId) {
+        return reply.status(404).send({ success: false, error: 'Tenant non trovato' });
+      }
+
       const signature = request.headers['x-wc-webhook-signature'] as string;
       const rawBody = (request as any).rawBody || JSON.stringify(request.body);
 
-      // Validate webhook signature (required for security)
-      if (!wordpressService.validateWebhookSignature(rawBody, signature)) {
+      const sigValid = await wordpressService.validateWebhookSignature(tenantId, rawBody, signature);
+      if (!sigValid) {
         return reply.status(401).send({
           success: false,
           error: 'Invalid or missing webhook signature',
@@ -142,8 +193,9 @@ const wordpressRoutes: FastifyPluginAsync = async (server: any) => {
         });
       }
 
-      // Processa aggiornamento (usa stessa logica, gestisce update interno)
-      const result = await wordpressService.processOrderWebhook(orderData);
+      const result = await runWithTenant(tenantId, () =>
+        wordpressService.processOrderWebhook(orderData)
+      );
 
       return reply.send({
         success: result.success,
@@ -160,21 +212,27 @@ const wordpressRoutes: FastifyPluginAsync = async (server: any) => {
   });
 
   /**
-   * POST /wordpress/webhook/stock-update
-   * Riceve webhook per aggiornamento stock da WooCommerce
+   * POST /wordpress/webhook/:tenantSlug/stock-update
+   * Riceve webhook per aggiornamento stock da WooCommerce (per-tenant).
    */
-  server.post('/webhook/stock-update', {
+  server.post('/webhook/:tenantSlug/stock-update', {
     config: {
       rawBody: true,
     },
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
+      const { tenantSlug } = request.params as { tenantSlug: string };
+      const tenantId = await resolveTenantBySlug(tenantSlug);
+      if (!tenantId) {
+        return reply.status(404).send({ success: false, error: 'Tenant non trovato' });
+      }
+
       const signature = request.headers['x-wc-webhook-signature'] as string;
       const rawBody = (request as any).rawBody || JSON.stringify(request.body);
 
-      // Validate webhook signature (required for security)
-      if (!wordpressService.validateWebhookSignature(rawBody, signature)) {
-        logger.warn('Stock update webhook signature non valida o mancante');
+      const sigValid = await wordpressService.validateWebhookSignature(tenantId, rawBody, signature);
+      if (!sigValid) {
+        logger.warn(`Stock update webhook signature non valida (tenant=${tenantSlug})`);
         return reply.status(401).send({
           success: false,
           error: 'Invalid or missing webhook signature',
@@ -197,8 +255,10 @@ const wordpressRoutes: FastifyPluginAsync = async (server: any) => {
         });
       }
 
-      // Processa aggiornamento stock
-      const result = await wordpressService.processStockUpdateWebhook(productData);
+      // Processa aggiornamento stock nel tenant context
+      const result = await runWithTenant(tenantId, () =>
+        wordpressService.processStockUpdateWebhook(productData)
+      );
 
       if (result.success) {
         return reply.send({
@@ -229,7 +289,7 @@ const wordpressRoutes: FastifyPluginAsync = async (server: any) => {
    * POST /wordpress/plugin/stock-update
    * Riceve aggiornamento stock dal plugin WordPress
    */
-  server.post('/plugin/stock-update', {
+  server.post('/plugin/:tenantSlug/stock-update', {
     preHandler: authenticateWordPressPlugin,
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
@@ -512,7 +572,11 @@ const wordpressRoutes: FastifyPluginAsync = async (server: any) => {
       }
 
       const user = (request as any).user;
-      const result = await startCustomerImportJob(user?.id);
+      const tenantId = user?.tenantId;
+      if (!tenantId) {
+        return reply.status(400).send({ success: false, error: 'tenantId mancante nel JWT' });
+      }
+      const result = await startCustomerImportJob(tenantId, user?.id);
       return reply.send({
         success: true,
         data: {
@@ -959,7 +1023,7 @@ const wordpressRoutes: FastifyPluginAsync = async (server: any) => {
    * POST /wordpress/plugin/order
    * Ricevi nuovo ordine dal plugin WordPress
    */
-  server.post('/plugin/order', {
+  server.post('/plugin/:tenantSlug/order', {
     preHandler: authenticateWordPressPlugin,
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
@@ -1011,7 +1075,7 @@ const wordpressRoutes: FastifyPluginAsync = async (server: any) => {
    * POST /wordpress/plugin/order-status
    * Ricevi cambio stato ordine dal plugin
    */
-  server.post('/plugin/order-status', {
+  server.post('/plugin/:tenantSlug/order-status', {
     preHandler: authenticateWordPressPlugin,
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
@@ -1036,7 +1100,7 @@ const wordpressRoutes: FastifyPluginAsync = async (server: any) => {
    * POST /wordpress/plugin/customer
    * Ricevi nuovo cliente dal plugin
    */
-  server.post('/plugin/customer', {
+  server.post('/plugin/:tenantSlug/customer', {
     preHandler: authenticateWordPressPlugin,
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
@@ -1088,7 +1152,7 @@ const wordpressRoutes: FastifyPluginAsync = async (server: any) => {
    * PUT /wordpress/plugin/customer
    * Aggiorna cliente esistente dal plugin
    */
-  server.put('/plugin/customer', {
+  server.put('/plugin/:tenantSlug/customer', {
     preHandler: authenticateWordPressPlugin,
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
@@ -1144,8 +1208,12 @@ const wordpressRoutes: FastifyPluginAsync = async (server: any) => {
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const { label } = request.body as { label?: string };
+      const tenantId = (request as any).user?.tenantId;
+      if (!tenantId) {
+        return reply.status(400).send({ success: false, error: 'tenantId mancante nel JWT' });
+      }
 
-      const result = await wordpressPluginService.generateCredentials(label);
+      const result = await wordpressPluginService.generateCredentials(tenantId, label);
 
       return reply.send({
         success: true,
@@ -1404,12 +1472,35 @@ const wordpressRoutes: FastifyPluginAsync = async (server: any) => {
    */
   server.get('/settings', {
     preHandler: authenticate,
-  }, async (_request: FastifyRequest, reply: FastifyReply) => {
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
-      const settings = await wordpressSettingsService.getSettingsForUI();
+      const tenantId = (request as any).user?.tenantId;
+      if (!tenantId) {
+        return reply.status(400).send({ success: false, error: 'tenantId mancante nel JWT' });
+      }
+      const settings = await wordpressSettingsService.getSettingsForUI(tenantId);
+      // Esporta anche le URL pubbliche che il tenant deve copiare nel suo Woo.
+      const tenant = await prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { slug: true },
+      });
+      const baseUrl = (request.headers['x-forwarded-proto'] && request.headers['x-forwarded-host'])
+        ? `${request.headers['x-forwarded-proto']}://${request.headers['x-forwarded-host']}`
+        : `${request.protocol}://${request.headers.host}`;
       return reply.send({
         success: true,
-        data: settings,
+        data: {
+          ...settings,
+          tenantSlug: tenant?.slug || null,
+          webhookUrls: tenant?.slug
+            ? {
+                order: `${baseUrl}/api/v1/wordpress/webhook/${tenant.slug}/order`,
+                orderUpdated: `${baseUrl}/api/v1/wordpress/webhook/${tenant.slug}/order-updated`,
+                stockUpdate: `${baseUrl}/api/v1/wordpress/webhook/${tenant.slug}/stock-update`,
+                pluginBase: `${baseUrl}/api/v1/wordpress/plugin/${tenant.slug}`,
+              }
+            : null,
+        },
       });
     } catch (error: any) {
       logger.error('Errore lettura settings:', error);
@@ -1422,12 +1513,16 @@ const wordpressRoutes: FastifyPluginAsync = async (server: any) => {
 
   /**
    * PUT /wordpress/settings
-   * Salva impostazioni WooCommerce
+   * Salva impostazioni WooCommerce per il tenant corrente
    */
   server.put('/settings', {
     preHandler: authenticate,
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
+      const tenantId = (request as any).user?.tenantId;
+      if (!tenantId) {
+        return reply.status(400).send({ success: false, error: 'tenantId mancante nel JWT' });
+      }
       const body = request.body as {
         url?: string;
         consumerKey?: string;
@@ -1437,10 +1532,10 @@ const wordpressRoutes: FastifyPluginAsync = async (server: any) => {
         syncInterval?: number;
       };
 
-      await wordpressSettingsService.saveSettings(body);
+      await wordpressSettingsService.saveSettings(tenantId, body);
 
-      // Ricarica le impostazioni nel service
-      await wordpressService.reloadSettings();
+      // Invalida la cache in-memory delle credenziali per questo tenant
+      await runWithTenant(tenantId, () => wordpressService.reloadSettings());
 
       return reply.send({
         success: true,
@@ -1457,20 +1552,24 @@ const wordpressRoutes: FastifyPluginAsync = async (server: any) => {
 
   /**
    * POST /wordpress/settings/test
-   * Testa la connessione WooCommerce
+   * Testa la connessione WooCommerce per il tenant corrente
    */
   server.post('/settings/test', {
     preHandler: authenticate,
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
+      const tenantId = (request as any).user?.tenantId;
+      if (!tenantId) {
+        return reply.status(400).send({ success: false, error: 'tenantId mancante nel JWT' });
+      }
       const body = request.body as {
         url?: string;
         consumerKey?: string;
         consumerSecret?: string;
       };
 
-      // Se vengono passati parametri, testa quelli, altrimenti testa settings salvate
       const result = await wordpressSettingsService.testConnection(
+        tenantId,
         body?.url ? body : undefined
       );
 
