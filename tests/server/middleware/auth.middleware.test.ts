@@ -168,13 +168,19 @@ describe('Auth Middleware', () => {
       );
       const request = createMockRequest({ authorization: `Bearer ${token}` }) as any;
       const reply = createMockReply();
+      // Un utente "valido" deve avere tenantId + tenant: il middleware rigetta
+      // gli account orfani (vedi test successivo) come fix al data leak GDPR.
       mockPrisma.user.findUnique.mockResolvedValue({
         id: 'user-1',
         email: 'test@test.com',
         role: 'ADMIN',
         isActive: true,
-        tenantId: null,
-        tenant: null,
+        tenantId: 'tenant-1',
+        tenant: {
+          slug: 'acme',
+          status: 'ACTIVE',
+          subscription: null,
+        },
       });
 
       await authenticate(request, reply);
@@ -184,10 +190,40 @@ describe('Auth Middleware', () => {
         userId: 'user-1',
         email: 'test@test.com',
         role: 'ADMIN',
-        tenantId: undefined,
-        tenantSlug: undefined,
+        tenantId: 'tenant-1',
+        tenantSlug: 'acme',
         planCode: undefined,
       });
+    });
+
+    it('should return 401 TENANT_MISSING when authenticated user has no tenant (data-leak regression)', async () => {
+      // Regressione del data-leak GDPR: un user con tenantId null NON deve
+      // proseguire — senza tenant context il Prisma middleware non filtra
+      // le query e l'utente vedrebbe i dati di TUTTI i tenant.
+      const token = jwt.sign(
+        { userId: 'orphan-user', email: 'orphan@test.com', role: 'ADMIN' },
+        mockConfig.jwt.secret
+      );
+      const request = createMockRequest({ authorization: `Bearer ${token}` }) as any;
+      const reply = createMockReply();
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'orphan-user',
+        email: 'orphan@test.com',
+        role: 'ADMIN',
+        isActive: true,
+        tenantId: null,
+        tenant: null,
+      });
+
+      await authenticate(request, reply);
+
+      expect(reply.status).toHaveBeenCalledWith(401);
+      expect(reply.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: false,
+          code: 'TENANT_MISSING',
+        })
+      );
     });
 
     it('should attach tenant info when user has tenant', async () => {
