@@ -142,22 +142,20 @@ describe('Tenant Middleware', () => {
       expect(request.tenant.tenantSlug).toBe('beta-corp');
     });
 
-    it('should extract tenant from subdomain', async () => {
+    it('should NOT extract tenant from subdomain (regression: subdomain support removed for security)', async () => {
+      // Il middleware non risolve più il tenant dal subdomain: era un fallback
+      // pericoloso che poteva far finire un utente nel tenant sbagliato se il
+      // JWT non aveva tenantId. Una request con solo `host` header deve fallire
+      // con 400 — senza chiamare il DB.
       const request = createMockRequest({
         headers: { host: 'gamma.erpsaas.com' },
       }) as any;
       const reply = createMockReply();
 
-      mockPrisma.tenant.findUnique
-        .mockResolvedValueOnce({ id: 'tenant-3', slug: 'gamma', status: 'ACTIVE' }) // subdomain lookup
-        .mockResolvedValueOnce({ id: 'tenant-3', slug: 'gamma', status: 'ACTIVE' }); // verification lookup
-
       await tenantMiddleware(request, reply);
 
-      expect(mockPrisma.tenant.findUnique).toHaveBeenCalledWith({
-        where: { slug: 'gamma' },
-        select: { id: true, slug: true, status: true },
-      });
+      expect(mockPrisma.tenant.findUnique).not.toHaveBeenCalled();
+      expect(reply.status).toHaveBeenCalledWith(400);
     });
 
     it('should return 400 when no tenant is specified', async () => {
@@ -170,7 +168,7 @@ describe('Tenant Middleware', () => {
       expect(reply.send).toHaveBeenCalledWith({
         success: false,
         error: 'Tenant not specified',
-        message: 'Request must include tenant identification via JWT, X-Tenant-Id header, or subdomain',
+        message: 'Request must include tenant identification via JWT or X-Tenant-Id header',
       });
     });
 
@@ -180,6 +178,9 @@ describe('Tenant Middleware', () => {
       }) as any;
       const reply = createMockReply();
 
+      // mockReset garantisce che eventuali mockResolvedValueOnce dei test precedenti
+      // siano cancellate (jest.clearAllMocks pulisce solo lo storico, non le impl).
+      mockPrisma.tenant.findUnique.mockReset();
       mockPrisma.tenant.findUnique.mockResolvedValue(null);
 
       await tenantMiddleware(request, reply);
@@ -197,6 +198,7 @@ describe('Tenant Middleware', () => {
       }) as any;
       const reply = createMockReply();
 
+      mockPrisma.tenant.findUnique.mockReset();
       mockPrisma.tenant.findUnique.mockResolvedValue({
         id: 'tenant-1',
         slug: 'suspended-tenant',
@@ -219,6 +221,7 @@ describe('Tenant Middleware', () => {
       }) as any;
       const reply = createMockReply();
 
+      mockPrisma.tenant.findUnique.mockReset();
       mockPrisma.tenant.findUnique.mockResolvedValue({
         id: 'tenant-1',
         slug: 'cancelled-tenant',

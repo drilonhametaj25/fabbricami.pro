@@ -1060,14 +1060,44 @@ describe('SubscriptionService', () => {
       });
     });
 
-    it('should throw when customer not found', async () => {
+    it('should throw when tenant not found and no stripe customer exists', async () => {
+      // Nuovo comportamento: se la subscription non ha stripeCustomerId, il
+      // service prova a crearne uno al volo a partire dal tenant. Se anche
+      // il tenant non esiste, allora throw "Tenant non trovato".
       prismaMock.saasSubscription.findUnique.mockResolvedValue(
         createMockSubscription({ stripeCustomerId: null })
       );
+      prismaMock.tenant.findUnique.mockResolvedValue(null);
 
       await expect(
         subscriptionService.createPortalSession('tenant-123')
-      ).rejects.toThrow('Customer Stripe non trovato');
+      ).rejects.toThrow('Tenant non trovato');
+    });
+
+    it('should auto-create stripe customer when missing and tenant exists', async () => {
+      prismaMock.saasSubscription.findUnique.mockResolvedValue(
+        createMockSubscription({ stripeCustomerId: null })
+      );
+      prismaMock.tenant.findUnique.mockResolvedValue({
+        id: 'tenant-123',
+        slug: 'acme',
+        name: 'Acme',
+        members: [{ user: { email: 'owner@acme.com' } }],
+      } as any);
+      mockStripe.customers.create.mockResolvedValue({ id: 'cus_new_auto' });
+      mockStripe.billingPortal.sessions.create.mockResolvedValue({
+        url: 'https://billing.stripe.com/session/new',
+      });
+
+      const result = await subscriptionService.createPortalSession('tenant-123');
+
+      expect(mockStripe.customers.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          email: 'owner@acme.com',
+          name: 'Acme',
+        })
+      );
+      expect(result.url).toBe('https://billing.stripe.com/session/new');
     });
   });
 

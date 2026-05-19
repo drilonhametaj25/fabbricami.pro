@@ -313,7 +313,18 @@ describe('TenantService', () => {
   // setupInitialTenant
   // ============================================================================
   describe('setupInitialTenant', () => {
+    // setupInitialTenant esegue un `prisma.$transaction(async (tx) => ...)`:
+    // dobbiamo mockare $transaction in modo che invochi la callback passandole
+    // prismaMock come tx, altrimenti il body della transazione non viene mai
+    // eseguito e le asserzioni su tenant.create/tenantMember.create falliscono.
+    const setupTxMock = () => {
+      (prismaMock.$transaction as unknown as jest.Mock).mockImplementation(
+        async (cb: (tx: typeof prismaMock) => unknown) => cb(prismaMock)
+      );
+    };
+
     it('should setup complete tenant for new user', async () => {
+      setupTxMock();
       prismaMock.tenant.findUnique.mockResolvedValue(null);
       prismaMock.tenant.create.mockResolvedValue(createMockTenant());
       prismaMock.tenantMember.create.mockResolvedValue(createMockMember() as any);
@@ -350,6 +361,7 @@ describe('TenantService', () => {
     });
 
     it('should generate unique slug when base is taken', async () => {
+      setupTxMock();
       prismaMock.tenant.findUnique.mockResolvedValueOnce(createMockTenant()); // first slug taken
       prismaMock.tenant.findUnique.mockResolvedValueOnce(null); // second slug available
       prismaMock.tenant.create.mockResolvedValue(createMockTenant({ slug: 'my-company-1' }));
