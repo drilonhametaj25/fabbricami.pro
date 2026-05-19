@@ -129,13 +129,21 @@ jobs:
             # HARDENING: a failed migration MUST fail the deploy.
             # Previously this used `|| { ... }` without exit, which let a
             # broken schema go live. Now any migration failure aborts.
-            if ! timeout 300 docker compose -f docker-compose.prod.yml exec -T backend sh /app/scripts/smart-migrate.sh; then
-              EXIT_CODE=$?
+            #
+            # Capture the real exit code: `if ! cmd; then EXIT_CODE=$?` always
+            # gives 0 because `!` inverts the inner exit and $? then reflects
+            # the negation result (success), not the original failure code.
+            # Use the explicit `|| EXIT_CODE=$?` pattern instead.
+            EXIT_CODE=0
+            timeout 300 docker compose -f docker-compose.prod.yml exec -T backend sh /app/scripts/smart-migrate.sh || EXIT_CODE=$?
+            if [ "$EXIT_CODE" -ne 0 ]; then
               echo "!!! MIGRATION FAILED (exit code $EXIT_CODE)"
-              if [ $EXIT_CODE -eq 124 ]; then
+              if [ "$EXIT_CODE" -eq 124 ]; then
                 echo "!!! Reason: migration timed out after 5 minutes"
-              elif [ $EXIT_CODE -eq 137 ]; then
+              elif [ "$EXIT_CODE" -eq 137 ]; then
                 echo "!!! Reason: migration was killed (OOM or signal)"
+              elif [ "$EXIT_CODE" -eq 2 ]; then
+                echo "!!! Reason: shell syntax error in /app/scripts/smart-migrate.sh"
               fi
               echo ">>> Backend container status:"
               docker compose -f docker-compose.prod.yml ps backend || true

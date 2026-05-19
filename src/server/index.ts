@@ -11,6 +11,7 @@ import { logger } from './config/logger';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware';
 import { setupSwagger } from './config/swagger';
 import path from 'path';
+import fs from 'fs';
 
 // Import routes
 import authRoutes from './routes/auth.routes';
@@ -144,8 +145,13 @@ async function setupServer() {
     timeWindow: config.rateLimit.timeWindow,
   });
 
+  // In dev __dirname è src/server, in prod è dist/server/server (vedi tsconfig).
+  // Per non dover indovinare la profondità relativa preferiamo UPLOAD_DIR (env
+  // assoluto) e cadiamo su <cwd>/uploads come fallback.
+  const uploadsRoot = process.env.UPLOAD_DIR || path.resolve(process.cwd(), 'uploads');
+  await fs.promises.mkdir(uploadsRoot, { recursive: true }).catch(() => undefined);
   await server.register(fastifyStatic, {
-    root: path.join(__dirname, '../../uploads'),
+    root: uploadsRoot,
     prefix: '/uploads/',
   });
 
