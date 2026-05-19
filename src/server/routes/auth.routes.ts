@@ -431,28 +431,36 @@ const authRoutes: FastifyPluginAsync = async (server) => {
       const emailVerifyTokenExpires = new Date();
       emailVerifyTokenExpires.setHours(emailVerifyTokenExpires.getHours() + 24); // 24 hours
 
-      // Create user
-      const user = await prisma.user.create({
-        data: {
-          email: body.email.toLowerCase(),
-          password: hashedPassword,
-          firstName: body.firstName,
-          lastName: body.lastName,
-          role: 'ADMIN',
-          isActive: true,
-          emailVerified: false,
-          emailVerifyToken,
-          emailVerifyTokenExpires,
-        },
-      });
+      // Creiamo user + tenant + membership + trial in UN'UNICA transazione.
+      // Se setupInitialTenant fallisce, anche l'user viene rollbackato, evitando
+      // l'orphan state user.tenantId = null (causa diretta del data leak: senza
+      // tenantId, l'authenticate middleware non setta il tenantContext e il
+      // Prisma middleware non filtra le query).
+      const { user, tenant } = await prisma.$transaction(async (tx) => {
+        const newUser = await tx.user.create({
+          data: {
+            email: body.email.toLowerCase(),
+            password: hashedPassword,
+            firstName: body.firstName,
+            lastName: body.lastName,
+            role: 'ADMIN',
+            isActive: true,
+            emailVerified: false,
+            emailVerifyToken,
+            emailVerifyTokenExpires,
+          },
+        });
 
-      // Setup tenant and subscription (use plan from registration or default to PRO)
-      const tenant = await tenantService.setupInitialTenant(
-        user.id,
-        body.companyName,
-        body.plan || 'PRO',
-        body.billingCycle || 'monthly'
-      );
+        const newTenant = await tenantService.setupInitialTenant(
+          newUser.id,
+          body.companyName,
+          body.plan || 'PRO',
+          body.billingCycle || 'monthly',
+          tx
+        );
+
+        return { user: newUser, tenant: newTenant };
+      });
 
       // Send verification email (using SaaS template)
       await emailService.sendSaasVerificationEmail(

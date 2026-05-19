@@ -75,40 +75,52 @@ export async function authenticate(
         });
       }
 
-      // Attach user to request (con info tenant se disponibile)
+      // FIX DATA LEAK CRITICO: se l'utente non ha un tenantId (record orfano,
+      // creato da un flow rotto pre-fix), NON dobbiamo lasciarlo procedere
+      // senza tenant context — altrimenti il Prisma middleware non filtra le
+      // query e l'utente vede TUTTI i dati di TUTTI i tenant (incluso il
+      // demo). Lo respingiamo con 401 e un code esplicito così il frontend
+      // forza il logout.
+      if (!user.tenantId || !user.tenant) {
+        return reply.status(401).send({
+          success: false,
+          error: 'Account in stato inconsistente. Effettua il logout e contatta il supporto.',
+          code: 'TENANT_MISSING',
+        });
+      }
+
+      // Attach user to request
       (request as AuthenticatedRequest).user = {
         userId: user.id,
         email: user.email,
         role: user.role,
-        tenantId: user.tenantId || undefined,
-        tenantSlug: user.tenant?.slug,
-        planCode: user.tenant?.subscription?.plan?.code,
+        tenantId: user.tenantId,
+        tenantSlug: user.tenant.slug,
+        planCode: user.tenant.subscription?.plan?.code,
       };
 
       // CRITICAL: imposta il tenant context tramite AsyncLocalStorage
       // così il Prisma middleware può auto-filtrare per tenantId
       // su TUTTE le route protette, anche senza tenantMiddleware esplicito.
-      if (user.tenantId && user.tenant) {
-        const ctx: TenantContext = {
-          tenantId: user.tenantId,
-          tenantSlug: user.tenant.slug,
-          tenantStatus: user.tenant.status,
-        };
-        tenantContext.enterWith(ctx);
+      const ctx: TenantContext = {
+        tenantId: user.tenantId,
+        tenantSlug: user.tenant.slug,
+        tenantStatus: user.tenant.status,
+      };
+      tenantContext.enterWith(ctx);
 
-        // SUBSCRIPTION GATE — applied to all authenticated routes.
-        // Bypass paths (auth/billing/onboarding/tickets/...) keep working
-        // even when the subscription is past_due/cancelled/expired.
-        const gate = await runSubscriptionGate(request, reply, user.tenantId);
-        if (gate.blocked) {
-          // The gate already sent the 402 reply
-          return;
-        }
-        if (gate.subscription) {
-          (request as AuthenticatedRequest & {
-            subscription: SubscriptionGateContext;
-          }).subscription = gate.subscription;
-        }
+      // SUBSCRIPTION GATE — applied to all authenticated routes.
+      // Bypass paths (auth/billing/onboarding/tickets/...) keep working
+      // even when the subscription is past_due/cancelled/expired.
+      const gate = await runSubscriptionGate(request, reply, user.tenantId);
+      if (gate.blocked) {
+        // The gate already sent the 402 reply
+        return;
+      }
+      if (gate.subscription) {
+        (request as AuthenticatedRequest & {
+          subscription: SubscriptionGateContext;
+        }).subscription = gate.subscription;
       }
     } catch (error) {
       if (error instanceof jwt.TokenExpiredError) {

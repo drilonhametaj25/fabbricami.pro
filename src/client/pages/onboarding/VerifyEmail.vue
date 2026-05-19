@@ -35,7 +35,7 @@
         label="Continua"
         icon="pi pi-arrow-right"
         iconPos="right"
-        @click="goToNextStep"
+        @click="goToNextStep('verify-email')"
       />
     </div>
 

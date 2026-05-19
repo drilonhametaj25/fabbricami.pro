@@ -422,8 +422,16 @@ export function useOnboarding() {
       'complete',
     ];
 
+    // DIFESA: se questa funzione viene appesa direttamente a `@click="goToNextStep"`
+    // (senza parentesi), Vue passa il MouseEvent come primo argomento. In quel caso
+    // `fromStep` non è una stringa: scartalo e ricava lo step dall'URL come se fosse
+    // stato chiamato senza argomenti. Senza questo controllo `indexOf(MouseEvent)`
+    // tornava -1 e il bottone "Avanti" sembrava non funzionare.
+    const validFromStep =
+      typeof fromStep === 'string' && stepOrder.includes(fromStep) ? fromStep : null;
+
     // Ricava lo step di partenza dall'URL se non passato esplicitamente
-    let from: OnboardingStep | null = fromStep ?? null;
+    let from: OnboardingStep | null = validFromStep;
     if (!from) {
       const path = router.currentRoute.value.path;
       const match = path.match(/\/onboarding\/([\w-]+)/);

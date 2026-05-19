@@ -107,8 +107,12 @@ class TenantService {
   /**
    * Get tenant with subscription and member count
    */
-  async getTenantWithDetails(tenantId: string): Promise<TenantWithSubscription | null> {
-    const tenant = await prisma.tenant.findUnique({
+  async getTenantWithDetails(
+    tenantId: string,
+    client?: Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
+  ): Promise<TenantWithSubscription | null> {
+    const db = client ?? prisma;
+    const tenant = await db.tenant.findUnique({
       where: { id: tenantId },
       include: {
         subscription: {
@@ -216,12 +220,17 @@ class TenantService {
    * transazione atomica: se una qualsiasi delle operazioni fallisce, viene fatto
    * rollback. Senza questo, un fallimento parziale lascerebbe l'utente in stato
    * inconsistente (es. user senza tenantId → JWT senza tenantId → leak).
+   *
+   * Accetta un client `tx` opzionale per essere usato dentro a una transazione
+   * più ampia (es. quella che crea anche l'utente nel POST /register, così
+   * user+tenant nascono atomicamente).
    */
   async setupInitialTenant(
     userId: string,
     tenantName: string,
     planCode: string = 'PRO',
-    billingCycle: 'monthly' | 'annual' = 'monthly'
+    billingCycle: 'monthly' | 'annual' = 'monthly',
+    outerTx?: Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
   ): Promise<TenantWithSubscription> {
     // Generate unique slug from tenant name (con blacklist riservati)
     const baseSlug = this.sanitizeSlug(tenantName);
@@ -233,7 +242,7 @@ class TenantService {
       slug = `${baseSlug}-${attempt}`;
     }
 
-    const tenantId = await prisma.$transaction(async (tx) => {
+    const work = async (tx: NonNullable<typeof outerTx>): Promise<string> => {
       const tenant = await tx.tenant.create({
         data: {
           name: tenantName,
@@ -261,8 +270,13 @@ class TenantService {
       await subscriptionService.createTrialSubscription(tenant.id, planCode, billingCycle, tx);
 
       return tenant.id;
-    });
+    };
 
+    if (outerTx) {
+      const tenantId = await work(outerTx);
+      return this.getTenantWithDetails(tenantId, outerTx) as Promise<TenantWithSubscription>;
+    }
+    const tenantId = await prisma.$transaction(work);
     return this.getTenantWithDetails(tenantId) as Promise<TenantWithSubscription>;
   }
 
