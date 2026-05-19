@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   Mail,
@@ -12,41 +13,133 @@ import {
   Check,
   ArrowRight,
   Sparkles,
+  Loader2,
+  MailCheck,
 } from 'lucide-react';
 
-const plans = [
-  {
-    id: 'STARTER',
-    name: 'Starter',
-    price: 29,
-    description: 'Perfetto per iniziare',
-    features: ['2 utenti', '500 ordini/mese', '1.000 prodotti'],
-  },
-  {
-    id: 'PRO',
-    name: 'Pro',
-    price: 79,
-    description: 'Per e-commerce in crescita',
-    features: ['5 utenti', '2.500 ordini/mese', 'Fatturazione elettronica'],
-    popular: true,
-  },
-  {
-    id: 'BUSINESS',
-    name: 'Business',
-    price: 149,
-    description: 'Per aziende enterprise',
-    features: ['15 utenti', '10.000 ordini/mese', 'Multi-shop'],
-  },
-];
+// ============================================================================
+// API plan types
+// ============================================================================
+interface PlanLimits {
+  maxUsers: number;
+  maxWarehouses: number;
+  maxProducts: number;
+  maxOrders: number;
+  maxSuppliers: number;
+}
+interface PlanFeatures {
+  modules: string[];
+  capabilities: string[];
+}
+interface ApiPlan {
+  code: string;
+  name: string;
+  priceMonthly: number;
+  priceYearly: number;
+  features: PlanFeatures;
+  limits: PlanLimits;
+}
 
-export default function RegisterPage() {
+interface DisplayPlan {
+  id: string;
+  name: string;
+  price: number;
+  description: string;
+  features: string[];
+  popular?: boolean;
+}
+
+// ============================================================================
+// Helpers to derive display data from API payload
+// ============================================================================
+const PLAN_DESCRIPTIONS: Record<string, string> = {
+  STARTER: 'Perfetto per iniziare',
+  PRO: 'Per e-commerce in crescita',
+  BUSINESS: 'Per aziende enterprise',
+};
+
+const POPULAR_PLAN_CODE = 'PRO';
+
+function formatLimit(value: number, singular: string, plural: string): string {
+  if (value === -1) return `${plural} illimitati`;
+  return `${value.toLocaleString('it-IT')} ${value === 1 ? singular : plural}`;
+}
+
+function planToDisplay(plan: ApiPlan): DisplayPlan {
+  const features: string[] = [];
+  features.push(
+    plan.limits.maxUsers === -1
+      ? 'Utenti illimitati'
+      : `${plan.limits.maxUsers} ${plan.limits.maxUsers === 1 ? 'utente' : 'utenti'}`
+  );
+  features.push(
+    plan.limits.maxOrders === -1
+      ? 'Ordini illimitati'
+      : `${plan.limits.maxOrders.toLocaleString('it-IT')} ordini/mese`
+  );
+  // Mostra un terzo punto rilevante in base ai moduli del piano
+  const modules = new Set(plan.features?.modules || []);
+  if (modules.has('sdi')) features.push('Fatturazione elettronica SDI');
+  else if (modules.has('manufacturing')) features.push('Produzione e BOM');
+  else if (modules.has('wordpress_sync')) features.push('Sync WordPress completa');
+  else
+    features.push(
+      formatLimit(plan.limits.maxProducts, 'prodotto', 'prodotti')
+    );
+
+  return {
+    id: plan.code,
+    name: plan.name,
+    price: Math.round(Number(plan.priceMonthly)),
+    description: PLAN_DESCRIPTIONS[plan.code] || plan.name,
+    features,
+    popular: plan.code === POPULAR_PLAN_CODE,
+  };
+}
+
+// ============================================================================
+// API helpers
+// ============================================================================
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+
+async function fetchPlans(signal?: AbortSignal): Promise<DisplayPlan[]> {
+  const res = await fetch(`${API_BASE}/api/v1/subscription/plans`, {
+    signal,
+    cache: 'no-store',
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const body = await res.json();
+  if (!body?.success || !Array.isArray(body.data)) {
+    throw new Error(body?.error || 'Risposta API non valida');
+  }
+  const sorted = [...body.data].sort(
+    (a: ApiPlan, b: ApiPlan) => Number(a.priceMonthly) - Number(b.priceMonthly)
+  );
+  return sorted.map(planToDisplay);
+}
+
+// ============================================================================
+// Page
+// ============================================================================
+function RegisterPageInner() {
+  const searchParams = useSearchParams();
   const [step, setStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [plans, setPlans] = useState<DisplayPlan[]>([]);
+  const [plansLoading, setPlansLoading] = useState(true);
+  const [plansError, setPlansError] = useState<string | null>(null);
+  // After successful registration, we show a "check your email" screen instead
+  // of redirecting (the backend does NOT issue a JWT until the email is verified)
+  const [registrationComplete, setRegistrationComplete] = useState<{
+    email: string;
+    message: string;
+  } | null>(null);
 
   const [formData, setFormData] = useState({
     plan: 'PRO',
+    billingCycle: 'monthly' as 'monthly' | 'annual',
     email: '',
     password: '',
     confirmPassword: '',
@@ -55,6 +148,47 @@ export default function RegisterPage() {
     companyName: '',
     acceptTerms: false,
   });
+
+  // Load plans from API on mount
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchPlans(controller.signal)
+      .then((p) => {
+        setPlans(p);
+        // If pre-selected plan from URL is not in API, fall back to popular
+        setFormData((prev) => {
+          const validIds = p.map((x) => x.id);
+          if (!validIds.includes(prev.plan)) {
+            const popular = p.find((x) => x.popular) || p[0];
+            return { ...prev, plan: popular?.id || prev.plan };
+          }
+          return prev;
+        });
+      })
+      .catch((err) => {
+        if ((err as Error).name === 'AbortError') return;
+        setPlansError(
+          err instanceof Error ? err.message : 'Errore caricamento piani'
+        );
+      })
+      .finally(() => setPlansLoading(false));
+    return () => controller.abort();
+  }, []);
+
+  // Sync plan + billingCycle from query string (after plans loaded)
+  useEffect(() => {
+    const planParam = searchParams.get('plan');
+    const cycleParam = searchParams.get('cycle');
+    if (plans.length > 0) {
+      const validIds = plans.map((p) => p.id);
+      setFormData((prev) => ({
+        ...prev,
+        plan:
+          planParam && validIds.includes(planParam) ? planParam : prev.plan,
+        billingCycle: cycleParam === 'annual' ? 'annual' : 'monthly',
+      }));
+    }
+  }, [searchParams, plans]);
 
   const handlePlanSelect = (planId: string) => {
     setFormData({ ...formData, plan: planId });
@@ -74,7 +208,7 @@ export default function RegisterPage() {
       return false;
     }
     if (!formData.email.includes('@')) {
-      setError('Inserisci un\'email valida');
+      setError("Inserisci un'email valida");
       return false;
     }
     if (formData.password.length < 8) {
@@ -120,20 +254,40 @@ export default function RegisterPage() {
     }
   };
 
+  const handleResendVerification = async () => {
+    if (!registrationComplete) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/auth/resend-verification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: registrationComplete.email }),
+      });
+      const body = await res.json();
+      if (!res.ok || body?.success === false) {
+        setError(body?.error || 'Errore invio email');
+        return;
+      }
+      setError('');
+      setRegistrationComplete({
+        ...registrationComplete,
+        message: 'Email di verifica reinviata. Controlla la tua casella.',
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Errore di rete');
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
     if (!validateStep2()) return;
 
     setIsLoading(true);
     setError('');
 
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'}/api/v1/auth/register`, {
+      const response = await fetch(`${API_BASE}/api/v1/auth/register`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: formData.email,
           password: formData.password,
@@ -141,29 +295,98 @@ export default function RegisterPage() {
           lastName: formData.lastName,
           companyName: formData.companyName,
           plan: formData.plan,
+          billingCycle: formData.billingCycle,
         }),
       });
 
-      const data = await response.json();
+      const body = await response.json();
 
-      if (!response.ok) {
-        throw new Error(data.message || 'Errore durante la registrazione');
+      // Envelope returned by backend: { success: bool, data?: {...}, error?: string }
+      if (!response.ok || body?.success === false) {
+        throw new Error(
+          body?.error || body?.message || 'Errore durante la registrazione'
+        );
       }
 
-      // Redirect to ERP with onboarding
-      window.location.href = `https://erp.fabbricami.pro/onboarding?token=${data.token}`;
+      // Backend deliberately does NOT issue a JWT until the email is verified.
+      // We must NOT redirect to the ERP. Show a verification screen instead.
+      const data = body?.data || {};
+      setRegistrationComplete({
+        email: formData.email,
+        message:
+          data.message ||
+          "Registrazione completata. Controlla la tua email per verificare l'account prima di accedere.",
+      });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Errore durante la registrazione');
+      setError(
+        err instanceof Error ? err.message : 'Errore durante la registrazione'
+      );
     } finally {
       setIsLoading(false);
     }
   };
 
+  // -------------------------------------------------------------------------
+  // SUCCESS STATE — "Check your email" screen
+  // -------------------------------------------------------------------------
+  if (registrationComplete) {
+    return (
+      <section className="min-h-screen pt-24 pb-16 bg-gradient-to-b from-gray-50 to-white">
+        <div className="container mx-auto px-4 lg:px-8">
+          <div className="max-w-xl mx-auto bg-white rounded-2xl shadow-xl border border-gray-100 p-10 text-center">
+            <div className="w-16 h-16 mx-auto rounded-full bg-emerald-100 flex items-center justify-center mb-6">
+              <MailCheck className="w-8 h-8 text-emerald-600" />
+            </div>
+            <h1 className="text-2xl font-bold text-gray-900 mb-3">
+              Controlla la tua email
+            </h1>
+            <p className="text-gray-600 mb-2">{registrationComplete.message}</p>
+            <p className="text-gray-500 text-sm mb-8">
+              Abbiamo inviato un link di verifica a{' '}
+              <span className="font-medium text-gray-900">
+                {registrationComplete.email}
+              </span>
+              . Clicca sul link per attivare l&apos;account e accedere alla
+              piattaforma.
+            </p>
+
+            {error && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm">
+                {error}
+              </div>
+            )}
+
+            <div className="space-y-3">
+              <button
+                onClick={handleResendVerification}
+                className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl transition-all"
+              >
+                Reinvia email di verifica
+              </button>
+              <Link
+                href="https://erp.fabbricami.pro/login"
+                className="block w-full py-3 text-gray-700 font-medium rounded-xl border border-gray-200 hover:bg-gray-50 transition-colors"
+              >
+                Ho gia verificato, accedi
+              </Link>
+            </div>
+
+            <p className="text-xs text-gray-400 mt-6">
+              Non trovi l&apos;email? Controlla anche la cartella spam.
+            </p>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // FORM STATES
+  // -------------------------------------------------------------------------
   return (
     <section className="min-h-screen pt-24 pb-16 bg-gradient-to-b from-gray-50 to-white">
       <div className="container mx-auto px-4 lg:px-8">
         <div className="max-w-4xl mx-auto">
-          {/* Header */}
           <div className="text-center mb-12">
             <h1 className="text-3xl font-bold text-gray-900 mb-3">
               Inizia la tua prova gratuita
@@ -173,10 +396,8 @@ export default function RegisterPage() {
             </p>
           </div>
 
-          {/* Progress Steps */}
           <div className="flex items-center justify-center mb-12">
             <div className="flex items-center gap-4">
-              {/* Step 1 */}
               <div className="flex items-center gap-2">
                 <div
                   className={`w-8 h-8 rounded-full flex items-center justify-center font-semibold text-sm ${
@@ -187,14 +408,19 @@ export default function RegisterPage() {
                 >
                   {step > 1 ? <Check className="w-4 h-4" /> : '1'}
                 </div>
-                <span className={step >= 1 ? 'text-gray-900 font-medium' : 'text-gray-500'}>
+                <span
+                  className={
+                    step >= 1
+                      ? 'text-gray-900 font-medium'
+                      : 'text-gray-500'
+                  }
+                >
                   Piano & Account
                 </span>
               </div>
 
               <div className="w-12 h-px bg-gray-300" />
 
-              {/* Step 2 */}
               <div className="flex items-center gap-2">
                 <div
                   className={`w-8 h-8 rounded-full flex items-center justify-center font-semibold text-sm ${
@@ -205,7 +431,13 @@ export default function RegisterPage() {
                 >
                   2
                 </div>
-                <span className={step >= 2 ? 'text-gray-900 font-medium' : 'text-gray-500'}>
+                <span
+                  className={
+                    step >= 2
+                      ? 'text-gray-900 font-medium'
+                      : 'text-gray-500'
+                  }
+                >
                   Dati Azienda
                 </span>
               </div>
@@ -215,54 +447,77 @@ export default function RegisterPage() {
           <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
             {step === 1 ? (
               <div className="p-8">
-                {/* Plan Selection */}
                 <div className="mb-8">
                   <h2 className="text-lg font-semibold text-gray-900 mb-4">
                     Scegli il tuo piano
                   </h2>
-                  <div className="grid md:grid-cols-3 gap-4">
-                    {plans.map((plan) => (
-                      <button
-                        key={plan.id}
-                        onClick={() => handlePlanSelect(plan.id)}
-                        className={`relative p-4 rounded-xl border-2 text-left transition-all ${
-                          formData.plan === plan.id
-                            ? 'border-blue-500 bg-blue-50'
-                            : 'border-gray-200 hover:border-gray-300'
-                        }`}
-                      >
-                        {plan.popular && (
-                          <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 bg-blue-600 text-white text-xs font-semibold rounded-full flex items-center gap-1">
-                            <Sparkles className="w-3 h-3" />
-                            Popolare
-                          </span>
-                        )}
-                        <div className="font-semibold text-gray-900">{plan.name}</div>
-                        <div className="text-2xl font-bold text-gray-900 my-1">
-                          €{plan.price}
-                          <span className="text-sm font-normal text-gray-500">/mese</span>
-                        </div>
-                        <div className="text-sm text-gray-500 mb-3">{plan.description}</div>
-                        <ul className="space-y-1">
-                          {plan.features.map((feature) => (
-                            <li key={feature} className="text-xs text-gray-600 flex items-center gap-1">
-                              <Check className="w-3 h-3 text-green-500" />
-                              {feature}
-                            </li>
-                          ))}
-                        </ul>
-                      </button>
-                    ))}
-                  </div>
+
+                  {plansLoading && (
+                    <div className="text-center py-8 text-gray-500">
+                      <Loader2 className="w-6 h-6 animate-spin mx-auto" />
+                      <p className="mt-2 text-sm">Caricamento piani...</p>
+                    </div>
+                  )}
+
+                  {plansError && !plansLoading && (
+                    <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm">
+                      Errore caricamento piani: {plansError}
+                    </div>
+                  )}
+
+                  {!plansLoading && !plansError && (
+                    <div className="grid md:grid-cols-3 gap-4">
+                      {plans.map((plan) => (
+                        <button
+                          type="button"
+                          key={plan.id}
+                          onClick={() => handlePlanSelect(plan.id)}
+                          className={`relative p-4 rounded-xl border-2 text-left transition-all ${
+                            formData.plan === plan.id
+                              ? 'border-blue-500 bg-blue-50'
+                              : 'border-gray-200 hover:border-gray-300'
+                          }`}
+                        >
+                          {plan.popular && (
+                            <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 bg-blue-600 text-white text-xs font-semibold rounded-full flex items-center gap-1">
+                              <Sparkles className="w-3 h-3" />
+                              Popolare
+                            </span>
+                          )}
+                          <div className="font-semibold text-gray-900">
+                            {plan.name}
+                          </div>
+                          <div className="text-2xl font-bold text-gray-900 my-1">
+                            €{plan.price}
+                            <span className="text-sm font-normal text-gray-500">
+                              /mese
+                            </span>
+                          </div>
+                          <div className="text-sm text-gray-500 mb-3">
+                            {plan.description}
+                          </div>
+                          <ul className="space-y-1">
+                            {plan.features.map((feature) => (
+                              <li
+                                key={feature}
+                                className="text-xs text-gray-600 flex items-center gap-1"
+                              >
+                                <Check className="w-3 h-3 text-green-500" />
+                                {feature}
+                              </li>
+                            ))}
+                          </ul>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
-                {/* Account Fields */}
                 <div className="space-y-4">
                   <h2 className="text-lg font-semibold text-gray-900 mb-4">
                     Crea il tuo account
                   </h2>
 
-                  {/* Email */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Email aziendale
@@ -280,7 +535,6 @@ export default function RegisterPage() {
                     </div>
                   </div>
 
-                  {/* Password */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Password
@@ -309,7 +563,6 @@ export default function RegisterPage() {
                     </div>
                   </div>
 
-                  {/* Confirm Password */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Conferma Password
@@ -336,7 +589,8 @@ export default function RegisterPage() {
 
                 <button
                   onClick={handleNextStep}
-                  className="mt-6 w-full py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all shadow-lg shadow-blue-500/25 flex items-center justify-center gap-2"
+                  disabled={plansLoading}
+                  className="mt-6 w-full py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all shadow-lg shadow-blue-500/25 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Continua
                   <ArrowRight className="w-5 h-5" />
@@ -350,7 +604,6 @@ export default function RegisterPage() {
                   </h2>
 
                   <div className="grid md:grid-cols-2 gap-4">
-                    {/* First Name */}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Nome
@@ -368,7 +621,6 @@ export default function RegisterPage() {
                       </div>
                     </div>
 
-                    {/* Last Name */}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Cognome
@@ -387,7 +639,6 @@ export default function RegisterPage() {
                     </div>
                   </div>
 
-                  {/* Company Name */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Nome Azienda
@@ -405,7 +656,6 @@ export default function RegisterPage() {
                     </div>
                   </div>
 
-                  {/* Terms */}
                   <div className="flex items-start gap-3 pt-4">
                     <input
                       type="checkbox"
@@ -415,13 +665,22 @@ export default function RegisterPage() {
                       onChange={handleInputChange}
                       className="mt-1 w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                     />
-                    <label htmlFor="acceptTerms" className="text-sm text-gray-600">
+                    <label
+                      htmlFor="acceptTerms"
+                      className="text-sm text-gray-600"
+                    >
                       Accetto i{' '}
-                      <Link href="/legal/terms" className="text-blue-600 hover:underline">
+                      <Link
+                        href="/legal/terms"
+                        className="text-blue-600 hover:underline"
+                      >
                         Termini di Servizio
                       </Link>{' '}
                       e la{' '}
-                      <Link href="/legal/privacy" className="text-blue-600 hover:underline">
+                      <Link
+                        href="/legal/privacy"
+                        className="text-blue-600 hover:underline"
+                      >
                         Privacy Policy
                       </Link>
                     </label>
@@ -481,7 +740,6 @@ export default function RegisterPage() {
               </form>
             )}
 
-            {/* Footer */}
             <div className="px-8 py-4 bg-gray-50 border-t border-gray-100 text-center">
               <p className="text-sm text-gray-600">
                 Hai gia un account?{' '}
@@ -495,7 +753,6 @@ export default function RegisterPage() {
             </div>
           </div>
 
-          {/* Trust badges */}
           <div className="mt-8 flex flex-wrap items-center justify-center gap-6 text-sm text-gray-500">
             <div className="flex items-center gap-2">
               <Check className="w-4 h-4 text-green-500" />
@@ -513,5 +770,17 @@ export default function RegisterPage() {
         </div>
       </div>
     </section>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen pt-24 pb-16 bg-gradient-to-b from-gray-50 to-white" />
+      }
+    >
+      <RegisterPageInner />
+    </Suspense>
   );
 }

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ============================================
-# EcommerceERP - Deploy Script per Hetzner VPS
+# FabbricaMi.pro - Deploy Script per Hetzner VPS
 # ============================================
 # Script per deploy iniziale e aggiornamenti
 #
@@ -129,7 +129,7 @@ setup_server() {
 
 # Deploy applicazione
 deploy() {
-    log_step "Deploy EcommerceERP..."
+    log_step "Deploy FabbricaMi.pro..."
 
     cd "$APP_DIR"
 
@@ -183,7 +183,7 @@ deploy() {
 
 # Aggiorna applicazione (senza rebuild completo)
 update() {
-    log_step "Aggiornamento EcommerceERP..."
+    log_step "Aggiornamento FabbricaMi.pro..."
 
     cd "$APP_DIR"
 
@@ -219,7 +219,7 @@ update() {
 
 # Rollback all'ultimo deploy
 rollback() {
-    log_step "Rollback EcommerceERP..."
+    log_step "Rollback FabbricaMi.pro..."
 
     cd "$APP_DIR"
 
@@ -276,7 +276,7 @@ verify_health() {
 
 # Mostra stato servizi
 show_status() {
-    log_step "Stato servizi EcommerceERP"
+    log_step "Stato servizi FabbricaMi.pro"
 
     cd "$APP_DIR" 2>/dev/null || cd /opt/ecommerceerp
 
@@ -329,7 +329,7 @@ restart_service() {
 
 # Help
 show_help() {
-    echo "EcommerceERP - Script di Deploy"
+    echo "FabbricaMi.pro - Script di Deploy"
     echo ""
     echo "Utilizzo: $0 <comando> [opzioni]"
     echo ""

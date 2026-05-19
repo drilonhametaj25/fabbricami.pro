@@ -1,4 +1,4 @@
-// Prisma Schema per EcommerceERP
+// Prisma Schema per FabbricaMi.pro
 // Database: PostgreSQL
 
 generator client {
@@ -159,9 +159,18 @@ model BillingHistory {
   periodEnd       DateTime @map("period_end")
   createdAt       DateTime @default(now()) @map("created_at")
 
+  // Fatture in Cloud (FIC) - SaaS billing invoice emitted to tenant
+  ficInvoiceId     String?   @map("fic_invoice_id")
+  ficInvoiceNumber String?   @map("fic_invoice_number")
+  ficStatus        String?   @map("fic_status") // pending, issued, sent, error
+  ficIssuedAt      DateTime? @map("fic_issued_at")
+  ficError         String?   @map("fic_error")
+
   // Relations
   subscription SaasSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
 
+  @@index([ficStatus])
+  @@index([ficInvoiceId])
   @@map("billing_history")
 }
 
@@ -189,10 +198,10 @@ model SuperAdmin {
 model SuperAdminAuditLog {
   id           String   @id @default(uuid())
   superAdminId String   @map("super_admin_id")
-  action       String   // CREATE_PLAN, UPDATE_TENANT, SYNC_STRIPE, etc.
+  action       String // CREATE_PLAN, UPDATE_TENANT, SYNC_STRIPE, etc.
   entityType   String?  @map("entity_type") // PLAN, TENANT, SUBSCRIPTION
   entityId     String?  @map("entity_id")
-  details      Json?    // Additional context
+  details      Json? // Additional context
   ipAddress    String?  @map("ip_address")
   userAgent    String?  @map("user_agent") @db.Text
   createdAt    DateTime @default(now()) @map("created_at")
@@ -227,11 +236,11 @@ model User {
   emailVerifyTokenExpires DateTime? @map("email_verify_token_expires")
 
   // Password reset
-  resetToken              String?   @map("reset_token")
-  resetTokenExpires       DateTime? @map("reset_token_expires")
+  resetToken        String?   @map("reset_token")
+  resetTokenExpires DateTime? @map("reset_token_expires")
 
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   // Multi-tenancy relations
   tenant            Tenant?        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -2151,8 +2160,8 @@ model PaymentDue {
   // Dunning automatico (escalation per crediti scaduti):
   // 0 = nessun dunning, 1 = reminder T-7, 2 = warning T-3, 3 = solleciti T-0,
   // 4 = solleciti +14gg, 5 = legal action +30gg.
-  dunningLevel       Int       @default(0) @map("dunning_level")
-  lastDunningSentAt  DateTime? @map("last_dunning_sent_at")
+  dunningLevel      Int       @default(0) @map("dunning_level")
+  lastDunningSentAt DateTime? @map("last_dunning_sent_at")
 
   notes     String?  @db.Text
   createdAt DateTime @default(now()) @map("created_at")
@@ -3336,6 +3345,68 @@ model CouponUsage {
 }
 
 // ============================================
+// SAAS SIGNUP COUPONS (separate from order Coupons)
+// ============================================
+// These are platform-level coupons applied at SaaS signup, NOT order-level
+// coupons applied by tenant customers. They live in a separate table because
+// the lifecycle, ownership and discount semantics are different.
+
+enum SignupCouponType {
+  PERCENTAGE // X% off first payment(s)
+  FIXED_AMOUNT // X € off first payment
+  FREE_TRIAL_DAYS // Extends the trial by X days
+}
+
+model SignupCoupon {
+  id            String           @id @default(uuid())
+  code          String           @unique
+  name          String?
+  description   String?
+  type          SignupCouponType
+  // PERCENTAGE: 0-100. FIXED_AMOUNT: euro amount. FREE_TRIAL_DAYS: number of days.
+  discountValue Decimal          @map("discount_value") @db.Decimal(10, 2)
+
+  // Optional restrictions
+  applicablePlans         Json? @map("applicable_plans") // null = all plans, else ["STARTER","PRO"]
+  applicableBillingCycles Json? @map("applicable_billing_cycles") // null = both, else ["monthly","annual"]
+  durationMonths          Int?  @map("duration_months") // For PERCENTAGE/FIXED: how many billing cycles the discount applies
+
+  validFrom DateTime @map("valid_from")
+  validTo   DateTime @map("valid_to")
+
+  maxUses          Int? @map("max_uses")
+  usageCount       Int  @default(0) @map("usage_count")
+  maxUsesPerTenant Int? @default(1) @map("max_uses_per_tenant")
+
+  stripeCouponId String? @map("stripe_coupon_id") // optional, for Stripe Checkout coupon application
+
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  usages SignupCouponUsage[]
+
+  @@index([code])
+  @@index([isActive, validFrom, validTo])
+  @@map("signup_coupons")
+}
+
+model SignupCouponUsage {
+  id             String   @id @default(uuid())
+  couponId       String   @map("coupon_id")
+  tenantId       String   @map("tenant_id")
+  appliedAt      DateTime @default(now()) @map("applied_at")
+  discountAmount Decimal  @map("discount_amount") @db.Decimal(10, 2)
+  notes          String?
+
+  coupon SignupCoupon @relation(fields: [couponId], references: [id], onDelete: Cascade)
+
+  @@unique([couponId, tenantId])
+  @@index([tenantId])
+  @@map("signup_coupon_usages")
+}
+
+// ============================================
 // E-COMMERCE: PAGAMENTI
 // ============================================
 
@@ -4292,3 +4363,38 @@ model ScheduledReport {
   @@index([tenantId])
   @@map("scheduled_reports")
 }
+
+// ============================================
+// TICKETS / FEEDBACK (segnalazioni utenti)
+// ============================================
+
+enum TicketType {
+  BUG
+  FEATURE_REQUEST
+  IMPROVEMENT
+  SUPPORT
+}
+
+enum TicketPriority {
+  LOW
+  NORMAL
+  HIGH
+}
+
+enum TicketStatus {
+  OPEN
+  IN_REVIEW
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+  REJECTED
+}
+
+model Ticket {
+  id          String         @id @default(uuid())
+  tenantId    String         @map("tenant_id")
+  createdById String         @map("created_by_id")
+  type        TicketType
+  priority    TicketPriority @default(NORMAL)
+  status      TicketStatus   @default(OPEN)
+ 

@@ -90,6 +90,22 @@ interface LowStockEmailData {
   }>;
 }
 
+/**
+ * Email service backed by SMTP only.
+ *
+ * Configurazione per Aruba (.env):
+ *   SMTP_HOST=smtps.aruba.it
+ *   SMTP_PORT=465
+ *   SMTP_USER=noreply@tuodominio.it
+ *   SMTP_PASS=<password casella Aruba>
+ *   SMTP_FROM=noreply@tuodominio.it
+ *
+ * Aruba richiede:
+ *   - porta 465 con TLS implicito (secure: true)
+ *   - oppure porta 587 con STARTTLS (secure: false)
+ * Il codice rileva automaticamente: `secure = (port === 465)`.
+ */
+
 class EmailService {
   private transporter: Transporter | null = null;
   private defaultFrom: string;
@@ -99,7 +115,7 @@ class EmailService {
 
   constructor() {
     this.defaultFrom = process.env.SMTP_FROM || 'noreply@ecommerceerp.com';
-    this.companyName = process.env.COMPANY_NAME || 'EcommerceERP';
+    this.companyName = process.env.COMPANY_NAME || 'FabbricaMi.pro';
     this.companyLogo = process.env.COMPANY_LOGO || '';
     this.primaryColor = process.env.EMAIL_PRIMARY_COLOR || '#2563eb';
     this.initTransporter();
@@ -122,18 +138,19 @@ class EmailService {
     const config: EmailConfig = {
       host,
       port,
+      // Aruba/standard: 465 = TLS implicito, 587 = STARTTLS, 25 = plain (sconsigliato)
       secure: port === 465,
       auth: { user, pass },
     };
 
     this.transporter = nodemailer.createTransport(config);
 
-    // Verifica connessione
+    // Verifica connessione (asincrono - non blocca startup)
     this.transporter.verify((error) => {
       if (error) {
         logger.error('SMTP connection error:', error);
       } else {
-        logger.info('SMTP server ready');
+        logger.info(`SMTP server ready (${host}:${port}, secure=${port === 465})`);
       }
     });
   }
@@ -146,18 +163,21 @@ class EmailService {
   }
 
   /**
-   * Invia email generica
+   * Invia email generica via SMTP.
    */
   async send(options: SendEmailOptions): Promise<boolean> {
     if (!this.transporter) {
-      logger.warn('Email non inviate: SMTP non configurato');
+      logger.warn('Email non inviata: SMTP non configurato');
       return false;
     }
 
+    const recipients = Array.isArray(options.to) ? options.to : [options.to];
+    const from = options.from || this.defaultFrom;
+
     try {
       const result = await this.transporter.sendMail({
-        from: options.from || this.defaultFrom,
-        to: Array.isArray(options.to) ? options.to.join(', ') : options.to,
+        from,
+        to: recipients.join(', '),
         subject: options.subject,
         html: options.html,
         text: options.text,
@@ -165,10 +185,13 @@ class EmailService {
         attachments: options.attachments,
       });
 
-      logger.info(`Email inviata: ${options.subject} a ${options.to}`, { messageId: result.messageId });
+      logger.info(
+        `Email inviata via SMTP: ${options.subject} -> ${recipients.join(', ')}`,
+        { messageId: result.messageId }
+      );
       return true;
     } catch (error: any) {
-      logger.error('Errore invio email:', error);
+      logger.error('Errore invio email (SMTP):', error);
       throw error;
     }
   }
@@ -308,9 +331,31 @@ class EmailService {
   }
 
   /**
+   * Mappa corriere → URL pattern per tracking (placeholder {tracking})
+   */
+  private getCarrierTrackingUrl(carrier?: string | null, trackingNumber?: string | null): string | null {
+    if (!carrier || !trackingNumber) return null;
+    const c = carrier.toUpperCase().replace(/[^A-Z]/g, '');
+    const patterns: Record<string, string> = {
+      BRT: `https://vas.brt.it/vas/sped_det_show.hsm?referer=sped_numspe_par.htm&Nspediz={tracking}`,
+      GLS: `https://www.gls-italy.com/?option=com_gls&view=track_e_trace&numero_spedizione={tracking}`,
+      DHL: `https://www.dhl.com/it-it/home/tracking/tracking-express.html?submit=1&tracking-id={tracking}`,
+      UPS: `https://www.ups.com/track?loc=it_IT&tracknum={tracking}`,
+      FEDEX: `https://www.fedex.com/fedextrack/?trknbr={tracking}`,
+      POSTE: `https://www.poste.it/cerca/index.html#/risultati-spedizioni/{tracking}`,
+      POSTEITALIANE: `https://www.poste.it/cerca/index.html#/risultati-spedizioni/{tracking}`,
+      SDA: `https://www.sda.it/wps/portal/sdait/track-and-trace?locale=it&tracking_number={tracking}`,
+      TNT: `https://www.tnt.com/express/it_it/site/shipping-tools/tracking.html?searchType=con&cons={tracking}`,
+    };
+    const pattern = patterns[c];
+    return pattern ? pattern.replace('{tracking}', encodeURIComponent(trackingNumber)) : null;
+  }
+
+  /**
    * Email ordine spedito
    */
   async sendOrderShipped(data: OrderEmailData): Promise<boolean> {
+    const trackingUrl = this.getCarrierTrackingUrl(data.carrier, data.trackingNumber);
     const content = `
       <h2>Il tuo ordine è in viaggio!</h2>
       <p>Ciao ${data.customerName},</p>
@@ -321,6 +366,11 @@ class EmailService {
         <strong>Corriere:</strong> ${data.carrier || 'Da definire'}<br>
         <strong>Tracking:</strong> ${data.trackingNumber}
       </div>
+      ${trackingUrl ? `
+      <p style="text-align:center; margin:24px 0;">
+        <a href="${trackingUrl}" class="button" target="_blank" rel="noopener">Traccia la spedizione</a>
+      </p>
+      ` : ''}
       ` : ''}
 
       <h3>Indirizzo di Consegna</h3>

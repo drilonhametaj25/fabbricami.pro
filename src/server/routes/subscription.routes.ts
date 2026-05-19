@@ -2,6 +2,7 @@ import { FastifyPluginAsync } from 'fastify';
 import { authenticate, authorize } from '../middleware/auth.middleware';
 import { tenantMiddleware, TenantRequest } from '../middleware/tenant.middleware';
 import { subscriptionService } from '../services/subscription.service';
+import { prisma } from '../config/database';
 import {
   createSubscriptionCheckoutSchema,
   createSubscriptionSchema,
@@ -338,6 +339,157 @@ const subscriptionRoutes: FastifyPluginAsync = async (server) => {
       },
     });
   });
+
+  /**
+   * GET /subscription/usage
+   * Restituisce l'utilizzo corrente delle risorse vs limiti del piano
+   */
+  server.get(
+    '/usage',
+    { preHandler: [authenticate, tenantMiddleware] },
+    async (request, reply) => {
+      const tenantRequest = request as TenantRequest;
+      const tenantId = tenantRequest.tenant.tenantId;
+
+      const subscription = await prisma.saasSubscription.findUnique({
+        where: { tenantId },
+        include: { plan: { select: { limits: true, code: true, name: true } } },
+      });
+
+      if (!subscription) {
+        return reply.status(404).send({ success: false, error: 'Nessuna subscription attiva' });
+      }
+
+      const rawLimits = (subscription.plan.limits as Record<string, number>) || {};
+      const maxUsers = rawLimits.maxUsers ?? -1;
+      const maxProducts = rawLimits.maxProducts ?? -1;
+      const maxOrders = rawLimits.maxOrders ?? -1;
+      const maxWarehouses = rawLimits.maxWarehouses ?? -1;
+      const maxSuppliers = rawLimits.maxSuppliers ?? -1;
+
+      const startOfMonth = new Date();
+      startOfMonth.setDate(1);
+      startOfMonth.setHours(0, 0, 0, 0);
+
+      const [usersCount, productsCount, ordersThisMonth, warehousesCount, suppliersCount] = await Promise.all([
+        prisma.user.count({ where: { tenantId } }),
+        prisma.product.count({ where: { tenantId } }),
+        prisma.order.count({ where: { tenantId, createdAt: { gte: startOfMonth } } }),
+        prisma.warehouse.count({ where: { tenantId } }),
+        prisma.supplier.count({ where: { tenantId } }),
+      ]);
+
+      const buildUsage = (current: number, limit: number) => ({
+        current,
+        limit,
+        percentage: limit === -1 ? 0 : Math.min(100, Math.round((current / limit) * 100)),
+        unlimited: limit === -1,
+      });
+
+      return reply.send({
+        success: true,
+        data: {
+          users: buildUsage(usersCount, maxUsers),
+          products: buildUsage(productsCount, maxProducts),
+          orders: buildUsage(ordersThisMonth, maxOrders),
+          warehouses: buildUsage(warehousesCount, maxWarehouses),
+          suppliers: buildUsage(suppliersCount, maxSuppliers),
+        },
+      });
+    }
+  );
+
+  /**
+   * POST /subscription/validate-coupon (public)
+   */
+  server.post('/validate-coupon', async (request, reply) => {
+    const body = (request.body || {}) as { code?: string; planCode?: string };
+    if (!body.code) return reply.status(400).send({ success: false, error: 'code required' });
+    const code = body.code.toUpperCase().trim();
+    const coupon = await prisma.signupCoupon.findUnique({ where: { code } });
+    if (!coupon || !coupon.isActive) return reply.status(404).send({ success: false, error: 'Codice non valido' });
+    const now = new Date();
+    if (now < coupon.validFrom || now > coupon.validTo) return reply.status(410).send({ success: false, error: 'Codice scaduto' });
+    if (coupon.maxUses !== null && coupon.usageCount >= coupon.maxUses) return reply.status(410).send({ success: false, error: 'Codice esaurito' });
+    return reply.send({
+      success: true,
+      data: { code: coupon.code, type: coupon.type, discountValue: Number(coupon.discountValue), durationMonths: coupon.durationMonths },
+    });
+  });
+
+  /**
+   * POST /subscription/backfill-tenant
+   * Admin endpoint che riassegna il tenantId del chiamante a tutti i record
+   * orfani (tenantId=NULL). Workaround per record creati prima dell'attivazione
+   * del Prisma multi-tenant middleware.
+   */
+  server.post(
+    '/backfill-tenant',
+    { preHandler: [authenticate, tenantMiddleware, authorize('ADMIN')] },
+    async (request, reply) => {
+      const tenantRequest = request as TenantRequest;
+      const tenantId = tenantRequest.tenant.tenantId;
+
+      const tables = [
+        'products', 'product_categories', 'product_variants',
+        'inventory_items', 'inventory_movements',
+        'orders', 'order_items',
+        'customers', 'customer_addresses',
+        'price_lists', 'price_list_items',
+        'suppliers', 'supplier_items', 'supplier_volume_discounts',
+        'warehouses',
+        'materials', 'material_movements', 'material_inventories',
+        'purchase_orders', 'purchase_order_items',
+        'goods_receipts', 'goods_receipt_items',
+        'invoices', 'invoice_items', 'ddt',
+        'employees', 'tasks',
+        'notifications', 'calendar_events',
+      ];
+
+      // Pre-fix: alcune tabelle hanno UNIQUE (tenant_id, <col>) con colonna
+      // che è '' empty string sui record orfani; quando assegniamo lo stesso
+      // tenant a tutti, le righe collidono. Bonifichiamo trasformando '' → NULL
+      // sulle colonne note che causano collisioni.
+      const cleanupBeforeBackfill = [
+        { table: 'products', column: 'barcode' },
+        { table: 'product_variants', column: 'barcode' },
+        { table: 'product_variants', column: 'sku' },
+        { table: 'customers', column: 'email' },
+        { table: 'suppliers', column: 'tax_id' },
+        { table: 'suppliers', column: 'email' },
+      ];
+      for (const { table, column } of cleanupBeforeBackfill) {
+        try {
+          await prisma.$executeRawUnsafe(
+            `UPDATE "${table}" SET "${column}" = NULL WHERE "${column}" = '' AND tenant_id IS NULL`
+          );
+        } catch {}
+      }
+
+      const results: Record<string, number | string> = {};
+      const errors: Record<string, string> = {};
+      for (const table of tables) {
+        try {
+          let nullCountBefore = 0;
+          try {
+            const pre: any = await prisma.$queryRawUnsafe(
+              `SELECT COUNT(*)::int AS cnt FROM "${table}" WHERE tenant_id IS NULL`
+            );
+            nullCountBefore = Number(pre?.[0]?.cnt ?? 0);
+          } catch {}
+          if (nullCountBefore === 0) continue;
+          const count = await prisma.$executeRawUnsafe(
+            `UPDATE "${table}" SET tenant_id = $1::uuid WHERE tenant_id IS NULL`,
+            tenantId
+          );
+          results[table] = `before=${nullCountBefore}, updated=${Number(count)}`;
+        } catch (err: any) {
+          errors[table] = err?.message?.slice(0, 200) || String(err);
+        }
+      }
+      return reply.send({ success: true, data: { tenantId, updated: results, errors } });
+    }
+  );
 };
 
 export default subscriptionRoutes;

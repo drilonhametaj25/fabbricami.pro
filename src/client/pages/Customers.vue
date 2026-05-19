@@ -140,6 +140,15 @@
                   @click="editCustomer(data)"
                   v-tooltip.top="'Modifica'"
                 />
+                <Button
+                  icon="pi pi-trash"
+                  rounded
+                  text
+                  severity="danger"
+                  class="action-btn action-btn--delete"
+                  @click="confirmDeleteCustomer(data)"
+                  v-tooltip.top="'Elimina'"
+                />
               </div>
             </template>
           </Column>
@@ -154,6 +163,9 @@
         </DataTable>
       </div>
     </section>
+
+    <!-- Confirm Dialog -->
+    <ConfirmDialog />
 
     <!-- Customer Dialog -->
     <CustomerDialog
@@ -309,7 +321,9 @@ import Tag from 'primevue/tag';
 import Dialog from 'primevue/dialog';
 import TabView from 'primevue/tabview';
 import TabPanel from 'primevue/tabpanel';
+import ConfirmDialog from 'primevue/confirmdialog';
 import { useToast } from 'primevue/usetoast';
+import { useConfirm } from 'primevue/useconfirm';
 import api from '../services/api.service';
 import PageHeader from '../components/PageHeader.vue';
 import StatsCard from '../components/StatsCard.vue';
@@ -318,6 +332,7 @@ import type { Customer } from '../types';
 
 const router = useRouter();
 const toast = useToast();
+const confirm = useConfirm();
 const loading = ref(false);
 const customers = ref<Customer[]>([]);
 const search = ref('');
@@ -446,6 +461,43 @@ const viewCustomer = (customer: Customer) => {
 const editCustomer = (customer: Customer) => {
   selectedCustomer.value = customer;
   showCustomerDialog.value = true;
+};
+
+const confirmDeleteCustomer = (customer: Customer) => {
+  const displayName =
+    customer.businessName ||
+    `${customer.firstName || ''} ${customer.lastName || ''}`.trim() ||
+    customer.code ||
+    'cliente';
+
+  confirm.require({
+    message: `Eliminare cliente ${displayName}?`,
+    header: 'Conferma Eliminazione',
+    icon: 'pi pi-exclamation-triangle',
+    acceptClass: 'p-button-danger',
+    acceptLabel: 'Elimina',
+    rejectLabel: 'Annulla',
+    accept: async () => {
+      try {
+        await api.delete('/customers/' + customer.id);
+        toast.add({
+          severity: 'success',
+          summary: 'Eliminato',
+          detail: 'Cliente eliminato con successo',
+          life: 3000,
+        });
+        loadCustomers();
+        loadStats();
+      } catch (error: any) {
+        toast.add({
+          severity: 'error',
+          summary: 'Errore',
+          detail: error.message || 'Errore durante l\'eliminazione',
+          life: 5000,
+        });
+      }
+    },
+  });
 };
 
 const editFromDetail = () => {
@@ -627,6 +679,10 @@ onMounted(() => {
 
 .action-btn--edit {
   color: var(--color-primary) !important;
+}
+
+.action-btn--delete {
+  color: var(--color-danger) !important;
 }
 
 .action-btn:hover {

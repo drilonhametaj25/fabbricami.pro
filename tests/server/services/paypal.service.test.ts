@@ -286,7 +286,7 @@ describe('PayPalService', () => {
       const context = body.payment_source.paypal.experience_context;
 
       expect(context.locale).toBe('it-IT');
-      expect(context.brand_name).toBe('EcommerceERP');
+      expect(context.brand_name).toBe('FabbricaMi.pro');
     });
   });
 

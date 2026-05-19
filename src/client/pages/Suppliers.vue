@@ -6,7 +6,14 @@
       icon="pi pi-building"
     >
       <template #actions>
-        <Button label="Nuovo Fornitore" icon="pi pi-plus" @click="openCreateDialog" />
+        <span v-tooltip.left="limitReached ? 'Limite raggiunto, effettua l\'upgrade per aggiungerne altri' : null">
+          <Button
+            label="Nuovo Fornitore"
+            icon="pi pi-plus"
+            :disabled="limitReached"
+            @click="openCreateDialog"
+          />
+        </span>
       </template>
     </PageHeader>
 
@@ -348,7 +355,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
 import Button from 'primevue/button';
@@ -365,6 +372,7 @@ import TabPanel from 'primevue/tabpanel';
 import { useToast } from 'primevue/usetoast';
 import { useConfirm } from 'primevue/useconfirm';
 import api from '../services/api.service';
+import { useSubscriptionStore } from '../stores/subscription.store';
 import PageHeader from '../components/PageHeader.vue';
 import StatsCard from '../components/StatsCard.vue';
 import SupplierDetailDialog from '../components/SupplierDetailDialog.vue';
@@ -373,6 +381,17 @@ import PurchaseSeasonalityChart from '../components/PurchaseSeasonalityChart.vue
 
 const toast = useToast();
 const confirm = useConfirm();
+const subscriptionStore = useSubscriptionStore();
+
+// Limit gating: disabilita "Nuovo Fornitore" quando il tenant ha raggiunto
+// il limite del piano corrente (-1 = illimitato).
+const limitReached = computed(() => {
+  const stat = subscriptionStore.usage?.suppliers;
+  if (!stat) return false;
+  if (stat.limit === -1) return false;
+  return stat.current >= stat.limit;
+});
+
 const loading = ref(false);
 const saving = ref(false);
 const suppliers = ref([]);
@@ -464,13 +483,21 @@ const debounceSearch = () => {
 
 const loadStats = async () => {
   try {
-    const response = await api.get('/suppliers?limit=100');
-    const allSuppliers = response.data?.items || [];
+    // Carichiamo fornitori e PO separatamente (la lista suppliers non include _count né purchaseOrders)
+    const [supplierResp, poResp] = await Promise.all([
+      api.get('/suppliers?limit=500'),
+      api.get('/purchase-orders?limit=500').catch(() => ({ success: false, data: { items: [] } })),
+    ]);
+    const allSuppliers = supplierResp.data?.items || [];
+    const allPOs = poResp.data?.items || [];
 
     stats.value = {
       activeSuppliers: allSuppliers.filter((s: any) => s.isActive).length,
-      totalOrders: allSuppliers.reduce((sum: number, s: any) => sum + (s._count?.purchaseOrders || 0), 0),
-      totalValue: allSuppliers.reduce((sum: number, s: any) => sum + (s.purchaseOrders?.reduce((t: number, po: any) => t + parseFloat(po.totalAmount || 0), 0) || 0), 0),
+      totalOrders: allPOs.length,
+      totalValue: allPOs.reduce(
+        (sum: number, po: any) => sum + parseFloat(po.totalAmount || po.total || 0),
+        0
+      ),
     };
   } catch (error) {
     console.error('Error loading stats:', error);
@@ -678,6 +705,9 @@ const handleSave = async () => {
     showDialog.value = false;
     loadSuppliers();
     loadStats();
+    // Aggiorna i counter di utilizzo cosi' il bottone si disabilita se ora
+    // siamo al limite del piano.
+    subscriptionStore.fetchUsage();
   } catch (error: any) {
     toast.add({
       severity: 'error',
@@ -693,6 +723,8 @@ const handleSave = async () => {
 onMounted(() => {
   loadSuppliers();
   loadStats();
+  // Refresh usage stats per il gating del bottone "Nuovo Fornitore".
+  subscriptionStore.fetchUsage();
 });
 </script>
 

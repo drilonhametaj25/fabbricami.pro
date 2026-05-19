@@ -673,6 +673,44 @@ class SubscriptionService {
       case 'invoice.paid': {
         const invoice = event.data.object as Stripe.Invoice;
         await this.recordBillingHistory(invoice, 'paid');
+
+        // Best-effort: emetti fattura elettronica SaaS al tenant via FIC
+        try {
+          const { ficBillingService } = await import('./fic-billing.service');
+          const result = await ficBillingService.issueSaasInvoiceFromStripe(invoice);
+          if (result.attempted) {
+            if (result.success) {
+              logger.info(
+                `FIC: fattura SaaS emessa (id=${result.ficInvoiceId}, number=${result.ficNumber})`
+              );
+              try {
+                await prisma.billingHistory.updateMany({
+                  where: { stripeInvoiceId: invoice.id },
+                  data: {
+                    ficInvoiceId: result.ficInvoiceId ? String(result.ficInvoiceId) : null,
+                    ficInvoiceNumber: result.ficNumber || null,
+                    ficStatus: 'issued',
+                    ficIssuedAt: new Date(),
+                    ficError: null,
+                  } as any,
+                });
+              } catch (_e) { /* best-effort */ }
+            } else {
+              logger.warn(`FIC: emissione fattura fallita per invoice ${invoice.id}: ${result.error}`);
+              try {
+                await prisma.billingHistory.updateMany({
+                  where: { stripeInvoiceId: invoice.id },
+                  data: {
+                    ficStatus: 'error',
+                    ficError: (result.error || 'unknown').slice(0, 500),
+                  } as any,
+                });
+              } catch (_e) { /* best-effort */ }
+            }
+          }
+        } catch (err: any) {
+          logger.warn(`FIC integration error (non-fatal): ${err?.message || err}`);
+        }
         break;
       }
 

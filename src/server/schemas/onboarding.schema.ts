@@ -20,6 +20,7 @@ export const registerSchema = {
     lastName: z.string().min(1, 'Cognome richiesto').max(100),
     companyName: z.string().min(1, 'Nome azienda richiesto').max(200),
     plan: z.enum(['STARTER', 'PRO', 'BUSINESS']).default('PRO'),
+    billingCycle: z.enum(['monthly', 'annual']).default('monthly'),
     acceptTerms: z.boolean().refine((val) => val === true, {
       message: 'Devi accettare i termini e condizioni',
     }).optional().default(true),

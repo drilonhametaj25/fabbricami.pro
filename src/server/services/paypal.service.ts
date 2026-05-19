@@ -159,7 +159,7 @@ class PayPalService {
         paypal: {
           experience_context: {
             payment_method_preference: 'IMMEDIATE_PAYMENT_REQUIRED',
-            brand_name: 'EcommerceERP',
+            brand_name: 'FabbricaMi.pro',
             locale: 'it-IT',
             landing_page: 'LOGIN',
             user_action: 'PAY_NOW',

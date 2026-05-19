@@ -297,6 +297,27 @@
           <label for="stockQty">Quantita *</label>
           <InputNumber id="stockQty" v-model="stockQuantity" :min="1" required />
         </div>
+        <div class="form-group" v-if="warehouses.length > 0">
+          <label for="stockWh">Magazzino *</label>
+          <Dropdown
+            id="stockWh"
+            v-model="stockWarehouseId"
+            :options="warehouses"
+            optionLabel="name"
+            optionValue="id"
+            placeholder="Seleziona magazzino"
+          />
+        </div>
+        <div class="form-group">
+          <label for="stockLoc">Ubicazione</label>
+          <Dropdown
+            id="stockLoc"
+            v-model="stockLocation"
+            :options="locationOptions"
+            optionLabel="label"
+            optionValue="value"
+          />
+        </div>
         <div class="form-group">
           <label for="stockRef">Riferimento</label>
           <InputText id="stockRef" v-model="stockReference" placeholder="es. Ordine #123" />
@@ -389,6 +410,28 @@ const stockType = ref<'IN' | 'OUT'>('IN');
 const stockQuantity = ref(1);
 const stockReference = ref('');
 const stockNotes = ref('');
+const stockWarehouseId = ref<string | null>(null);
+const stockLocation = ref<'WEB' | 'B2B' | 'EVENTI' | 'TRANSITO'>('WEB');
+const warehouses = ref<{ id: string; name: string }[]>([]);
+const locationOptions = [
+  { label: 'WEB (e-commerce)', value: 'WEB' },
+  { label: 'B2B (wholesale)', value: 'B2B' },
+  { label: 'EVENTI (fiere/eventi)', value: 'EVENTI' },
+  { label: 'TRANSITO (in transito)', value: 'TRANSITO' },
+];
+
+async function loadWarehouses() {
+  try {
+    const res = await api.get('/warehouses');
+    const items = res?.data?.items || res?.data || [];
+    warehouses.value = items.map((w: any) => ({ id: w.id, name: w.name || w.code }));
+    if (warehouses.value.length > 0 && !stockWarehouseId.value) {
+      stockWarehouseId.value = warehouses.value[0].id;
+    }
+  } catch (_) {
+    // best-effort: se non riesce, il backend userà il default
+  }
+}
 
 const unitOptions = [
   { label: 'Pezzi (pz)', value: 'pz' },
@@ -656,6 +699,8 @@ const handleStockAdjust = async () => {
       type: stockType.value,
       reference: stockReference.value || undefined,
       notes: stockNotes.value || undefined,
+      warehouseId: stockWarehouseId.value || undefined,
+      location: stockLocation.value,
     });
 
     toast.add({
@@ -687,6 +732,7 @@ onMounted(() => {
   loadLowStock();
   loadCategories();
   loadSuppliers();
+  loadWarehouses();
 });
 </script>
 

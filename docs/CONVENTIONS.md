@@ -1,8 +1,8 @@
-# Code Conventions - EcommerceERP
+# Code Conventions - FabbricaMi.pro
 
 ## Overview
 
-Questo documento definisce le convenzioni di codice per il progetto EcommerceERP.
+Questo documento definisce le convenzioni di codice per il progetto FabbricaMi.pro.
 
 ---
 

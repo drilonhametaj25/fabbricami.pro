@@ -4,6 +4,7 @@ import { config } from '../config/environment';
 import { prisma } from '../config/database';
 import { UserRole } from '@prisma/client';
 import { tenantContext, TenantContext } from './tenant.middleware';
+import { runSubscriptionGate, SubscriptionGateContext } from './subscription-gate';
 
 // Types
 export interface JWTPayload {
@@ -94,6 +95,20 @@ export async function authenticate(
           tenantStatus: user.tenant.status,
         };
         tenantContext.enterWith(ctx);
+
+        // SUBSCRIPTION GATE — applied to all authenticated routes.
+        // Bypass paths (auth/billing/onboarding/tickets/...) keep working
+        // even when the subscription is past_due/cancelled/expired.
+        const gate = await runSubscriptionGate(request, reply, user.tenantId);
+        if (gate.blocked) {
+          // The gate already sent the 402 reply
+          return;
+        }
+        if (gate.subscription) {
+          (request as AuthenticatedRequest & {
+            subscription: SubscriptionGateContext;
+          }).subscription = gate.subscription;
+        }
       }
     } catch (error) {
       if (error instanceof jwt.TokenExpiredError) {

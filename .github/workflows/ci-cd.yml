@@ -16,7 +16,7 @@ jobs:
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: ecommerce_erp_test
+          POSTGRES_DB: fabbricami_pro_test
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -57,17 +57,17 @@ jobs:
       - name: Generate Prisma Client
         run: npx prisma generate
         env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ecommerce_erp_test
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/fabbricami_pro_test
       
       - name: Run migrations
         run: npx prisma migrate deploy
         env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ecommerce_erp_test
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/fabbricami_pro_test
       
       - name: Run tests
         run: npm test
         env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ecommerce_erp_test
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/fabbricami_pro_test
           REDIS_HOST: localhost
           JWT_SECRET: test-secret
           JWT_REFRESH_SECRET: test-refresh-secret
@@ -90,7 +90,11 @@ jobs:
           username: ${{ secrets.PRODUCTION_USER }}
           key: ${{ secrets.PRODUCTION_SSH_KEY }}
           command_timeout: 30m
-          script_stop: false
+          # HARDENING: script_stop: true means any failing command (without an
+          # explicit `|| true` fallback) aborts the deploy. Previously this was
+          # false, which caused failed migrations and broken health checks to
+          # silently let a broken release go live.
+          script_stop: true
           script: |
             set -e
             echo "=========================================="
@@ -122,22 +126,24 @@ jobs:
             sleep 20
 
             echo ">>> Running smart database migration (with timeout protection)..."
-            # Run migration with timeout to prevent hang. Use || true to not fail deploy
-            timeout 300 docker compose -f docker-compose.prod.yml exec -T backend sh /app/scripts/smart-migrate.sh || {
+            # HARDENING: a failed migration MUST fail the deploy.
+            # Previously this used `|| { ... }` without exit, which let a
+            # broken schema go live. Now any migration failure aborts.
+            if ! timeout 300 docker compose -f docker-compose.prod.yml exec -T backend sh /app/scripts/smart-migrate.sh; then
               EXIT_CODE=$?
+              echo "!!! MIGRATION FAILED (exit code $EXIT_CODE)"
               if [ $EXIT_CODE -eq 124 ]; then
-                echo "!!! Migration timed out after 5 minutes"
+                echo "!!! Reason: migration timed out after 5 minutes"
               elif [ $EXIT_CODE -eq 137 ]; then
-                echo "!!! Migration was killed (OOM or signal) - code 137"
-              else
-                echo "!!! Migration exited with code $EXIT_CODE"
+                echo "!!! Reason: migration was killed (OOM or signal)"
               fi
-              echo ">>> Checking if backend is still healthy..."
+              echo ">>> Backend container status:"
               docker compose -f docker-compose.prod.yml ps backend || true
               echo ">>> Recent backend logs:"
-              docker compose -f docker-compose.prod.yml logs backend --tail 20 || true
-              echo ">>> Continuing deployment - app may still work..."
-            }
+              docker compose -f docker-compose.prod.yml logs backend --tail 50 || true
+              echo ">>> Aborting deploy. Investigate and re-run after fixing the migration."
+              exit 1
+            fi
 
             echo ">>> Cleaning up old images..."
             docker image prune -f || true
@@ -146,8 +152,23 @@ jobs:
             docker compose -f docker-compose.prod.yml ps
 
             echo ">>> Health check - testing backend API..."
-            sleep 5
-            curl -sf http://localhost:3000/api/health && echo "Backend healthy!" || echo "Health check pending (may need more startup time)"
+            # HARDENING: retry health check up to 6 times (1 minute) before
+            # giving up. Fail the deploy if the backend never responds 2xx.
+            HEALTH_OK=0
+            for attempt in 1 2 3 4 5 6; do
+              sleep 10
+              if curl -sf http://localhost:3000/api/health; then
+                echo "Backend healthy on attempt $attempt!"
+                HEALTH_OK=1
+                break
+              fi
+              echo "Health check attempt $attempt failed, retrying in 10s..."
+            done
+            if [ "$HEALTH_OK" -ne 1 ]; then
+              echo "!!! Backend is not healthy after 60s — aborting deploy"
+              docker compose -f docker-compose.prod.yml logs backend --tail 50 || true
+              exit 1
+            fi
 
             echo "=========================================="
             echo "DEPLOY COMPLETED at $(date)"

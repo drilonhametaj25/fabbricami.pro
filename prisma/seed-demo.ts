@@ -223,7 +223,7 @@ async function main() {
     data: {
       code: 'WH-MAIN',
       name: 'Magazzino Principale',
-      description: 'Magazzino principale EcommerceERP - Sede di Milano',
+      description: 'Magazzino principale FabbricaMi.pro - Sede di Milano',
       address: {
         street: 'Via della Logistica 15',
         city: 'Milano',

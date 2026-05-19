@@ -83,7 +83,7 @@ export function Header() {
                   color: 'var(--color-text-primary)',
                 }}
               >
-                EcommerceERP
+                FabbricaMi.pro
               </span>
             </Link>
 

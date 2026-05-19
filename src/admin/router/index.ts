@@ -49,6 +49,21 @@ const routes: RouteRecordRaw[] = [
     component: () => import('../pages/AuditLogs.vue'),
   },
   {
+    path: '/coupons',
+    name: 'Coupons',
+    component: () => import('../pages/Coupons.vue'),
+  },
+  {
+    path: '/tickets',
+    name: 'Tickets',
+    component: () => import('../pages/Tickets.vue'),
+  },
+  {
+    path: '/integrations',
+    name: 'Integrations',
+    component: () => import('../pages/Integrations.vue'),
+  },
+  {
     path: '/:pathMatch(.*)*',
     redirect: '/dashboard',
   },

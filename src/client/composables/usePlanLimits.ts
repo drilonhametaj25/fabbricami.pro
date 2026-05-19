@@ -46,7 +46,18 @@ export function usePlanLimits() {
   function hasFeature(feature: string): boolean {
     const plan = subscriptionStore.currentPlan;
     if (!plan) return false;
-    return plan.features.includes(feature) || plan.limits.features.includes(feature);
+    // L'API può restituire features sia come array di stringhe (legacy)
+    // sia come { modules, capabilities } (nuovo seed)
+    const f: any = (plan as any).features;
+    const planFeatures: string[] = Array.isArray(f)
+      ? f
+      : Array.isArray(f?.modules)
+      ? [...f.modules, ...(Array.isArray(f?.capabilities) ? f.capabilities : [])]
+      : [];
+    const limitFeatures: string[] = Array.isArray((plan as any).limits?.features)
+      ? (plan as any).limits.features
+      : [];
+    return planFeatures.includes(feature) || limitFeatures.includes(feature);
   }
 
   // Verifica se un limite è stato raggiunto (con refresh dati)

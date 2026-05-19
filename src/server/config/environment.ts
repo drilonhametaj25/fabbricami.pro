@@ -61,6 +61,17 @@ const envSchema = z.object({
 
   // CORS
   ALLOWED_ORIGINS: z.string().optional(),
+
+  // SuperAdmin (separate auth realm from tenant users)
+  SUPER_ADMIN_JWT_SECRET: z.string().optional(),
+
+  // SMTP — required when sending emails (signup verification, order shipped, etc.)
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.string().optional(),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  SMTP_FROM: z.string().optional(),
+
 });
 
 // Parse and validate
@@ -72,6 +83,111 @@ if (!parsedEnv.success) {
 }
 
 export const env = parsedEnv.data;
+
+// ===========================================================================
+// PRODUCTION SECRET HARDENING
+// ===========================================================================
+//
+// In production we refuse to boot with placeholder or trivially weak secrets.
+// This catches the very common deploy mistake of copying .env.example into a
+// real environment and forgetting to fill the secrets with real values.
+const PLACEHOLDER_PATTERNS = [
+  'change',
+  'changeme',
+  'changeme123',
+  'your-secret',
+  'your_secret',
+  'your-jwt',
+  'replace-me',
+  'replace_me',
+  'secret',
+  'password',
+  'example',
+  'placeholder',
+  'todo',
+];
+
+function looksLikePlaceholder(value: string | undefined): boolean {
+  if (!value) return true;
+  const v = value.trim().toLowerCase();
+  if (v.length < 32) return true; // too short to be a real cryptographic secret
+  return PLACEHOLDER_PATTERNS.some((p) => v === p || v.includes(p));
+}
+
+if (env.NODE_ENV === 'production') {
+  const fatalIssues: string[] = [];
+  const warnings: string[] = [];
+
+  if (looksLikePlaceholder(env.JWT_SECRET)) {
+    fatalIssues.push(
+      'JWT_SECRET is empty, too short (<32 chars), or contains a placeholder value'
+    );
+  }
+  if (looksLikePlaceholder(env.JWT_REFRESH_SECRET)) {
+    fatalIssues.push(
+      'JWT_REFRESH_SECRET is empty, too short (<32 chars), or contains a placeholder value'
+    );
+  }
+  if (env.JWT_SECRET === env.JWT_REFRESH_SECRET) {
+    fatalIssues.push(
+      'JWT_SECRET and JWT_REFRESH_SECRET MUST be different in production'
+    );
+  }
+  if (
+    env.SUPER_ADMIN_JWT_SECRET &&
+    (looksLikePlaceholder(env.SUPER_ADMIN_JWT_SECRET) ||
+      env.SUPER_ADMIN_JWT_SECRET === env.JWT_SECRET)
+  ) {
+    fatalIssues.push(
+      'SUPER_ADMIN_JWT_SECRET must be set to a distinct strong secret (>=32 chars) in production'
+    );
+  }
+  if (
+    !env.ALLOWED_ORIGINS ||
+    env.ALLOWED_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean).length === 0
+  ) {
+    fatalIssues.push(
+      'ALLOWED_ORIGINS is empty — CORS will block every browser request'
+    );
+  }
+  if (!env.DATABASE_URL || env.DATABASE_URL.includes('localhost')) {
+    warnings.push('DATABASE_URL points to localhost in production');
+  }
+
+  // Stripe — required if SaaS billing is going to work at all
+  if (looksLikePlaceholder(env.STRIPE_SECRET_KEY)) {
+    warnings.push(
+      'STRIPE_SECRET_KEY is empty or a placeholder — Checkout / subscription flows will fail'
+    );
+  }
+  if (looksLikePlaceholder(env.STRIPE_WEBHOOK_SECRET)) {
+    warnings.push(
+      'STRIPE_WEBHOOK_SECRET is empty or a placeholder — Stripe events will be rejected'
+    );
+  }
+
+  // SMTP — required for signup email verification, password reset, order shipped
+  if (!env.SMTP_HOST || !env.SMTP_USER || !env.SMTP_PASS || !env.SMTP_FROM) {
+    warnings.push(
+      'SMTP credentials missing — registration emails (verify, welcome) will silently fail and users will be unable to log in'
+    );
+  }
+
+  for (const w of warnings) {
+    console.warn(`⚠️  [env] ${w}`);
+  }
+
+  if (fatalIssues.length > 0) {
+    console.error('\n❌ Refusing to boot in production due to invalid secrets:');
+    for (const issue of fatalIssues) {
+      console.error(`   - ${issue}`);
+    }
+    console.error(
+      '\n   Fix the .env file and restart. See .env.production.example for guidance.\n'
+    );
+    process.exit(1);
+  }
+}
 
 export const config = {
   env: env.NODE_ENV,

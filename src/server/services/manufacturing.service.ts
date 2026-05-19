@@ -1028,7 +1028,12 @@ class ManufacturingService {
       throw new Error(`Impossibile completare: ${incompletPhases.length} fasi non completate`);
     }
 
-    return prisma.$transaction(async (tx) => {
+    // We'll need to queue a WP inventory sync for the produced product after
+    // the transaction commits (so WooCommerce sees the new stock immediately,
+    // not after the next 5-min batch sync).
+    const productIdToSync = order.productId;
+
+    const txResult = await prisma.$transaction(async (tx) => {
       // Aggiorna status ordine
       const completedOrder = await tx.productionOrder.update({
         where: { id: orderId },
@@ -1127,6 +1132,22 @@ class ManufacturingService {
 
       return completedOrder;
     });
+
+    // Post-commit: real-time WP stock sync for the produced product so the
+    // shop sees the new finished-goods quantity immediately.
+    // Skipped in test env to avoid loading BullMQ/Redis from unit tests.
+    if (productIdToSync && process.env.NODE_ENV !== 'test') {
+      try {
+        const { queueInventorySync } = await import('../jobs/wordpress.job');
+        await queueInventorySync(productIdToSync);
+      } catch (err: any) {
+        logger.warn(
+          `Production ${orderId}: failed to queue WP inventory sync: ${err?.message || err}`
+        );
+      }
+    }
+
+    return txResult;
   }
 
   /**

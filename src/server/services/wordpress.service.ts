@@ -1871,7 +1871,22 @@ class WordPressService {
   // =============================================
 
   /**
-   * Aggiorna stato ordine su WooCommerce
+   * Aggiorna stato ordine su WooCommerce.
+   *
+   * Quando lo stato passa a SHIPPED/DELIVERED, allega anche il tracking
+   * (numero + corriere + URL) come `meta_data`. Sono i campi che la maggior
+   * parte dei plugin di tracking (WooCommerce Shipment Tracking, AfterShip,
+   * Advanced Shipment Tracking, ecc.) leggono di default:
+   *
+   *   _tracking_number
+   *   _tracking_provider
+   *   _tracking_provider_name
+   *   _tracking_url
+   *   _date_shipped
+   *
+   * In aggiunta, settiamo `_erp_email_sent = yes` così il plugin
+   * `fabbricami-connector` (lato WP) può sopprimere l'email di Woo "Order
+   * completed" — l'ERP ha gia' inviato `sendOrderShipped` con tracking link.
    */
   async updateOrderStatusOnWooCommerce(orderId: string, newStatus: string): Promise<boolean> {
     try {
@@ -1886,13 +1901,77 @@ class WordPressService {
       // Mappa stato interno a WooCommerce
       const wooStatus = this.mapInternalStatusToWooCommerce(newStatus);
 
+      const payload: Record<string, unknown> = { status: wooStatus };
+      const metaData: Array<{ key: string; value: string }> = [];
+
+      // Allega il tracking quando l'ordine viene spedito o consegnato
+      const isShipmentTransition =
+        newStatus === 'SHIPPED' || newStatus === 'DELIVERED';
+
+      if (isShipmentTransition && order.trackingNumber) {
+        metaData.push({ key: '_tracking_number', value: order.trackingNumber });
+        // Suppress Woo's own "completed" email since the ERP already sent
+        // sendOrderShipped() with a richer tracking template.
+        metaData.push({ key: '_erp_email_sent', value: 'yes' });
+        metaData.push({ key: '_date_shipped', value: String(Math.floor(Date.now() / 1000)) });
+
+        if (order.carrier) {
+          // Normalised slug (lowercase, no spaces) for plugins that expect a code
+          const providerSlug = order.carrier
+            .trim()
+            .toLowerCase()
+            .replace(/\s+/g, '-');
+          metaData.push({ key: '_tracking_provider', value: providerSlug });
+          metaData.push({ key: '_tracking_provider_name', value: order.carrier });
+        }
+
+        if (order.trackingUrl) {
+          metaData.push({ key: '_tracking_url', value: order.trackingUrl });
+        }
+      }
+
+      if (metaData.length > 0) {
+        payload.meta_data = metaData;
+      }
+
       await this.wooCommerceRequest(
         `orders/${order.wordpressId}`,
         'PUT',
-        { status: wooStatus }
+        payload
       );
 
-      logger.info(`Stato ordine ${order.orderNumber} aggiornato su WooCommerce: ${wooStatus}`);
+      // Best-effort: try to register the tracking via the dedicated
+      // WooCommerce Shipment Tracking REST API if installed. We don't fail
+      // if it's not available — meta_data is the fallback above.
+      if (isShipmentTransition && order.trackingNumber) {
+        try {
+          await this.wooCommerceRequest(
+            `orders/${order.wordpressId}/shipment-trackings`,
+            'POST',
+            {
+              tracking_number: order.trackingNumber,
+              tracking_provider: order.carrier || 'Custom',
+              custom_tracking_provider: order.carrier || undefined,
+              custom_tracking_link: order.trackingUrl || undefined,
+              date_shipped: new Date().toISOString().split('T')[0],
+            }
+          );
+        } catch (trackingErr) {
+          // Plugin not installed or endpoint not available — fine, we already
+          // wrote the meta_data above.
+          logger.debug(
+            `Shipment-tracking endpoint not available for order ${order.orderNumber}: ${(trackingErr as Error).message}`
+          );
+        }
+      }
+
+      logger.info(
+        `Stato ordine ${order.orderNumber} aggiornato su WooCommerce: ${wooStatus}${
+          isShipmentTransition && order.trackingNumber
+            ? ` (tracking ${order.carrier || ''} ${order.trackingNumber})`
+            : ''
+        }`
+      );
       return true;
 
     } catch (error) {

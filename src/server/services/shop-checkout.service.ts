@@ -383,8 +383,62 @@ class ShopCheckoutService {
           },
         });
 
-        // 2. Decrement stock for each item (BUG-001 fix: now happens after payment)
+        // 2. Decrement stock through InventoryItem (location WEB) — same model
+        // used by the B2B flow (allocateInventoryInTransaction in order.service).
+        //
+        // The previous implementation decremented `product.wcStockQuantity` /
+        // `productVariant.wcStockQuantity` which kept TWO disconnected stock
+        // counters in the DB (one for the shop frontend, one for the warehouse).
+        // The two drifted with every B2C sale, then WordPress sync pushed the
+        // wrong number and the shop was constantly out of sync with the ERP.
+        // Now every channel decrements the same `InventoryItem` rows and
+        // every stock change emits an `InventoryMovement` for traceability.
         for (const item of order.items) {
+          if (!item.productId) continue;
+
+          const inventoryItem = await tx.inventoryItem.findFirst({
+            where: {
+              productId: item.productId,
+              variantId: item.variantId || null,
+              location: 'WEB',
+            },
+          });
+
+          if (!inventoryItem) {
+            throw new Error(
+              `Stock non disponibile in WEB per il prodotto richiesto (orderItem ${item.id})`
+            );
+          }
+
+          if (inventoryItem.quantity < item.quantity) {
+            throw new Error(
+              `Stock insufficiente per il prodotto (disponibile ${inventoryItem.quantity}, richiesto ${item.quantity})`
+            );
+          }
+
+          await tx.inventoryItem.update({
+            where: { id: inventoryItem.id },
+            data: {
+              quantity: { decrement: item.quantity },
+            },
+          });
+
+          // Audit trail movement
+          await tx.inventoryMovement.create({
+            data: {
+              productId: item.productId,
+              variantId: item.variantId || null,
+              type: 'OUT',
+              quantity: -item.quantity,
+              fromLocation: 'WEB',
+              reference: order.orderNumber,
+              notes: `Vendita B2C ${order.orderNumber} (checkout shop)`,
+            },
+          });
+
+          // Keep wcStockQuantity in sync (it's used by the shop UI for
+          // optimistic stock display); the WP queueInventorySync below will
+          // push the same value to WooCommerce.
           if (item.variantId) {
             await tx.productVariant.update({
               where: { id: item.variantId },
@@ -392,7 +446,7 @@ class ShopCheckoutService {
                 wcStockQuantity: { decrement: item.quantity },
               } as any,
             });
-          } else if (item.productId) {
+          } else {
             await tx.product.update({
               where: { id: item.productId },
               data: {
@@ -467,6 +521,30 @@ class ShopCheckoutService {
           await queueOrderStatusUpdate(orderId, 'CONFIRMED');
         } catch (err: any) {
           logger.error(`Failed to queue WP order status sync for ${orderId}: ${err.message}`);
+        }
+      }
+
+      // 7. Real-time WP stock sync for each product whose stock changed,
+      // so the shop on WooCommerce reflects the new InventoryItem WEB level
+      // immediately (instead of waiting for the 5-min batch sync).
+      // Skipped in test env to avoid loading BullMQ/Redis from unit tests.
+      if (process.env.NODE_ENV !== 'test') {
+        try {
+          const { queueInventorySync } = await import('../jobs/wordpress.job');
+          const productIds = Array.from(
+            new Set(
+              order.items
+                .map((it) => it.productId)
+                .filter((pid): pid is string => !!pid)
+            )
+          );
+          for (const productId of productIds) {
+            await queueInventorySync(productId);
+          }
+        } catch (err: any) {
+          logger.error(
+            `Failed to queue WP inventory sync after B2C checkout ${orderId}: ${err.message}`
+          );
         }
       }
 

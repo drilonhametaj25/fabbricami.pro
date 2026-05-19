@@ -107,6 +107,42 @@
         </div>
       </section>
 
+      <!-- Plugin WordPress Download -->
+      <section class="config-section">
+        <div class="section-header">
+          <h3 class="section-title">
+            <i class="pi pi-download"></i>
+            Plugin WordPress
+          </h3>
+          <Tag value="Pre-configurato per il tuo account" severity="info" />
+        </div>
+
+        <div class="config-form">
+          <div class="help-box">
+            <i class="pi pi-info-circle"></i>
+            <div>
+              <strong>Come installare il plugin:</strong>
+              <ol>
+                <li>Clicca "Scarica Plugin" per ottenere il file ZIP con le credenziali pre-configurate</li>
+                <li>Vai sul tuo sito WordPress: Plugin → Aggiungi nuovo → Carica plugin</li>
+                <li>Seleziona il file ZIP scaricato e clicca "Installa ora"</li>
+                <li>Attiva il plugin e completa il wizard di configurazione</li>
+                <li>Il plugin leggerà automaticamente le credenziali da <code>tenant-config.json</code></li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="config-actions">
+            <Button
+              label="Scarica Plugin (.zip)"
+              icon="pi pi-download"
+              :loading="downloadingPlugin"
+              @click="downloadPlugin"
+            />
+          </div>
+        </div>
+      </section>
+
       <!-- Status Cards -->
       <section class="status-section">
         <div class="status-grid">
@@ -1146,6 +1182,7 @@ const wooConfig = reactive({
 });
 const testingConnection = ref(false);
 const savingConfig = ref(false);
+const downloadingPlugin = ref(false);
 const connectionTestResult = ref<{
   success: boolean;
   message: string;
@@ -1473,6 +1510,47 @@ const saveConfiguration = async () => {
     });
   } finally {
     savingConfig.value = false;
+  }
+};
+
+const downloadPlugin = async () => {
+  downloadingPlugin.value = true;
+  try {
+    const apiBase = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3000';
+    const token = localStorage.getItem('token') || '';
+    const response = await fetch(`${apiBase}/api/v1/wordpress/plugin/download`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.error || `HTTP ${response.status}`);
+    }
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const disposition = response.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="([^"]+)"/);
+    a.download = match ? match[1] : 'fabbricami-connector.zip';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+    toast.add({
+      severity: 'success',
+      summary: 'Plugin scaricato',
+      detail: 'Le credenziali sono incluse in tenant-config.json',
+      life: 4000,
+    });
+  } catch (error: any) {
+    toast.add({
+      severity: 'error',
+      summary: 'Errore',
+      detail: error.message || 'Impossibile scaricare il plugin',
+      life: 5000,
+    });
+  } finally {
+    downloadingPlugin.value = false;
   }
 };
 

@@ -18,6 +18,21 @@ export const paymentDueTypeEnum = z.enum(['RECEIVABLE', 'PAYABLE']);
 export const paymentDueStatusEnum = z.enum(['PENDING', 'PARTIAL', 'PAID', 'OVERDUE', 'CANCELLED']);
 
 /**
+ * Schema riga fattura (lato API).
+ * Le righe vengono usate per calcolare/validare subtotale e IVA;
+ * il backend attualmente non persiste righe distinte (Invoice non ha
+ * relazione items), ma le accetta in input per compatibilità con il
+ * dialog "Nuova Fattura" del client.
+ */
+export const invoiceItemSchema = z.object({
+  description: z.string().min(1).max(500),
+  quantity: z.number().nonnegative(),
+  unitPrice: z.number().nonnegative(),
+  taxRate: z.number().min(0).max(100),
+  total: z.number().nonnegative().optional(),
+});
+
+/**
  * Schema validazione creazione fattura
  */
 export const createInvoiceSchema = z.object({
@@ -25,6 +40,25 @@ export const createInvoiceSchema = z.object({
   customerId: z.string().uuid().optional(),
   orderId: z.string().uuid().optional(),
   type: z.enum(['SALE', 'PURCHASE']), // Prisma InvoiceType
+  documentType: z
+    .enum([
+      'TD01',
+      'TD02',
+      'TD03',
+      'TD04',
+      'TD05',
+      'TD06',
+      'TD16',
+      'TD17',
+      'TD18',
+      'TD19',
+      'TD20',
+      'TD24',
+      'TD25',
+      'TD26',
+      'TD27',
+    ])
+    .optional(),
   issueDate: z.string().datetime(),
   dueDate: z.string().datetime(),
   subtotal: z.number().nonnegative(),
@@ -33,6 +67,9 @@ export const createInvoiceSchema = z.object({
   paidAmount: z.number().nonnegative().default(0),
   status: z.enum(['DRAFT', 'ISSUED', 'PAID', 'PARTIALLY_PAID', 'OVERDUE', 'CANCELLED']).default('DRAFT'),
   notes: z.string().optional(),
+  // Righe opzionali (vedi invoiceItemSchema). Se presenti, vengono usate
+  // dal service per generare l'XML FatturaPA o per esporre il dettaglio.
+  items: z.array(invoiceItemSchema).optional(),
 });
 
 export const updateInvoiceSchema = createInvoiceSchema.partial().omit({ invoiceNumber: true, customerId: true });
@@ -206,18 +243,4 @@ export const paymentDueQuerySchemaV2 = z.object({
 });
 
 export type CreateInvoiceInput = z.infer<typeof createInvoiceSchema>;
-export type UpdateInvoiceInput = z.infer<typeof updateInvoiceSchema>;
 export type CreatePaymentInput = z.infer<typeof createPaymentSchema>;
-export type CreatePaymentDueInput = z.infer<typeof createPaymentDueSchema>;
-export type UpdatePaymentDueInput = z.infer<typeof updatePaymentDueSchema>;
-export type CreateOverheadCostInput = z.infer<typeof createOverheadCostSchema>;
-export type UpdateOverheadCostInput = z.infer<typeof updateOverheadCostSchema>;
-export type InvoiceQuery = z.infer<typeof invoiceQuerySchema>;
-export type PaymentDueQuery = z.infer<typeof paymentDueQuerySchema>;
-export type BreakEvenAnalysisInput = z.infer<typeof breakEvenAnalysisSchema>;
-export type CreatePaymentPlanInput = z.infer<typeof createPaymentPlanSchema>;
-export type UpdatePaymentPlanInput = z.infer<typeof updatePaymentPlanSchema>;
-export type CreatePaymentDueInputV2 = z.infer<typeof createPaymentDueSchemaV2>;
-export type UpdatePaymentDueInputV2 = z.infer<typeof updatePaymentDueSchemaV2>;
-export type RecordPaymentDuePaymentInput = z.infer<typeof recordPaymentDuePaymentSchema>;
-export type PaymentDueQueryV2 = z.infer<typeof paymentDueQuerySchemaV2>;

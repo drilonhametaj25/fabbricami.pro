@@ -3,6 +3,7 @@ import { AsyncLocalStorage } from 'async_hooks';
 import { prisma } from '../config/database';
 import { TenantStatus } from '@prisma/client';
 import { AuthenticatedRequest } from './auth.middleware';
+import { runSubscriptionGate, SubscriptionGateContext } from './subscription-gate';
 
 // ============================================
 // TENANT CONTEXT
@@ -129,6 +130,23 @@ export async function tenantMiddleware(
     // del lifecycle della request (handler, prisma middleware, ecc.)
     // senza wrappare il control-flow in una callback.
     tenantContext.enterWith(ctx);
+
+    // ============================================
+    // SUBSCRIPTION GATE (shared helper)
+    // ============================================
+    // Block business routes when the tenant's subscription is not active.
+    // Bypass paths (billing, onboarding, tickets, ...) stay accessible so the
+    // user can take corrective action (pay, upgrade, contact support).
+    const gate = await runSubscriptionGate(request, reply, tenant.id);
+    if (gate.blocked) {
+      // The gate already sent a 402 reply
+      return;
+    }
+    if (gate.subscription) {
+      (request as TenantRequest & {
+        subscription: SubscriptionGateContext;
+      }).subscription = gate.subscription;
+    }
 
   } catch (err) {
     request.log.error('Tenant middleware error: ' + String(err));

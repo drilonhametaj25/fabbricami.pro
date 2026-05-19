@@ -290,7 +290,7 @@ describe('WordPress Plugin Auth Middleware', () => {
 
       expect(reply.header).toHaveBeenCalledWith(
         'Access-Control-Allow-Headers',
-        'Authorization, Content-Type, X-EcommerceERP-API-Key'
+        'Authorization, Content-Type, X-FabbricaMi.pro-API-Key'
       );
     });
 

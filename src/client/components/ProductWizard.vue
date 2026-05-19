@@ -20,8 +20,20 @@
         <ProductBasicInfo v-model="form" :disabled="saving" />
       </div>
 
-      <!-- Step 2: Web/SEO -->
+      <!-- Step 2: Varianti -->
       <div v-show="activeStep === 1" class="step-panel">
+        <template v-if="productId">
+          <ProductVariantsManager
+            :product-id="productId"
+            :product-sku="form.sku"
+            :product-price="form.price"
+          />
+        </template>
+        <StepPlaceholder v-else message="Completa prima le informazioni base" @go-to-first="activeStep = 0" />
+      </div>
+
+      <!-- Step 3: Web/SEO -->
+      <div v-show="activeStep === 2" class="step-panel">
         <template v-if="productId">
           <ProductWebFields
             v-model="webFields"
@@ -32,40 +44,40 @@
         <StepPlaceholder v-else message="Completa prima le informazioni base" @go-to-first="activeStep = 0" />
       </div>
 
-      <!-- Step 3: Immagini -->
-      <div v-show="activeStep === 2" class="step-panel">
+      <!-- Step 4: Immagini -->
+      <div v-show="activeStep === 3" class="step-panel">
         <template v-if="productId">
           <ProductImagesManager :product-id="productId" />
         </template>
         <StepPlaceholder v-else message="Completa prima le informazioni base" @go-to-first="activeStep = 0" />
       </div>
 
-      <!-- Step 4: Giacenze -->
-      <div v-show="activeStep === 3" class="step-panel">
+      <!-- Step 5: Giacenze -->
+      <div v-show="activeStep === 4" class="step-panel">
         <template v-if="productId">
           <ProductInventoryManager :product-id="productId" />
         </template>
         <StepPlaceholder v-else message="Completa prima le informazioni base" @go-to-first="activeStep = 0" />
       </div>
 
-      <!-- Step 5: Composizione (Materiali) -->
-      <div v-show="activeStep === 4" class="step-panel">
+      <!-- Step 6: Composizione (Materiali) -->
+      <div v-show="activeStep === 5" class="step-panel">
         <template v-if="productId">
           <ProductMaterials :product-id="productId" />
         </template>
         <StepPlaceholder v-else message="Completa prima le informazioni base" @go-to-first="activeStep = 0" />
       </div>
 
-      <!-- Step 6: BOM (Componenti) -->
-      <div v-show="activeStep === 5" class="step-panel">
+      <!-- Step 7: BOM (Componenti) -->
+      <div v-show="activeStep === 6" class="step-panel">
         <template v-if="productId">
           <ProductBom :product-id="productId" />
         </template>
         <StepPlaceholder v-else message="Completa prima le informazioni base" @go-to-first="activeStep = 0" />
       </div>
 
-      <!-- Step 7: Lavorazione (Fasi) -->
-      <div v-show="activeStep === 6" class="step-panel">
+      <!-- Step 8: Lavorazione (Fasi) -->
+      <div v-show="activeStep === 7" class="step-panel">
         <template v-if="productId">
           <ProductPhases :product-id="productId" />
         </template>
@@ -109,14 +121,15 @@
             @click="saveBasicInfo"
           />
 
-          <!-- Step 2-6: Continua -->
+          <!-- Step 2-6: Continua (salva i webFields se siamo sullo step Web/SEO) -->
           <Button
             v-else-if="activeStep < steps.length - 1"
             label="Continua"
             icon="pi pi-arrow-right"
             iconPos="right"
             :disabled="!productId"
-            @click="nextStep"
+            :loading="saving"
+            @click="saveCurrentStepAndAdvance"
           />
 
           <!-- Ultimo Step: Completa -->
@@ -146,6 +159,7 @@ import ProductBom from './ProductBom.vue';
 import ProductPhases from './ProductPhases.vue';
 import ProductImagesManager from './ProductImagesManager.vue';
 import ProductInventoryManager from './ProductInventoryManager.vue';
+import ProductVariantsManager from './ProductVariantsManager.vue';
 import StepPlaceholder from './StepPlaceholder.vue';
 import api from '../services/api.service';
 
@@ -171,6 +185,7 @@ const productId = ref<string | null>(null);
 // Steps definition
 const steps = ref([
   { label: 'Info Base' },
+  { label: 'Varianti' },
   { label: 'Web/SEO' },
   { label: 'Immagini' },
   { label: 'Giacenze' },
@@ -237,6 +252,45 @@ const prevStep = () => {
   if (activeStep.value > 0) {
     activeStep.value--;
   }
+};
+
+/**
+ * Salva i campi specifici dello step corrente (se richiesto) prima di
+ * avanzare. Attualmente solo lo step Web/SEO (index 2) tiene dati in
+ * memoria che vanno persistiti via PATCH /products/:id.
+ */
+const saveCurrentStepAndAdvance = async () => {
+  // Step Web/SEO: persisti webFields prima di avanzare
+  if (activeStep.value === 2 && productId.value) {
+    saving.value = true;
+    try {
+      const response = await api.patch(`/products/${productId.value}`, {
+        ...webFields.value,
+      });
+      if (response.success) {
+        toast.add({
+          severity: 'success',
+          summary: 'Web/SEO salvato',
+          life: 2000,
+        });
+        nextStep();
+      } else {
+        throw new Error(response.error || 'Errore salvataggio Web/SEO');
+      }
+    } catch (error: any) {
+      toast.add({
+        severity: 'error',
+        summary: 'Errore',
+        detail: error.message || 'Impossibile salvare i campi Web/SEO',
+        life: 5000,
+      });
+    } finally {
+      saving.value = false;
+    }
+    return;
+  }
+  // Altri step: solo navigazione (le sotto-componenti salvano da sole)
+  nextStep();
 };
 
 // Save basic info and create product

@@ -1,4 +1,4 @@
-# Module Dependencies - EcommerceERP
+# Module Dependencies - FabbricaMi.pro
 
 ## Overview
 

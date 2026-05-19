@@ -45,6 +45,16 @@ export const updatePurchaseOrderSchema = {
     paymentTerms: z.number().int().min(0).optional(),
     notes: z.string().optional().or(z.literal('')),
     status: z.nativeEnum(PurchaseOrderStatus).optional(),
+    items: z.array(
+      z.object({
+        id: z.string().uuid().optional(),
+        productId: z.string().uuid().nullable().optional(),
+        materialId: z.string().uuid().nullable().optional(),
+        quantity: z.number().int().min(1),
+        unitPrice: z.number().min(0),
+        tax: z.number().min(0).max(100).default(22).optional(),
+      })
+    ).optional(),
   }),
 };
 

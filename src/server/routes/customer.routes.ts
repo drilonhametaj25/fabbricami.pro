@@ -1,7 +1,6 @@
 import { FastifyPluginAsync } from 'fastify';
 import { authenticate } from '../middleware/auth.middleware';
 import { tenantMiddleware } from '../middleware/tenant.middleware';
-import { requirePlanLimit } from '../middleware/subscription.middleware';
 import { customerService } from '../services/customer.service';
 import {
   createCustomerSchema,
@@ -100,8 +99,13 @@ const customerRoutes: FastifyPluginAsync = async (server: any) => {
 
   /**
    * POST /customers - Crea cliente
+   *
+   * NOTA: il check requirePlanLimit('orders') era un BUG (la creazione customer
+   * non e' soggetta al limite ordini). Il modello SubscriptionPlan non espone
+   * un maxCustomers, quindi rimuoviamo il gate qui. Il limite ordini viene
+   * applicato dove va applicato: in POST /orders.
    */
-  server.post('/', { preHandler: [authenticate, tenantMiddleware, requirePlanLimit('orders')] }, async (request: any, reply: any) => {
+  server.post('/', { preHandler: [authenticate, tenantMiddleware] }, async (request: any, reply: any) => {
     try {
       const data = createCustomerSchema.parse(request.body);
       const customer = await customerService.createCustomer(data);

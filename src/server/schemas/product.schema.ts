@@ -209,7 +209,8 @@ export const createProductVariantSchema = z.object({
   isActive: z.boolean().default(true),
 
   // Campi fisici (per varianti che differiscono in peso/dimensioni)
-  weight: coerceNumber.pipe(z.number().nonnegative().optional()),
+  // .nullable() perche' il client manda null quando l'utente non compila il campo
+  weight: coerceNumber.nullable().optional(),
   dimensions: dimensionsSchema,
 
   // WooCommerce fields

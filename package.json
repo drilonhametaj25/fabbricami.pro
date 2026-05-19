@@ -1,5 +1,5 @@
 {
-  "name": "ecommerce-erp",
+  "name": "fabbricami-pro",
   "version": "1.0.0",
   "description": "Sistema gestionale completo per E-commerce",
   "main": "dist/server/index.js",
@@ -33,6 +33,7 @@
     "prisma:seed:docker": "docker-compose exec backend npm run prisma:seed",
     "prisma:seed:demo:docker": "docker-compose exec backend npm run prisma:seed:demo",
     "prisma:seed:plans": "tsx prisma/seed-plans.ts",
+    "stripe:sync": "tsx scripts/sync-stripe-plans.ts",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
     "docker:build": "docker-compose build",
@@ -55,7 +56,7 @@
     "inventory",
     "warehouse"
   ],
-  "author": "EcommerceERP",
+  "author": "FabbricaMi.pro",
   "license": "MIT",
   "dependencies": {
     "@fastify/cors": "^9.0.1",

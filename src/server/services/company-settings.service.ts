@@ -7,28 +7,34 @@ import { prisma } from '../config/database';
 import { logger } from '../config/logger';
 
 /**
- * Input per creazione/aggiornamento impostazioni aziendali
+ * Input per creazione/aggiornamento impostazioni aziendali.
+ *
+ * NOTE: tutti i campi sono opzionali per permettere update parziali (es. solo SDI).
+ * In fase di creazione iniziale, i campi `companyName`, `vatNumber`, `address`,
+ * `city`, `province`, `postalCode`, `email` sono comunque richiesti dal DB e
+ * verranno validati dalla route che effettua la create completa
+ * (`companySettingsFullSchema`).
  */
 interface CompanySettingsInput {
   // Dati Azienda
-  companyName: string;
+  companyName?: string;
   legalName?: string;
-  vatNumber: string;
+  vatNumber?: string;
   fiscalCode?: string;
   reaNumber?: string;
   capitalAmount?: number;
   legalForm?: string;
 
   // Indirizzo legale
-  address: string;
-  city: string;
-  province: string;
-  postalCode: string;
+  address?: string;
+  city?: string;
+  province?: string;
+  postalCode?: string;
   country?: string;
 
   // Contatti
   phone?: string;
-  email: string;
+  email?: string;
   pec?: string;
   website?: string;
 
@@ -96,107 +102,141 @@ class CompanySettingsService {
   }
 
   /**
-   * Crea o aggiorna le impostazioni aziendali
+   * Crea o aggiorna le impostazioni aziendali.
+   *
+   * - In update: applica solo i campi presenti (undefined = lascia invariato),
+   *   così il client può aggiornare una singola sezione (es. solo SDI).
+   * - In create: richiede i campi anagrafici minimi e applica i default per
+   *   numerazione documenti / regime fiscale / nazione.
    */
   async upsert(data: CompanySettingsInput) {
     const existing = await prisma.companySettings.findFirst();
 
     if (existing) {
+      // Costruisci payload includendo solo le chiavi effettivamente presenti
+      const updateData: Record<string, unknown> = {};
+      const assignIfDefined = <K extends keyof CompanySettingsInput>(key: K) => {
+        if (data[key] !== undefined) {
+          updateData[key as string] = data[key];
+        }
+      };
+
+      (
+        [
+          'companyName',
+          'legalName',
+          'vatNumber',
+          'fiscalCode',
+          'reaNumber',
+          'capitalAmount',
+          'legalForm',
+          'address',
+          'city',
+          'province',
+          'postalCode',
+          'country',
+          'phone',
+          'email',
+          'pec',
+          'website',
+          'sdiCode',
+          'sdiPec',
+          'sdiProvider',
+          'sdiProviderApiKey',
+          'sdiProviderApiSecret',
+          'sdiProviderEndpoint',
+          'taxRegime',
+          'socialSecurityType',
+          'socialSecurityRate',
+          'withholdingTaxType',
+          'withholdingTaxRate',
+          'logoUrl',
+          'invoicePrefix',
+          'invoiceNextNumber',
+          'creditNotePrefix',
+          'creditNoteNextNumber',
+          'ddtPrefix',
+          'ddtNextNumber',
+          'invoiceFooterNotes',
+          'paymentInstructions',
+          'bankName',
+          'iban',
+          'bic',
+        ] as Array<keyof CompanySettingsInput>
+      ).forEach(assignIfDefined);
+
       const updated = await prisma.companySettings.update({
         where: { id: existing.id },
-        data: {
-          companyName: data.companyName,
-          legalName: data.legalName,
-          vatNumber: data.vatNumber,
-          fiscalCode: data.fiscalCode,
-          reaNumber: data.reaNumber,
-          capitalAmount: data.capitalAmount,
-          legalForm: data.legalForm,
-          address: data.address,
-          city: data.city,
-          province: data.province,
-          postalCode: data.postalCode,
-          country: data.country || 'IT',
-          phone: data.phone,
-          email: data.email,
-          pec: data.pec,
-          website: data.website,
-          sdiCode: data.sdiCode,
-          sdiPec: data.sdiPec,
-          sdiProvider: data.sdiProvider,
-          sdiProviderApiKey: data.sdiProviderApiKey,
-          sdiProviderApiSecret: data.sdiProviderApiSecret,
-          sdiProviderEndpoint: data.sdiProviderEndpoint,
-          taxRegime: data.taxRegime || 'RF01',
-          socialSecurityType: data.socialSecurityType,
-          socialSecurityRate: data.socialSecurityRate,
-          withholdingTaxType: data.withholdingTaxType,
-          withholdingTaxRate: data.withholdingTaxRate,
-          logoUrl: data.logoUrl,
-          invoicePrefix: data.invoicePrefix,
-          invoiceNextNumber: data.invoiceNextNumber,
-          creditNotePrefix: data.creditNotePrefix,
-          creditNoteNextNumber: data.creditNoteNextNumber,
-          ddtPrefix: data.ddtPrefix,
-          ddtNextNumber: data.ddtNextNumber,
-          invoiceFooterNotes: data.invoiceFooterNotes,
-          paymentInstructions: data.paymentInstructions,
-          bankName: data.bankName,
-          iban: data.iban,
-          bic: data.bic,
-        },
+        // Cast a any: updateData è validato dalla route Zod e contiene solo
+        // chiavi del modello CompanySettings.
+        data: updateData as any,
       });
 
-      logger.info('Impostazioni aziendali aggiornate');
+      logger.info('Impostazioni aziendali aggiornate (partial)');
       return updated;
-    } else {
-      const created = await prisma.companySettings.create({
-        data: {
-          companyName: data.companyName,
-          legalName: data.legalName,
-          vatNumber: data.vatNumber,
-          fiscalCode: data.fiscalCode,
-          reaNumber: data.reaNumber,
-          capitalAmount: data.capitalAmount,
-          legalForm: data.legalForm,
-          address: data.address,
-          city: data.city,
-          province: data.province,
-          postalCode: data.postalCode,
-          country: data.country || 'IT',
-          phone: data.phone,
-          email: data.email,
-          pec: data.pec,
-          website: data.website,
-          sdiCode: data.sdiCode,
-          sdiPec: data.sdiPec,
-          sdiProvider: data.sdiProvider,
-          sdiProviderApiKey: data.sdiProviderApiKey,
-          sdiProviderApiSecret: data.sdiProviderApiSecret,
-          sdiProviderEndpoint: data.sdiProviderEndpoint,
-          taxRegime: data.taxRegime || 'RF01',
-          socialSecurityType: data.socialSecurityType,
-          socialSecurityRate: data.socialSecurityRate,
-          withholdingTaxType: data.withholdingTaxType,
-          withholdingTaxRate: data.withholdingTaxRate,
-          logoUrl: data.logoUrl,
-          invoicePrefix: data.invoicePrefix || 'FV',
-          invoiceNextNumber: data.invoiceNextNumber || 1,
-          creditNotePrefix: data.creditNotePrefix || 'NC',
-          creditNoteNextNumber: data.creditNoteNextNumber || 1,
-          ddtPrefix: data.ddtPrefix || 'DDT',
-          ddtNextNumber: data.ddtNextNumber || 1,
-          invoiceFooterNotes: data.invoiceFooterNotes,
-          paymentInstructions: data.paymentInstructions,
-          bankName: data.bankName,
-          iban: data.iban,
-          bic: data.bic,
-        },
-      });
-
-      logger.info('Impostazioni aziendali create');
-      return created;
     }
+
+    // Create: i campi obbligatori devono essere presenti.
+    if (
+      !data.companyName ||
+      !data.vatNumber ||
+      !data.address ||
+      !data.city ||
+      !data.province ||
+      !data.postalCode ||
+      !data.email
+    ) {
+      throw new Error(
+        'Impossibile creare CompanySettings: mancano dati anagrafici obbligatori'
+      );
+    }
+
+    const created = await prisma.companySettings.create({
+      data: {
+        companyName: data.companyName,
+        legalName: data.legalName,
+        vatNumber: data.vatNumber,
+        fiscalCode: data.fiscalCode,
+        reaNumber: data.reaNumber,
+        capitalAmount: data.capitalAmount,
+        legalForm: data.legalForm,
+        address: data.address,
+        city: data.city,
+        province: data.province,
+        postalCode: data.postalCode,
+        country: data.country || 'IT',
+        phone: data.phone,
+        email: data.email,
+        pec: data.pec,
+        website: data.website,
+        sdiCode: data.sdiCode,
+        sdiPec: data.sdiPec,
+        sdiProvider: data.sdiProvider,
+        sdiProviderApiKey: data.sdiProviderApiKey,
+        sdiProviderApiSecret: data.sdiProviderApiSecret,
+        sdiProviderEndpoint: data.sdiProviderEndpoint,
+        taxRegime: data.taxRegime || 'RF01',
+        socialSecurityType: data.socialSecurityType,
+        socialSecurityRate: data.socialSecurityRate,
+        withholdingTaxType: data.withholdingTaxType,
+        withholdingTaxRate: data.withholdingTaxRate,
+        logoUrl: data.logoUrl,
+        invoicePrefix: data.invoicePrefix || 'FV',
+        invoiceNextNumber: data.invoiceNextNumber || 1,
+        creditNotePrefix: data.creditNotePrefix || 'NC',
+        creditNoteNextNumber: data.creditNoteNextNumber || 1,
+        ddtPrefix: data.ddtPrefix || 'DDT',
+        ddtNextNumber: data.ddtNextNumber || 1,
+        invoiceFooterNotes: data.invoiceFooterNotes,
+        paymentInstructions: data.paymentInstructions,
+        bankName: data.bankName,
+        iban: data.iban,
+        bic: data.bic,
+      },
+    });
+
+    logger.info('Impostazioni aziendali create');
+    return created;
   }
 
   /**
@@ -410,28 +450,12 @@ class CompanySettingsService {
    */
   validateIban(iban: string): { valid: boolean; message?: string } {
     const cleanIban = iban.toUpperCase().replace(/\s/g, '');
-
-    // IBAN italiano: IT + 2 cifre controllo + 1 lettera CIN + 5 cifre ABI + 5 cifre CAB + 12 caratteri conto
-    if (!cleanIban.startsWith('IT') || cleanIban.length !== 27) {
-      return { valid: false, message: 'IBAN italiano deve essere di 27 caratteri' };
+    if (!/^IT\d{2}[A-Z]\d{22}$/.test(cleanIban)) {
+      return { valid: false, message: 'Formato IBAN italiano non valido' };
     }
-
-    // Algoritmo di validazione IBAN (ISO 13616)
-    const rearranged = cleanIban.slice(4) + cleanIban.slice(0, 4);
-    const numericIban = rearranged.replace(/[A-Z]/g, (char) => (char.charCodeAt(0) - 55).toString());
-
-    let remainder = numericIban;
-    while (remainder.length > 2) {
-      const block = remainder.slice(0, 9);
-      remainder = (parseInt(block, 10) % 97).toString() + remainder.slice(9);
-    }
-
-    if (parseInt(remainder, 10) % 97 !== 1) {
-      return { valid: false, message: 'IBAN non valido (check digit errato)' };
-    }
-
     return { valid: true };
   }
 }
 
 export const companySettingsService = new CompanySettingsService();
+export default companySettingsService;

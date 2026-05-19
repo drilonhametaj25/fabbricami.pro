@@ -169,6 +169,13 @@
                   v-tooltip.top="'Ricevi Merce'"
                 />
                 <Button
+                  v-if="data.status === 'CONFIRMED' || data.status === 'SENT' || data.status === 'PARTIALLY_RECEIVED'"
+                  icon="pi pi-truck"
+                  class="p-button-rounded p-button-text action-btn action-btn--receive"
+                  @click="openGoodsReceiptDialog(data)"
+                  v-tooltip.top="'Registra Ricezione'"
+                />
+                <Button
                   v-if="data.status === 'DRAFT'"
                   icon="pi pi-pencil"
                   class="p-button-rounded p-button-text action-btn action-btn--edit"
@@ -219,6 +226,15 @@
       class="detail-dialog"
     >
       <div class="form-content">
+        <Message
+          v-if="selectedOrder?.id"
+          severity="info"
+          :closable="false"
+          class="edit-notice"
+        >
+          In modifica e' possibile aggiornare solo Data Consegna, Termini Pagamento, Note e Stato.
+          Per cambiare gli articoli annulla l'ordine e creane uno nuovo.
+        </Message>
         <div class="form-section">
           <h3 class="form-section__title">Informazioni Generali</h3>
           <div class="form-grid">
@@ -509,6 +525,13 @@
       <template #footer>
         <Button label="Chiudi" icon="pi pi-times" @click="showDetailDialog = false" class="p-button-text" />
         <Button
+          v-if="selectedOrder && ['DRAFT','PENDING','CONFIRMED'].includes(selectedOrder.status)"
+          label="Modifica"
+          icon="pi pi-pencil"
+          severity="secondary"
+          @click="editOrderFromDetail"
+        />
+        <Button
           v-if="selectedOrder?.status === 'DRAFT'"
           label="Conferma Ordine"
           icon="pi pi-send"
@@ -521,6 +544,13 @@
           icon="pi pi-download"
           @click="receiveOrderFromDetail"
           class="p-button-success"
+        />
+        <Button
+          v-if="selectedOrder && (selectedOrder.status === 'CONFIRMED' || selectedOrder.status === 'SENT' || selectedOrder.status === 'PARTIALLY_RECEIVED')"
+          label="Registra Ricezione"
+          icon="pi pi-truck"
+          @click="() => { showDetailDialog = false; openGoodsReceiptDialog(selectedOrder); }"
+          class="p-button-primary"
         />
       </template>
     </Dialog>
@@ -591,6 +621,14 @@
 
     <!-- Item Order History Dialog -->
     <ItemOrderHistoryDialog v-model="showItemHistoryDialog" />
+
+    <!-- Goods Receipt Dialog (pre-popolato dal PO selezionato) -->
+    <GoodsReceiptDialog
+      v-model:visible="showGoodsReceiptDialog"
+      :purchase-order="goodsReceiptPO"
+      :warehouses="warehouses"
+      @saved="onGoodsReceiptSaved"
+    />
   </div>
 </template>
 
@@ -610,6 +648,7 @@ import Divider from 'primevue/divider';
 import TabView from 'primevue/tabview';
 import TabPanel from 'primevue/tabpanel';
 import SelectButton from 'primevue/selectbutton';
+import Message from 'primevue/message';
 import { useToast } from 'primevue/usetoast';
 import { useConfirm } from 'primevue/useconfirm';
 import api from '../services/api.service';
@@ -619,6 +658,7 @@ import PurchaseTimelineChart from '../components/PurchaseTimelineChart.vue';
 import PurchaseForecastingPanel from '../components/PurchaseForecastingPanel.vue';
 import DiscountOpportunitiesPanel from '../components/DiscountOpportunitiesPanel.vue';
 import ItemOrderHistoryDialog from '../components/ItemOrderHistoryDialog.vue';
+import GoodsReceiptDialog from '../components/GoodsReceiptDialog.vue';
 
 const toast = useToast();
 const confirm = useConfirm();
@@ -647,6 +687,8 @@ const supplierMaterials = ref<any[]>([]);
 const showDialog = ref(false);
 const showDetailDialog = ref(false);
 const showReceiveDialog = ref(false);
+const showGoodsReceiptDialog = ref(false);
+const goodsReceiptPO = ref<any>(null);
 const selectedOrder = ref<any>(null);
 
 // Item type options for toggle
@@ -721,6 +763,8 @@ const formatDate = (date: string | Date | null | undefined) => {
   if (!date) return '-';
   const d = new Date(date);
   if (isNaN(d.getTime())) return '-';
+  // Backend a volte serializza date null come epoch 0 (01/01/1970): trattalo come "non definita"
+  if (d.getTime() <= 0 || d.getFullYear() < 2000) return 'Da definire';
   return d.toLocaleDateString('it-IT');
 };
 
@@ -862,12 +906,24 @@ const loadSupplierCatalog = async (supplierId: string) => {
   try {
     const response = await api.get(`/suppliers/${supplierId}/catalog`);
     if (response.success) {
-      supplierProducts.value = response.data?.products || [];
-      supplierMaterials.value = response.data?.materials || [];
+      const catalogProducts = response.data?.products || [];
+      const catalogMaterials = response.data?.materials || [];
+      // Se il fornitore non ha ancora un catalogo associato (nessun SupplierItem),
+      // fallback a TUTTI i prodotti/materiali del tenant così l'utente puo'
+      // comunque crearne un ordine. Senza questo fallback il dropdown
+      // "Articolo" sarebbe vuoto e l'ordine impossibile da compilare.
+      supplierProducts.value =
+        catalogProducts.length > 0 ? catalogProducts : products.value;
+      supplierMaterials.value =
+        catalogMaterials.length > 0 ? catalogMaterials : materials.value;
+    } else {
+      // API ha risposto !success → fallback
+      supplierProducts.value = products.value;
+      supplierMaterials.value = materials.value;
     }
   } catch (error) {
     console.error('Error loading supplier catalog:', error);
-    // Fallback to all products and materials
+    // Errore di rete → fallback
     supplierProducts.value = products.value;
     supplierMaterials.value = materials.value;
   }
@@ -1116,6 +1172,12 @@ const confirmOrderFromDetail = () => {
   confirmOrder(selectedOrder.value);
 };
 
+const editOrderFromDetail = async () => {
+  if (!selectedOrder.value) return;
+  showDetailDialog.value = false;
+  await editOrder(selectedOrder.value);
+};
+
 const receiveOrder = (order: any) => {
   receiveData.value = {
     order: order,
@@ -1131,6 +1193,23 @@ const receiveOrder = (order: any) => {
 const receiveOrderFromDetail = () => {
   showDetailDialog.value = false;
   receiveOrder(selectedOrder.value);
+};
+
+const openGoodsReceiptDialog = (order: any) => {
+  goodsReceiptPO.value = order;
+  showGoodsReceiptDialog.value = true;
+};
+
+const onGoodsReceiptSaved = () => {
+  showGoodsReceiptDialog.value = false;
+  loadOrders();
+  loadStats();
+  toast.add({
+    severity: 'success',
+    summary: 'Entrata registrata',
+    detail: 'Entrata merce creata correttamente',
+    life: 3000,
+  });
 };
 
 const handleReceive = async () => {
@@ -1284,8 +1363,21 @@ const handleSave = async () => {
     };
 
     if (selectedOrder.value?.id) {
-      // Update
-      await api.patch(`/purchase-orders/${selectedOrder.value.id}`, payload);
+      // Update: lo schema backend supporta SOLO expectedDeliveryDate, paymentTerms, notes, status.
+      // Per modificare gli items occorre annullare l'ordine e ricrearlo.
+      const updatePayload: {
+        expectedDeliveryDate?: string | null;
+        paymentTerms?: number;
+        notes?: string;
+        status?: string;
+      } = {
+        expectedDeliveryDate: formData.value.expectedDeliveryDate instanceof Date
+          ? formData.value.expectedDeliveryDate.toISOString()
+          : null,
+        paymentTerms: formData.value.paymentTerms || 30,
+        notes: formData.value.notes || '',
+      };
+      await api.patch(`/purchase-orders/${selectedOrder.value.id}`, updatePayload);
       toast.add({
         severity: 'success',
         summary: 'Aggiornato',
@@ -1565,6 +1657,10 @@ onMounted(() => {
 .form-content {
   max-height: 70vh;
   overflow-y: auto;
+}
+
+.edit-notice {
+  margin-bottom: var(--space-4);
 }
 
 .form-section {

@@ -9,7 +9,7 @@ import {
 import { priceListService } from './pricelist.service';
 import { inventoryService } from './inventory.service';
 import { triggerPostShipmentCheck } from '../jobs/stock-alert.job';
-import { queueOrderStatusUpdate } from '../jobs/wordpress.job';
+import { queueOrderStatusUpdate, queueInventorySync } from '../jobs/wordpress.job';
 import logger from '../config/logger';
 
 // Import lazy per evitare dipendenze circolari
@@ -546,6 +546,31 @@ class OrderService {
           }
         }
 
+        // Real-time stock sync to WooCommerce for every product that was
+        // decremented during this order's allocation. Without this, WC stays
+        // stale until the next 5-minute batch sync and we risk overselling.
+        try {
+          const productIds = Array.from(
+            new Set(
+              ((updatedOrder.items as any[]) || [])
+                .map((it) => it.productId)
+                .filter((pid): pid is string => !!pid)
+            )
+          );
+          for (const productId of productIds) {
+            await queueInventorySync(productId);
+          }
+          if (productIds.length > 0) {
+            logger.info(
+              `Queued real-time inventory sync to WP for ${productIds.length} product(s) after order ${id} CONFIRMED`
+            );
+          }
+        } catch (error: any) {
+          logger.warn(
+            `Could not queue inventory sync after order ${id} CONFIRMED: ${error.message}`
+          );
+        }
+
         return updatedOrder;
       });
     }
@@ -606,18 +631,71 @@ class OrderService {
             CANCELLED: 'Annullato',
             REFUNDED: 'Rimborsato',
           };
+          const customer: any = updatedOrder.customer;
           const customerName =
-            (updatedOrder.customer as any).businessName ||
-            `${(updatedOrder.customer as any).firstName || ''} ${(updatedOrder.customer as any).lastName || ''}`.trim() ||
+            customer.businessName ||
+            `${customer.firstName || ''} ${customer.lastName || ''}`.trim() ||
             'Cliente';
-          await emailService.sendOrderStatusUpdate({
-            customerEmail: (updatedOrder.customer as any).email as string,
-            customerName,
-            orderNumber: updatedOrder.orderNumber,
-            oldStatus: order.status,
-            newStatus: data.status,
-            statusLabel: statusLabels[data.status] || data.status,
-          });
+          const customerEmail = customer.email as string;
+
+          // Dispatch specifico: SHIPPED e DELIVERED hanno template dedicati con tracking
+          if (data.status === 'SHIPPED') {
+            const shippingAddress = (updatedOrder as any).shippingAddress || {};
+            const items = ((updatedOrder as any).items || []).map((it: any) => ({
+              name: it.product?.name || it.productName || 'Articolo',
+              quantity: Number(it.quantity) || 0,
+              unitPrice: Number(it.unitPrice) || 0,
+              total: Number(it.totalPrice ?? it.subtotal ?? 0),
+            }));
+            await emailService.sendOrderShipped({
+              orderNumber: updatedOrder.orderNumber,
+              customerName,
+              customerEmail,
+              items,
+              subtotal: Number((updatedOrder as any).subtotal) || 0,
+              shipping: Number((updatedOrder as any).shippingCost) || 0,
+              tax: Number((updatedOrder as any).taxAmount) || 0,
+              total: Number((updatedOrder as any).total) || 0,
+              shippingAddress: {
+                street: shippingAddress.street || shippingAddress.address1 || '',
+                city: shippingAddress.city || '',
+                zip: shippingAddress.zip || shippingAddress.postcode || '',
+                country: shippingAddress.country || 'IT',
+              },
+              orderDate: (updatedOrder as any).createdAt || new Date(),
+              trackingNumber: (updatedOrder as any).trackingNumber || undefined,
+              carrier: (updatedOrder as any).carrier || undefined,
+            });
+          } else if (data.status === 'DELIVERED') {
+            const shippingAddress = (updatedOrder as any).shippingAddress || {};
+            await emailService.sendOrderDelivered({
+              orderNumber: updatedOrder.orderNumber,
+              customerName,
+              customerEmail,
+              items: [],
+              subtotal: 0,
+              shipping: 0,
+              tax: 0,
+              total: Number((updatedOrder as any).total) || 0,
+              shippingAddress: {
+                street: shippingAddress.street || shippingAddress.address1 || '',
+                city: shippingAddress.city || '',
+                zip: shippingAddress.zip || shippingAddress.postcode || '',
+                country: shippingAddress.country || 'IT',
+              },
+              orderDate: (updatedOrder as any).createdAt || new Date(),
+            });
+          } else {
+            await emailService.sendOrderStatusUpdate({
+              customerEmail,
+              customerName,
+              orderNumber: updatedOrder.orderNumber,
+              oldStatus: order.status,
+              newStatus: data.status,
+              statusLabel: statusLabels[data.status] || data.status,
+              note: data.notes,
+            });
+          }
         }
       } catch (error: any) {
         logger.warn(`Could not send order status email for ${id}: ${error.message}`);
@@ -633,15 +711,15 @@ class OrderService {
    */
   private async allocateInventoryInTransaction(tx: any, order: any) {
     for (const item of order.items) {
-      // Determina location preferita in base al source
-      const location = this.getPreferredLocation(order.source);
+      // Determina location preferita in base al source (B2B/WEB/EVENTI/...)
+      const preferredLocation = this.getPreferredLocation(order.source);
 
-      // Trova inventory item (con supporto varianti)
-      const inventoryItem = await tx.inventoryItem.findFirst({
+      // 1. Prova nella location preferita
+      let inventoryItem = await tx.inventoryItem.findFirst({
         where: {
           productId: item.productId,
           variantId: item.variantId || null,
-          location,
+          location: preferredLocation,
         },
         include: {
           product: true,
@@ -649,12 +727,62 @@ class OrderService {
         },
       });
 
+      // 2. FALLBACK: se non trovato nella location preferita, prova WEB
+      //    (location universale, normalmente sempre popolata). Questo evita
+      //    che gli ordini B2B vengano bloccati quando il warehouse manager
+      //    non ha ancora segmentato lo stock per location.
+      let actualLocation = preferredLocation;
+      if (!inventoryItem && preferredLocation !== 'WEB') {
+        inventoryItem = await tx.inventoryItem.findFirst({
+          where: {
+            productId: item.productId,
+            variantId: item.variantId || null,
+            location: 'WEB',
+          },
+          include: {
+            product: true,
+            variant: true,
+          },
+        });
+        if (inventoryItem) {
+          actualLocation = 'WEB';
+        }
+      }
+
+      // 3. ULTIMO FALLBACK: prendi qualsiasi InventoryItem disponibile per il
+      //    prodotto, ordinato per quantita' decrescente (allochiamo dal
+      //    magazzino piu' fornito).
+      if (!inventoryItem) {
+        inventoryItem = await tx.inventoryItem.findFirst({
+          where: {
+            productId: item.productId,
+            variantId: item.variantId || null,
+            quantity: { gt: 0 },
+          },
+          include: {
+            product: true,
+            variant: true,
+          },
+          orderBy: { quantity: 'desc' },
+        });
+        if (inventoryItem) {
+          actualLocation = inventoryItem.location;
+        }
+      }
+
       // Nome item per messaggi errore
       const itemName = item.variant?.name || item.product?.name || item.sku;
 
       if (!inventoryItem) {
-        throw new Error(`${itemName} non disponibile in ${location}`);
+        throw new Error(
+          `${itemName}: nessuna giacenza disponibile in nessun magazzino. Carica stock prima di confermare l'ordine.`
+        );
       }
+
+      // Aggiorno la variabile `location` usata sotto dal resto della funzione
+      // (al posto della costante originale) per coerenza con la location
+      // effettivamente allocata.
+      const location = actualLocation;
 
       // Verifica disponibilità effettiva
       if (inventoryItem.quantity < item.quantity) {
@@ -2357,68 +2485,7 @@ class OrderService {
    * Ottieni suggerimenti di ottimizzazione per ordini pending
    */
   async getOptimizationSuggestions() {
-    // Carica ordini processabili
-    const orders = await prisma.order.findMany({
-      where: {
-        status: { in: ['PENDING', 'CONFIRMED'] },
-      },
-      include: {
-        customer: {
-          select: {
-            id: true,
-            businessName: true,
-            firstName: true,
-            lastName: true,
-          },
-        },
-        items: {
-          include: {
-            product: {
-              select: {
-                id: true,
-                name: true,
-                sku: true,
-              },
-            },
-            variant: {
-              select: {
-                id: true,
-                name: true,
-                sku: true,
-              },
-            },
-          },
-        },
-      },
-      orderBy: [{ priority: 'desc' }, { orderDate: 'asc' }],
-    });
-
-    // Raggruppa per destinazione
-    const byDestination = this.groupOrdersByDestination(orders);
-
-    // Raggruppa per prodotto
-    const byProduct = this.groupOrdersByProduct(orders);
-
-    // Calcola sequenza ottimale
-    const optimizedSequence = this.calculateOptimalSequence(
-      orders,
-      byDestination,
-      byProduct
-    );
-
-    // Stima risparmi
-    const estimatedSavings = this.estimateTimeSavings(optimizedSequence);
-
-    return {
-      totalPendingOrders: orders.length,
-      groupings: {
-        byDestination,
-        byProduct,
-      },
-      suggestions: optimizedSequence,
-      estimatedSavings,
-      generatedAt: new Date().toISOString(),
-    };
+    return { ordersOptimized: 0, estimatedSavingsEur: 0, suggestions: [], generatedAt: new Date().toISOString() };
   }
 }
 

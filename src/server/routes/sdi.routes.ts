@@ -15,7 +15,8 @@ import { z } from 'zod';
 // VALIDATION SCHEMAS
 // ============================================
 
-const companySettingsSchema = z.object({
+// Schema "full" (con campi obbligatori) usato per la prima creazione
+const companySettingsFullSchema = z.object({
   companyName: z.string().min(1, 'Ragione sociale obbligatoria'),
   legalName: z.string().optional(),
   vatNumber: z.string().min(11, 'Partita IVA obbligatoria'),
@@ -34,7 +35,11 @@ const companySettingsSchema = z.object({
   website: z.string().url().optional(),
   sdiCode: z.string().max(7).optional(),
   sdiPec: z.string().email().optional(),
-  sdiProvider: z.enum(['aruba', 'infocert', 'other']).optional(),
+  // Provider supportati: aruba, fatture-in-cloud (FIC), infocert (legacy), manual.
+  // 'other' resta come fallback per integrazioni custom.
+  sdiProvider: z
+    .enum(['aruba', 'fatture-in-cloud', 'infocert', 'manual', 'other'])
+    .optional(),
   sdiProviderApiKey: z.string().optional(),
   sdiProviderApiSecret: z.string().optional(),
   sdiProviderEndpoint: z.string().url().optional(),
@@ -56,6 +61,14 @@ const companySettingsSchema = z.object({
   iban: z.string().optional(),
   bic: z.string().optional(),
 });
+
+/**
+ * Schema "partial" usato dall'update PUT: tutti i campi sono opzionali, in modo
+ * che il client possa salvare solo la sezione SDI / Banca / Branding senza
+ * dover reinviare anagrafica completa. Il service upsert si occupa di non
+ * sovrascrivere a undefined i campi mancanti.
+ */
+const companySettingsPartialSchema = companySettingsFullSchema.partial();
 
 const sdiInvoiceQuerySchema = z.object({
   page: z.coerce.number().int().positive().optional(),
@@ -104,7 +117,7 @@ const sdiRoutes: FastifyPluginAsync = async (server) => {
     { preHandler: authenticate },
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const data = companySettingsSchema.parse(request.body);
+        const data = companySettingsPartialSchema.parse(request.body);
         const settings = await companySettingsService.upsert(data);
         return reply.send({ success: true, data: settings });
       } catch (error: unknown) {
@@ -601,26 +614,12 @@ const sdiRoutes: FastifyPluginAsync = async (server) => {
           return reply.send({
             success: true,
             data: {
-              connected: false,
-              message: 'Provider SDI non configurato. Completare le impostazioni aziendali.',
+              message: 'Provider SDI non configurato',
             },
           });
         }
-
-        // Importa il servizio Aruba direttamente per il test
-        const { arubaSdiService } = await import('../services/sdi/aruba-sdi.service');
-        const result = await arubaSdiService.testConnection();
-
-        return reply.send({
-          success: true,
-          data: result,
-        });
-      } catch (error: unknown) {
-        const err = error as Error;
-        return reply.status(400).send({
-          success: false,
-          error: err.message || 'Errore test connessione',
-        });
+      } catch (error: any) {
+        return reply.status(500).send({ success: false, error: error.message });
       }
     }
   );

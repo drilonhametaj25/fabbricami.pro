@@ -9,9 +9,9 @@ export async function setupSwagger(server: FastifyInstance) {
   await server.register(fastifySwagger, {
     openapi: {
       info: {
-        title: 'EcommerceERP API',
+        title: 'FabbricaMi.pro API',
         description: `
-## API REST per il gestionale EcommerceERP
+## API REST per il gestionale FabbricaMi.pro
 
 Questo documento descrive le API disponibili per:
 - **Gestione Prodotti**: CRUD prodotti, varianti, BOM, lavorazioni
@@ -49,7 +49,7 @@ Le API pubbliche hanno un limite di 100 richieste/minuto per IP.
         `,
         version: '1.0.0',
         contact: {
-          name: 'EcommerceERP',
+          name: 'FabbricaMi.pro',
           email: 'dev@ecommerceerp.com',
         },
         license: {

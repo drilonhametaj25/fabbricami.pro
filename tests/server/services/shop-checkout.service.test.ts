@@ -416,7 +416,7 @@ describe('ShopCheckoutService', () => {
     it('should mark order as confirmed on payment capture', async () => {
       const mockOrder = createMockOrder({
         status: 'PENDING',
-        items: [{ productId: 'prod-1', variantId: null, quantity: 2 }],
+        items: [{ id: 'oi-1', productId: 'prod-1', variantId: null, quantity: 2 }],
         notes: '[CART:cart-123]',
       });
       prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
@@ -424,6 +424,17 @@ describe('ShopCheckoutService', () => {
         return callback(prismaMock as any);
       });
       prismaMock.order.update.mockResolvedValue(createMockOrder({ status: 'CONFIRMED' }) as any);
+      // Stock-unification mocks (shop now uses InventoryItem like B2B flow)
+      prismaMock.inventoryItem.findFirst.mockResolvedValue({
+        id: 'inv-1',
+        productId: 'prod-1',
+        variantId: null,
+        location: 'WEB',
+        quantity: 100,
+        reservedQuantity: 0,
+      } as any);
+      prismaMock.inventoryItem.update.mockResolvedValue({} as any);
+      prismaMock.inventoryMovement.create.mockResolvedValue({} as any);
       prismaMock.product.update.mockResolvedValue({} as any);
       prismaMock.loyaltyAccount.findUnique.mockResolvedValue(null);
       prismaMock.cartItem.deleteMany.mockResolvedValue({ count: 1 });
@@ -473,8 +484,8 @@ describe('ShopCheckoutService', () => {
       const mockOrder = createMockOrder({
         status: 'PENDING',
         items: [
-          { productId: 'prod-1', variantId: null, quantity: 2 },
-          { productId: 'prod-2', variantId: 'var-1', quantity: 3 },
+          { id: 'oi-1', productId: 'prod-1', variantId: null, quantity: 2 },
+          { id: 'oi-2', productId: 'prod-2', variantId: 'var-1', quantity: 3 },
         ],
       });
       prismaMock.order.findUnique.mockResolvedValue(mockOrder as any);
@@ -482,6 +493,21 @@ describe('ShopCheckoutService', () => {
         return callback(prismaMock as any);
       });
       prismaMock.order.update.mockResolvedValue(createMockOrder({ status: 'CONFIRMED' }) as any);
+      // Updated stock-unification flow: shop checkout now decrements
+      // InventoryItem on location WEB (same as B2B) and emits an
+      // InventoryMovement, in addition to the legacy wcStockQuantity counter.
+      prismaMock.inventoryItem.findFirst.mockImplementation(({ where }: any) => {
+        return Promise.resolve({
+          id: `inv-${where.productId}`,
+          productId: where.productId,
+          variantId: where.variantId,
+          location: 'WEB',
+          quantity: 100,
+          reservedQuantity: 0,
+        }) as any;
+      });
+      prismaMock.inventoryItem.update.mockResolvedValue({} as any);
+      prismaMock.inventoryMovement.create.mockResolvedValue({} as any);
       prismaMock.product.update.mockResolvedValue({} as any);
       prismaMock.productVariant.update.mockResolvedValue({} as any);
       prismaMock.loyaltyAccount.findUnique.mockResolvedValue(null);
@@ -492,13 +518,22 @@ describe('ShopCheckoutService', () => {
         'pi_stripe_123'
       );
 
-      // Stock should be decremented for products
+      // InventoryItem on WEB should be decremented (unified stock with B2B flow)
+      expect(prismaMock.inventoryItem.update).toHaveBeenCalledWith({
+        where: { id: 'inv-prod-1' },
+        data: { quantity: { decrement: 2 } },
+      });
+
+      // InventoryMovement audit trail
+      expect(prismaMock.inventoryMovement.create).toHaveBeenCalled();
+
+      // Stock should be decremented for products (legacy counter)
       expect(prismaMock.product.update).toHaveBeenCalledWith({
         where: { id: 'prod-1' },
         data: { wcStockQuantity: { decrement: 2 } },
       });
 
-      // Stock should be decremented for variants
+      // Stock should be decremented for variants (legacy counter)
       expect(prismaMock.productVariant.update).toHaveBeenCalledWith({
         where: { id: 'var-1' },
         data: { wcStockQuantity: { decrement: 3 } },
@@ -767,5 +802,61 @@ describe('ShopCheckoutService', () => {
         shopCheckoutService.trackOrder('NONEXISTENT', 'test@test.com')
       ).rejects.toThrow('Ordine non trovato');
     });
+  });
+});
+,],
+      } as any);
+
+      const result = await shopCheckoutService.trackOrder("ORD-123");
+
+      expect(result).toBeDefined();
+    });
+
+    it("should validate by email when provided", async () => {
+      prismaMock.order.findFirst.mockResolvedValueOnce({
+        orderNumber: "ORD-123",
+        customer: { email: "customer@test.com" },
+      } as any);
+      prismaMock.order.findFirst.mockResolvedValueOnce({
+        orderNumber: "ORD-123",
+        status: "SHIPPED",
+      } as any);
+
+      const result = await shopCheckoutService.trackOrder("ORD-123", "customer@test.com");
+
+      expect(result).toBeDefined();
+    });
+
+    it("should throw when email does not match", async () => {
+      prismaMock.order.findFirst.mockResolvedValueOnce({
+        orderNumber: "ORD-123",
+        customer: { email: "other@test.com" },
+      } as any);
+
+      await expect(
+        shopCheckoutService.trackOrder("ORD-123", "wrong@test.com")
+      ).rejects.toThrow("Ordine non trovato");
+    });
+
+    it("should throw when order not found with email verification", async () => {
+      prismaMock.order.findFirst.mockResolvedValue(null);
+
+      await expect(
+        shopCheckoutService.trackOrder("NONEXISTENT", "test@test.com")
+      ).rejects.toThrow("Ordine non trovato");
+    });
+  });
+});
+    });
+
+    it('should throw when order not found with email verification', async () => {
+      prismaMock.order.findFirst.mockResolvedValue(null);
+
+      await expect(
+        shopCheckoutService.trackOrder('NONEXISTENT', 'test@test.com')
+      ).rejects.toThrow('Ordine non trovato');
+    });
+  });
+});
   });
 });

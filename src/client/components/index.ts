@@ -1,4 +1,4 @@
-// EcommerceERP - Componenti Riutilizzabili
+// FabbricaMi.pro - Componenti Riutilizzabili
 
 // Layout Components
 export { default as PageHeader } from './PageHeader.vue';

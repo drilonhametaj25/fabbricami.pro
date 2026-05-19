@@ -443,7 +443,18 @@ class GoodsReceiptService {
       throw new Error('Ispezione qualità richiesta prima del completamento');
     }
 
-    return await prisma.$transaction(async (tx) => {
+    // Collect product IDs whose stock will change, so after the commit we can
+    // push a real-time stock update to WooCommerce (instead of waiting for
+    // the 5-minute batch sync).
+    const productIdsTouched = Array.from(
+      new Set(
+        receipt.items
+          .filter((it) => it.acceptedQuantity > 0 && it.productId)
+          .map((it) => it.productId as string)
+      )
+    );
+
+    const result = await prisma.$transaction(async (tx) => {
       // 1. Aggiorna inventario per ogni articolo accettato
       for (const item of receipt.items) {
         if (item.acceptedQuantity <= 0) continue;
@@ -555,6 +566,26 @@ class GoodsReceiptService {
 
       return completedReceipt;
     });
+
+    // Post-commit: push real-time stock updates to WooCommerce for each
+    // product whose stock changed. Best-effort: log and swallow errors so
+    // the receipt completion isn't blocked by a transient WP outage.
+    // Skipped in test env to avoid loading BullMQ/Redis from unit tests.
+    if (productIdsTouched.length > 0 && process.env.NODE_ENV !== 'test') {
+      try {
+        const { queueInventorySync } = await import('../jobs/wordpress.job');
+        for (const productId of productIdsTouched) {
+          await queueInventorySync(productId);
+        }
+      } catch (err: any) {
+        // Don't fail the receipt — the 5-min batch sync will catch up.
+        console.warn(
+          `Goods receipt ${id}: failed to queue WP inventory sync for ${productIdsTouched.length} product(s): ${err?.message || err}`
+        );
+      }
+    }
+
+    return result;
   }
 
   /**

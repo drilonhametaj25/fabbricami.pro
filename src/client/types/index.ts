@@ -1,5 +1,5 @@
 /**
- * EcommerceERP - Type Definitions
+ * FabbricaMi.pro - Type Definitions
  */
 
 // ============================================

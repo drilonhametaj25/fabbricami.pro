@@ -207,7 +207,7 @@
       },
       "targets": [
         {
-          "expr": "pg_stat_activity_count{datname=\"ecommerce_erp\"}",
+          "expr": "pg_stat_activity_count{datname=\"fabbricami_pro\"}",
           "legendFormat": "DB Connections"
         }
       ],
@@ -585,11 +585,11 @@
       },
       "targets": [
         {
-          "expr": "rate(pg_stat_database_xact_commit{datname=\"ecommerce_erp\"}[5m])",
+          "expr": "rate(pg_stat_database_xact_commit{datname=\"fabbricami_pro\"}[5m])",
           "legendFormat": "Commits"
         },
         {
-          "expr": "rate(pg_stat_database_xact_rollback{datname=\"ecommerce_erp\"}[5m])",
+          "expr": "rate(pg_stat_database_xact_rollback{datname=\"fabbricami_pro\"}[5m])",
           "legendFormat": "Rollbacks"
         }
       ],
@@ -648,12 +648,12 @@
   "refresh": "30s",
   "schemaVersion": 38,
   "style": "dark",
-  "tags": ["erp", "ecommerce_erp"],
+  "tags": ["erp", "fabbricami_pro"],
   "templating": { "list": [] },
   "time": { "from": "now-6h", "to": "now" },
   "timepicker": {},
   "timezone": "Europe/Rome",
-  "title": "EcommerceERP Dashboard",
-  "uid": "ecommerce_erp-erp",
+  "title": "FabbricaMi.pro Dashboard",
+  "uid": "fabbricami_pro-erp",
   "version": 1
 }

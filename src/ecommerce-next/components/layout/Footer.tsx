@@ -41,7 +41,7 @@ export function Footer() {
           <div className="lg:col-span-2">
             <Link href="/" className="inline-block mb-6">
               <span className="font-display text-2xl font-semibold text-white">
-                EcommerceERP
+                FabbricaMi.pro
               </span>
             </Link>
             <p className="text-text-secondary mb-6 max-w-sm">
@@ -143,7 +143,7 @@ export function Footer() {
 
         {/* Bottom Bar */}
         <div className="py-6 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-text-muted">
-          <p>&copy; {new Date().getFullYear()} EcommerceERP. All rights reserved.</p>
+          <p>&copy; {new Date().getFullYear()} FabbricaMi.pro. All rights reserved.</p>
           <div className="flex items-center gap-4">
             <span>Secure payments via</span>
             <div className="flex gap-2">

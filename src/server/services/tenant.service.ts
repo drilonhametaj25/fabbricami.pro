@@ -211,7 +211,8 @@ class TenantService {
   async setupInitialTenant(
     userId: string,
     tenantName: string,
-    planCode: string = 'PRO'
+    planCode: string = 'PRO',
+    billingCycle: 'monthly' | 'annual' = 'monthly'
   ): Promise<TenantWithSubscription> {
     // Generate unique slug from tenant name
     const baseSlug = this.sanitizeSlug(tenantName);
@@ -251,7 +252,7 @@ class TenantService {
     });
 
     // Create trial subscription
-    await subscriptionService.createTrialSubscription(tenant.id, planCode);
+    await subscriptionService.createTrialSubscription(tenant.id, planCode, billingCycle);
 
     // Return full tenant details
     return this.getTenantWithDetails(tenant.id) as Promise<TenantWithSubscription>;

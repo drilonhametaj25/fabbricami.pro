@@ -220,14 +220,24 @@ class AccountingService {
 
   /**
    * Crea fattura manuale
+   *
+   * NOTE: `items` viene accettato dallo schema per compatibilità con il dialog
+   * "Nuova Fattura" del frontend, ma NON viene persistito (Invoice non ha
+   * una relazione items). Le righe vengono già sintetizzate in subtotal/tax/total.
    */
   async createInvoice(data: CreateInvoiceInput) {
     const invoiceNumber = await this.generateInvoiceNumber(data.type);
     const dueDate = data.dueDate || this.calculateDueDate(new Date(data.issueDate), 30);
 
+    // Rimuovi `items` dal payload Prisma (non c'è modello InvoiceItem persistito):
+    // gli items vengono inviati dal client a scopo informativo, ma Invoice
+    // memorizza solo subtotal/tax/total.
+    const persistData = { ...data } as CreateInvoiceInput;
+    delete (persistData as { items?: unknown }).items;
+
     const invoice = await prisma.invoice.create({
       data: {
-        ...data,
+        ...persistData,
         invoiceNumber,
         dueDate,
         status: 'ISSUED',
@@ -1983,21 +1993,9 @@ class AccountingService {
       const grossProfit = revenue - cogs;
       const grossMarginPct = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
 
-      results.push({
-        productId: product.id,
-        productSku: product.sku,
-        productName: product.name,
-        revenue: Math.round(revenue * 100) / 100,
-        cogs: Math.round(cogs * 100) / 100,
-        grossProfit: Math.round(grossProfit * 100) / 100,
-        grossMarginPct: Math.round(grossMarginPct * 100) / 100,
-        unitsSold,
-      });
     }
 
-    // Ordina per grossProfit decrescente
-    results.sort((a, b) => b.grossProfit - a.grossProfit);
-    return results.slice(0, limit);
+    return { processed: results.length, results };
   }
 }
 

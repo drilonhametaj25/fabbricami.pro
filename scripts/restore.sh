@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ============================================
-# EcommerceERP - Restore Script
+# FabbricaMi.pro - Restore Script
 # ============================================
 # Ripristina backup database
 #
@@ -15,7 +15,7 @@ set -e
 
 # Configurazione
 BACKUP_DIR="${BACKUP_DIR:-/backups}"
-DB_NAME="${POSTGRES_DB:-ecommerce_erp}"
+DB_NAME="${POSTGRES_DB:-fabbricami_pro}"
 DB_USER="${POSTGRES_USER:-postgres}"
 
 # Colori output
@@ -147,7 +147,7 @@ restore_backup() {
 
 # Help
 show_help() {
-    echo "EcommerceERP - Script di Restore"
+    echo "FabbricaMi.pro - Script di Restore"
     echo ""
     echo "Utilizzo: $0 <comando>"
     echo ""

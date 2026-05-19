@@ -394,6 +394,7 @@ import Divider from 'primevue/divider';
 import Avatar from 'primevue/avatar';
 import { useToast } from 'primevue/usetoast';
 import { useConfirm } from 'primevue/useconfirm';
+import { useAuthStore } from '../stores/auth.store';
 import api from '../services/api.service';
 import PageHeader from '../components/PageHeader.vue';
 import StatsCard from '../components/StatsCard.vue';
@@ -765,8 +766,13 @@ const handleSave = async () => {
         life: 3000,
       });
     } else {
-      // Create
-      await api.post('/tasks', formData.value);
+      // Create — il backend richiede createdById, lo prendiamo dall'auth store
+      const authStore = useAuthStore();
+      const payload = {
+        ...formData.value,
+        createdById: authStore.user?.id,
+      };
+      await api.post('/tasks', payload);
       toast.add({
         severity: 'success',
         summary: 'Creato',

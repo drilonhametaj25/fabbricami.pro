@@ -879,8 +879,8 @@ const loadFinancialReports = async () => {
 
     // Load Aging Reports
     const [agingRec, agingPay] = await Promise.all([
-      api.get('/reports/aging/receivables'),
-      api.get('/reports/aging/payables'),
+      api.get('/reports/financial/aging/receivables'),
+      api.get('/reports/financial/aging/payables'),
     ]);
     if (agingRec.success) agingReceivables.value = agingRec.data;
     if (agingPay.success) agingPayables.value = agingPay.data;
@@ -1210,8 +1210,8 @@ const exportProfitLossPdf = async () => {
   try {
     exportingPL.value = true;
     const [from, to] = dateRange.value;
-    const response = await api.get('/reports/export/profit-loss/pdf', {
-      params: { from: from.toISOString(), to: to.toISOString() },
+    const response = await api.get('/reports/financial/profit-loss', {
+      params: { from: from.toISOString(), to: to.toISOString(), format: 'pdf' },
       responseType: 'blob',
     });
     downloadBlob(response, 'conto-economico.pdf');

@@ -1,5 +1,5 @@
 # ===========================================
-# EcommerceERP E-commerce - Next.js 14 Dockerfile
+# FabbricaMi.pro E-commerce - Next.js 14 Dockerfile
 # Multi-stage build per produzione ottimizzata
 # ===========================================
 

@@ -73,12 +73,30 @@
           <div class="field-group">
             <div class="field">
               <label for="price">Prezzo (€) *</label>
-              <InputNumber id="price" v-model="form.price" mode="currency" currency="EUR" locale="it-IT" class="w-full" />
+              <InputNumber
+                id="price"
+                v-model="form.price"
+                mode="currency"
+                currency="EUR"
+                locale="it-IT"
+                :minFractionDigits="2"
+                :maxFractionDigits="2"
+                class="w-full"
+              />
             </div>
 
             <div class="field">
               <label for="cost">Costo (€) *</label>
-              <InputNumber id="cost" v-model="form.cost" mode="currency" currency="EUR" locale="it-IT" class="w-full" />
+              <InputNumber
+                id="cost"
+                v-model="form.cost"
+                mode="currency"
+                currency="EUR"
+                locale="it-IT"
+                :minFractionDigits="2"
+                :maxFractionDigits="2"
+                class="w-full"
+              />
             </div>
           </div>
 

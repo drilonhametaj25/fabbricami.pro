@@ -338,27 +338,29 @@
     </Dialog>
 
     <!-- Create Invoice Dialog -->
-    <Dialog v-model:visible="showCreateDialog" header="Nuova Fattura" modal :style="{ width: '600px' }">
+    <Dialog v-model:visible="showCreateDialog" header="Nuova Fattura" modal :style="{ width: '900px' }">
       <div class="create-form">
-        <div class="form-field">
-          <label>Tipo Fattura</label>
-          <Dropdown
-            v-model="newInvoice.type"
-            :options="[{ label: 'Attiva (Vendita)', value: 'SALE' }, { label: 'Passiva (Acquisto)', value: 'PURCHASE' }]"
-            optionLabel="label"
-            optionValue="value"
-            class="w-full"
-          />
-        </div>
-        <div class="form-field">
-          <label>Tipo Documento</label>
-          <Dropdown
-            v-model="newInvoice.documentType"
-            :options="documentTypes"
-            optionLabel="label"
-            optionValue="value"
-            class="w-full"
-          />
+        <div class="form-row">
+          <div class="form-field">
+            <label>Tipo Fattura</label>
+            <Dropdown
+              v-model="newInvoice.type"
+              :options="[{ label: 'Attiva (Vendita)', value: 'SALE' }, { label: 'Passiva (Acquisto)', value: 'PURCHASE' }]"
+              optionLabel="label"
+              optionValue="value"
+              class="w-full"
+            />
+          </div>
+          <div class="form-field">
+            <label>Tipo Documento</label>
+            <Dropdown
+              v-model="newInvoice.documentType"
+              :options="documentTypes"
+              optionLabel="label"
+              optionValue="value"
+              class="w-full"
+            />
+          </div>
         </div>
         <div class="form-field">
           <label>{{ newInvoice.type === 'SALE' ? 'Cliente' : 'Fornitore' }}</label>
@@ -383,6 +385,91 @@
             <Calendar v-model="newInvoice.dueDate" dateFormat="dd/mm/yy" showIcon class="w-full" />
           </div>
         </div>
+
+        <!-- Righe Fattura -->
+        <div class="form-field">
+          <div class="items-header">
+            <label>Righe Fattura</label>
+            <Button label="Aggiungi Riga" icon="pi pi-plus" size="small" severity="secondary" @click="addInvoiceItem" />
+          </div>
+          <DataTable :value="newInvoice.items" class="invoice-items-table" responsiveLayout="scroll" :pt="{ wrapper: { style: 'max-height: 320px' } }">
+            <Column header="Descrizione" style="min-width: 220px">
+              <template #body="{ index }">
+                <InputText v-model="newInvoice.items[index].description" class="w-full" placeholder="Es. Servizio consulenza" />
+              </template>
+            </Column>
+            <Column header="Q.tà" style="width: 90px">
+              <template #body="{ index }">
+                <InputNumber
+                  v-model="newInvoice.items[index].quantity"
+                  :min="0"
+                  :minFractionDigits="0"
+                  :maxFractionDigits="2"
+                  class="w-full"
+                  @input="recalcItemTotal(index)"
+                />
+              </template>
+            </Column>
+            <Column header="Prezzo Unit." style="width: 130px">
+              <template #body="{ index }">
+                <InputNumber
+                  v-model="newInvoice.items[index].unitPrice"
+                  mode="currency"
+                  currency="EUR"
+                  locale="it-IT"
+                  :min="0"
+                  class="w-full"
+                  @input="recalcItemTotal(index)"
+                />
+              </template>
+            </Column>
+            <Column header="IVA %" style="width: 110px">
+              <template #body="{ index }">
+                <Dropdown
+                  v-model="newInvoice.items[index].taxRate"
+                  :options="vatRateOptions"
+                  optionLabel="label"
+                  optionValue="value"
+                  class="w-full"
+                  @change="recalcItemTotal(index)"
+                />
+              </template>
+            </Column>
+            <Column header="Totale" style="width: 130px">
+              <template #body="{ index }">
+                <span class="item-total">{{ formatCurrency(itemLineTotal(newInvoice.items[index])) }}</span>
+              </template>
+            </Column>
+            <Column header="" style="width: 50px">
+              <template #body="{ index }">
+                <Button icon="pi pi-trash" text rounded severity="danger" size="small" @click="removeInvoiceItem(index)" />
+              </template>
+            </Column>
+            <template #empty>
+              <div class="items-empty">
+                <i class="pi pi-info-circle"></i>
+                Nessuna riga. Clicca "Aggiungi Riga" per iniziare.
+              </div>
+            </template>
+          </DataTable>
+
+          <!-- Totali -->
+          <div class="invoice-totals">
+            <div class="invoice-totals-row">
+              <span>Imponibile:</span>
+              <strong>{{ formatCurrency(invoiceSubtotal) }}</strong>
+            </div>
+            <div class="invoice-totals-row">
+              <span>IVA:</span>
+              <strong>{{ formatCurrency(invoiceTax) }}</strong>
+            </div>
+            <div class="invoice-totals-row invoice-totals-row--final">
+              <span>Totale:</span>
+              <strong>{{ formatCurrency(invoiceTotal) }}</strong>
+            </div>
+          </div>
+        </div>
+
         <div class="form-field">
           <label>Note</label>
           <Textarea v-model="newInvoice.notes" rows="2" class="w-full" />
@@ -398,12 +485,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import PageHeader from '../components/PageHeader.vue';
 import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
 import Button from 'primevue/button';
 import InputText from 'primevue/inputtext';
+import InputNumber from 'primevue/inputnumber';
 import Dropdown from 'primevue/dropdown';
 import Calendar from 'primevue/calendar';
 import Dialog from 'primevue/dialog';
@@ -411,6 +499,14 @@ import Tag from 'primevue/tag';
 import Textarea from 'primevue/textarea';
 import { useToast } from 'primevue/usetoast';
 import apiService from '../services/api.service';
+
+// Tipo riga fattura (lato client)
+interface InvoiceItemDraft {
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  taxRate: number;
+}
 
 const toast = useToast();
 
@@ -443,7 +539,7 @@ const filters = ref({
   dateRange: null as Date[] | null,
 });
 
-// New invoice form
+// New invoice form (con righe e totali calcolati lato client)
 const newInvoice = ref({
   type: 'SALE',
   documentType: 'TD01',
@@ -451,7 +547,62 @@ const newInvoice = ref({
   issueDate: new Date(),
   dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
   notes: '',
+  items: [] as InvoiceItemDraft[],
 });
+
+// Aliquote IVA standard FatturaPA
+const vatRateOptions = [
+  { label: '22%', value: 22 },
+  { label: '10%', value: 10 },
+  { label: '5%', value: 5 },
+  { label: '4%', value: 4 },
+  { label: '0% (esente)', value: 0 },
+];
+
+// Helpers righe
+const addInvoiceItem = () => {
+  newInvoice.value.items.push({
+    description: '',
+    quantity: 1,
+    unitPrice: 0,
+    taxRate: 22,
+  });
+};
+
+const removeInvoiceItem = (index: number) => {
+  newInvoice.value.items.splice(index, 1);
+};
+
+// Placeholder per onInput PrimeVue InputNumber — non serve fare nulla,
+// il totale è derivato; tenuto per coerenza con il template.
+const recalcItemTotal = (_index: number) => {
+  // no-op: totali ricalcolati dai computed
+};
+
+const itemLineTotal = (item: InvoiceItemDraft | undefined) => {
+  if (!item) return 0;
+  const qty = Number(item.quantity) || 0;
+  const price = Number(item.unitPrice) || 0;
+  const taxRate = Number(item.taxRate) || 0;
+  const net = qty * price;
+  return net + (net * taxRate) / 100;
+};
+
+// Totali fattura
+const invoiceSubtotal = computed(() => {
+  return newInvoice.value.items.reduce((sum, it) => {
+    return sum + (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0);
+  }, 0);
+});
+
+const invoiceTax = computed(() => {
+  return newInvoice.value.items.reduce((sum, it) => {
+    const net = (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0);
+    return sum + (net * (Number(it.taxRate) || 0)) / 100;
+  }, 0);
+});
+
+const invoiceTotal = computed(() => invoiceSubtotal.value + invoiceTax.value);
 
 // Options
 const invoiceTypes = [
@@ -531,19 +682,69 @@ const viewInvoice = (invoice: any) => {
 };
 
 const createInvoice = async () => {
+  // Validazione minima lato client
+  if (!newInvoice.value.customerId) {
+    toast.add({
+      severity: 'warn',
+      summary: 'Cliente mancante',
+      detail: 'Seleziona un cliente/fornitore prima di creare la fattura',
+      life: 4000,
+    });
+    return;
+  }
+  if (newInvoice.value.items.length === 0) {
+    toast.add({
+      severity: 'warn',
+      summary: 'Righe mancanti',
+      detail: 'Aggiungi almeno una riga alla fattura',
+      life: 4000,
+    });
+    return;
+  }
+
   creating.value = true;
   try {
-    await apiService.post('/accounting/invoices', {
-      ...newInvoice.value,
+    // Arrotonda a 2 decimali per evitare problemi di precisione lato backend
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+
+    const payload = {
+      type: newInvoice.value.type,
+      documentType: newInvoice.value.documentType,
+      customerId: newInvoice.value.customerId,
       issueDate: newInvoice.value.issueDate.toISOString(),
       dueDate: newInvoice.value.dueDate.toISOString(),
-    });
+      subtotal: round2(invoiceSubtotal.value),
+      tax: round2(invoiceTax.value),
+      total: round2(invoiceTotal.value),
+      notes: newInvoice.value.notes || undefined,
+      // Le righe sono inviate come metadata: il backend attualmente non ha
+      // un modello InvoiceItem; il subtotal/tax/total già le sintetizzano.
+      items: newInvoice.value.items.map((it) => ({
+        description: it.description,
+        quantity: Number(it.quantity) || 0,
+        unitPrice: round2(Number(it.unitPrice) || 0),
+        taxRate: Number(it.taxRate) || 0,
+        total: round2(itemLineTotal(it)),
+      })),
+    };
+
+    await apiService.post('/accounting/invoices', payload);
     toast.add({ severity: 'success', summary: 'Creata', detail: 'Fattura creata con successo', life: 3000 });
     showCreateDialog.value = false;
     loadInvoices();
     resetNewInvoice();
-  } catch (error) {
-    toast.add({ severity: 'error', summary: 'Errore', detail: 'Impossibile creare la fattura', life: 3000 });
+  } catch (error: any) {
+    // Mostra il vero messaggio di errore (es. validazione Zod) invece di un generico
+    const detail = error?.message || error?.response?.data?.error || 'Impossibile creare la fattura';
+    toast.add({
+      severity: 'error',
+      summary: 'Errore creazione fattura',
+      detail,
+      life: 6000,
+    });
+    // Log in console per debug
+    // eslint-disable-next-line no-console
+    console.error('createInvoice error:', error);
   } finally {
     creating.value = false;
   }
@@ -557,6 +758,7 @@ const resetNewInvoice = () => {
     issueDate: new Date(),
     dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
     notes: '',
+    items: [],
   };
 };
 
@@ -724,7 +926,9 @@ onMounted(() => {
 
 <style scoped>
 .invoices-page {
+  width: 100%;
   max-width: 1600px;
+  margin: 0 auto;
 }
 
 .stats-grid {
@@ -1013,6 +1217,73 @@ onMounted(() => {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-4);
+}
+
+/* Righe fattura nel dialog Nuova Fattura */
+.items-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-2);
+}
+
+.invoice-items-table {
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-md);
+  overflow: hidden;
+}
+
+.invoice-items-table :deep(.p-datatable-tbody > tr > td) {
+  padding: var(--space-2);
+  vertical-align: middle;
+}
+
+.invoice-items-table :deep(.p-inputnumber-input),
+.invoice-items-table :deep(.p-inputtext) {
+  padding: var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+.item-total {
+  font-weight: 600;
+  font-family: monospace;
+  color: var(--color-gray-900);
+}
+
+.items-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  color: var(--color-gray-500);
+  font-size: var(--font-size-sm);
+}
+
+.invoice-totals {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  background: var(--color-gray-50);
+  border-radius: var(--border-radius-md);
+  margin-top: var(--space-3);
+}
+
+.invoice-totals-row {
+  display: flex;
+  gap: var(--space-4);
+  min-width: 240px;
+  justify-content: space-between;
+  font-size: var(--font-size-sm);
+}
+
+.invoice-totals-row--final {
+  border-top: 1px solid var(--border-color);
+  padding-top: var(--space-2);
+  margin-top: var(--space-1);
+  font-size: var(--font-size-base);
 }
 
 @media (max-width: 1024px) {

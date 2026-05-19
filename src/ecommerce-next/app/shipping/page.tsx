@@ -2,7 +2,7 @@ import { Metadata } from 'next';
 import { Truck, Clock, Globe, Package, MapPin, CreditCard } from 'lucide-react';
 
 export const metadata: Metadata = {
-  title: 'Spedizioni | EcommerceERP',
+  title: 'Spedizioni | FabbricaMi.pro',
   description: 'Informazioni sulle spedizioni e tempi di consegna.',
 };
 

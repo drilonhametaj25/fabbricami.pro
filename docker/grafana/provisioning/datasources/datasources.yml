@@ -12,7 +12,7 @@ datasources:
   - name: PostgreSQL
     type: postgres
     url: postgres:5432
-    database: ecommerce_erp
+    database: fabbricami_pro
     user: $POSTGRES_USER
     secureJsonData:
       password: $POSTGRES_PASSWORD

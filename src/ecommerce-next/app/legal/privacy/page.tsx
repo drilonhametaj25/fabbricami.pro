@@ -1,7 +1,7 @@
 import { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Privacy Policy | EcommerceERP',
+  title: 'Privacy Policy | FabbricaMi.pro',
   description: 'Informativa sulla privacy del nostro e-commerce.',
 };
 

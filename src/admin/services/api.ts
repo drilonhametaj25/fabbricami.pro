@@ -366,6 +366,89 @@ export const adminApi = {
       }>;
     }>(`/admin/stripe/webhooks${limit ? `?limit=${limit}` : ''}`),
 
+  // Coupons
+  getCoupons: (params?: { page?: number; limit?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.page) qs.append('page', String(params.page));
+    if (params?.limit) qs.append('limit', String(params.limit));
+    const q = qs.toString();
+    return request<{
+      items: Array<{
+        id: string;
+        code: string;
+        name?: string;
+        type: 'PERCENTAGE' | 'FIXED_AMOUNT';
+        discountValue: number;
+        validFrom: string;
+        validTo: string;
+        maxUses?: number;
+        usageCount: number;
+        isActive: boolean;
+      }>;
+      total: number;
+    }>(`/admin/coupons${q ? `?${q}` : ''}`);
+  },
+
+  createCoupon: (data: {
+    code: string;
+    name?: string;
+    type: 'PERCENTAGE' | 'FIXED_AMOUNT';
+    value: number;
+    validFrom?: string;
+    validUntil?: string;
+    maxUses?: number | null;
+    isActive?: boolean;
+  }) =>
+    request('/admin/coupons', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  updateCoupon: (id: string, data: Partial<{
+    name: string;
+    type: 'PERCENTAGE' | 'FIXED_AMOUNT';
+    value: number;
+    validFrom: string;
+    validUntil: string;
+    maxUses: number | null;
+    isActive: boolean;
+  }>) =>
+    request(`/admin/coupons/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  // Tickets
+  getTickets: (params?: { status?: string; type?: string; priority?: string; limit?: number; offset?: number }) => {
+    const qs = new URLSearchParams();
+    Object.entries(params || {}).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== '') qs.append(k, String(v));
+    });
+    const q = qs.toString();
+    return request<{
+      items: Array<{
+        id: string;
+        tenantId: string;
+        createdById: string;
+        type: 'BUG' | 'FEATURE_REQUEST' | 'IMPROVEMENT' | 'SUPPORT';
+        priority: 'LOW' | 'NORMAL' | 'HIGH';
+        status: 'OPEN' | 'IN_REVIEW' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED' | 'REJECTED';
+        title: string;
+        description: string;
+        adminNotes?: string;
+        createdAt: string;
+        resolvedAt?: string;
+      }>;
+      total: number;
+    }>(`/admin/tickets${q ? `?${q}` : ''}`);
+  },
+
+  updateTicket: (id: string, data: { status?: string; priority?: string; adminNotes?: string | null }) =>
+    request(`/admin/tickets/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+
   // Audit Logs
   getAuditLogs: (page?: number, limit?: number) =>
     request<{

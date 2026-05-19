@@ -638,10 +638,47 @@ const saveCustomer = async () => {
   try {
     saving.value = true;
 
+    // Normalizza: stringhe vuote -> undefined (lo schema Zod rifiuta '' su .email().optional())
+    const stripEmpty = (obj: Record<string, any>): Record<string, any> => {
+      const out: Record<string, any> = {};
+      for (const [k, v] of Object.entries(obj)) {
+        if (v === '' || v === null) continue;
+        if (typeof v === 'object' && !Array.isArray(v)) {
+          const nested = stripEmpty(v);
+          if (Object.keys(nested).length > 0) out[k] = nested;
+        } else {
+          out[k] = v;
+        }
+      }
+      return out;
+    };
+
+    const baseData = stripEmpty({ ...formData.value });
+    // bankInfo non e' parte di createCustomerSchema → estrai e gestisci a parte
+    const { bankInfo, ...customerData } = baseData;
+
+    // Coerce campi numerici (PrimeVue InputNumber a volte li serializza come stringhe)
+    const numericFields = ['paymentTerms', 'creditLimit', 'discount'];
+    for (const field of numericFields) {
+      if (customerData[field] !== undefined && customerData[field] !== null) {
+        const n = typeof customerData[field] === 'string'
+          ? parseFloat(customerData[field])
+          : customerData[field];
+        customerData[field] = Number.isFinite(n) ? n : undefined;
+      }
+    }
+
     const data = {
-      ...formData.value,
-      billingAddress: Object.values(formData.value.billingAddress).some(v => v) ? formData.value.billingAddress : undefined,
-      shippingAddress: Object.values(formData.value.shippingAddress).some(v => v) ? formData.value.shippingAddress : undefined,
+      ...customerData,
+      // Mantieni billingAddress/shippingAddress solo se hanno almeno un campo valorizzato
+      billingAddress:
+        customerData.billingAddress && Object.keys(customerData.billingAddress).length > 0
+          ? customerData.billingAddress
+          : undefined,
+      shippingAddress:
+        customerData.shippingAddress && Object.keys(customerData.shippingAddress).length > 0
+          ? customerData.shippingAddress
+          : undefined,
     };
 
     let response;

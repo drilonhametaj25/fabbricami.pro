@@ -2,6 +2,7 @@ import { FastifyPluginAsync } from 'fastify';
 import { authenticate } from '../middleware/auth.middleware';
 import { tenantMiddleware, TenantRequest } from '../middleware/tenant.middleware';
 import { billingService } from '../services/billing.service';
+import { subscriptionService } from '../services/subscription.service';
 import {
   billingHistoryQuerySchema,
   checkLimitSchema,
@@ -211,6 +212,26 @@ const billingRoutes: FastifyPluginAsync = async (server) => {
         success: true,
         data: limits,
       });
+    }
+  );
+
+  /**
+   * POST /billing/portal
+   * Crea una sessione del Customer Portal di Stripe per il tenant corrente.
+   */
+  server.post(
+    '/portal',
+    { preHandler: [authenticate, tenantMiddleware] },
+    async (request, reply) => {
+      const tenantRequest = request as TenantRequest;
+      try {
+        const session = await subscriptionService.createPortalSession(
+          tenantRequest.tenant.tenantId
+        );
+        return reply.send({ success: true, data: { url: session.url } });
+      } catch (e: any) {
+        return reply.status(400).send({ success: false, error: e.message });
+      }
     }
   );
 };

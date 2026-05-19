@@ -128,6 +128,21 @@ const productCategoryRoutes: FastifyPluginAsync = async (server) => {
         });
       }
 
+      // Verifica che il parentId esista (se fornito), altrimenti Prisma
+      // restituisce un errore P2003 poco descrittivo
+      if (body.parentId) {
+        const parent = await prisma.productCategory.findUnique({
+          where: { id: body.parentId },
+          select: { id: true },
+        });
+        if (!parent) {
+          return reply.status(400).send({
+            success: false,
+            error: 'Categoria padre non trovata (parentId non valido)',
+          });
+        }
+      }
+
       // Trova la prossima posizione se non specificata
       let position = body.position;
       if (position === undefined) {

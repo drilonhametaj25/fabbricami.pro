@@ -1,7 +1,7 @@
-# EcommerceERP - Copilot Instructions
+# FabbricaMi.pro - Copilot Instructions
 
 ## Contesto del Progetto
-Stai sviluppando EcommerceERP, un sistema gestionale completo per e-commerce. Il sistema deve essere altamente performante, scalabile e integrato con WordPress.
+Stai sviluppando FabbricaMi.pro, un sistema gestionale completo per e-commerce. Il sistema deve essere altamente performante, scalabile e integrato con WordPress.
 
 ## Stack Tecnologico Obbligatorio
 

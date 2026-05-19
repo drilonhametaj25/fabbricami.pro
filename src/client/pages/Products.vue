@@ -6,7 +6,14 @@
       icon="pi pi-box"
     >
       <template #actions>
-        <Button label="Nuovo Prodotto" icon="pi pi-plus" @click="openCreateDialog" />
+        <span v-tooltip.left="limitReached ? 'Limite raggiunto, effettua l\'upgrade per aggiungerne altri' : null">
+          <Button
+            label="Nuovo Prodotto"
+            icon="pi pi-plus"
+            :disabled="limitReached"
+            @click="openCreateDialog"
+          />
+        </span>
       </template>
     </PageHeader>
 
@@ -443,6 +450,7 @@ import TabPanel from 'primevue/tabpanel';
 import { useToast } from 'primevue/usetoast';
 import { useConfirm } from 'primevue/useconfirm';
 import api from '../services/api.service';
+import { useSubscriptionStore } from '../stores/subscription.store';
 import ProductDialog from '../components/ProductDialog.vue';
 import ProductWizard from '../components/ProductWizard.vue';
 import ProductPipeline from '../components/ProductPipeline.vue';
@@ -451,6 +459,17 @@ import StatsCard from '../components/StatsCard.vue';
 
 const toast = useToast();
 const confirm = useConfirm();
+const subscriptionStore = useSubscriptionStore();
+
+// Limit gating: disabilita "Nuovo Prodotto" quando il tenant ha raggiunto
+// il limite del piano corrente (-1 = illimitato).
+const limitReached = computed(() => {
+  const stat = subscriptionStore.usage?.products;
+  if (!stat) return false;
+  if (stat.limit === -1) return false;
+  return stat.current >= stat.limit;
+});
+
 const loading = ref(false);
 const products = ref([]);
 const totalRecords = ref(0);
@@ -703,18 +722,22 @@ const handleWizardCreated = (_product: any) => {
   // Ricarica i prodotti dopo la creazione
   loadProducts();
   loadStats();
+  subscriptionStore.fetchUsage();
 };
 
 const handleWizardCompleted = () => {
   // Ricarica i prodotti dopo il completamento del wizard
   loadProducts();
   loadStats();
+  subscriptionStore.fetchUsage();
 };
 
 onMounted(() => {
   loadProducts();
   loadStats();
   loadCategories();
+  // Refresh usage stats per il gating del bottone "Nuovo Prodotto".
+  subscriptionStore.fetchUsage();
 });
 </script>
 

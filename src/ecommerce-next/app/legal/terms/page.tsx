@@ -1,7 +1,7 @@
 import { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Termini e Condizioni | EcommerceERP',
+  title: 'Termini e Condizioni | FabbricaMi.pro',
   description: 'Termini e condizioni di utilizzo del nostro e-commerce.',
 };
 

@@ -1,4 +1,4 @@
-# EcommerceERP - Production Deployment
+# FabbricaMi.pro - Production Deployment
 # Ottimizzato per Hetzner VPS con Traefik + Let's Encrypt
 # Supporta zero-downtime deployment (rolling updates)
 #
@@ -28,7 +28,7 @@ services:
     container_name: ecommerceerp-postgres
     restart: always
     environment:
-      POSTGRES_DB: ecommerce_erp
+      POSTGRES_DB: fabbricami_pro
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       PGDATA: /var/lib/postgresql/data/pgdata
@@ -38,7 +38,7 @@ services:
     networks:
       - internal
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ecommerce_erp"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d fabbricami_pro"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -81,7 +81,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/ecommerce_erp?schema=public
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/fabbricami_pro?schema=public
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}

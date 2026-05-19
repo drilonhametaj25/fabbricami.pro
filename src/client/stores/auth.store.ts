@@ -143,6 +143,25 @@ export const useAuthStore = defineStore('auth', () => {
     tenant.value = tenantData;
   }
 
+  /**
+   * Initialize the session from an externally fetched auth payload (e.g. after
+   * email verification, where the backend issues a JWT on successful verify).
+   */
+  function setSession(payload: {
+    user: User;
+    token: string;
+    refreshToken: string;
+    tenant?: TenantWithSubscription | null;
+  }) {
+    user.value = payload.user;
+    token.value = payload.token;
+    refreshToken.value = payload.refreshToken;
+    tenant.value = payload.tenant || null;
+
+    localStorage.setItem('token', payload.token);
+    localStorage.setItem('refreshToken', payload.refreshToken);
+  }
+
   function hasRole(roles: string | string[]): boolean {
     if (!user.value) return false;
     const roleArray = Array.isArray(roles) ? roles : [roles];
@@ -192,6 +211,7 @@ export const useAuthStore = defineStore('auth', () => {
     checkAuth,
     refreshTenant,
     setTenant,
+    setSession,
     hasRole,
     isAdmin,
     isManager,

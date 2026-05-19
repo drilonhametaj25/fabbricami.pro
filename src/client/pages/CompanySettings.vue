@@ -394,9 +394,12 @@ const countries = [
   { name: 'Regno Unito', code: 'GB' },
 ];
 
+// Provider SDI allineati al backend (sdi.routes.ts companySettingsFullSchema).
+// 'infocert' e 'other' restano come fallback compatibile con il backend.
 const sdiProviders = [
   { name: 'Aruba', code: 'aruba' },
-  { name: 'Fatture in Cloud', code: 'fattureincloud' },
+  { name: 'Fatture in Cloud', code: 'fatture-in-cloud' },
+  { name: 'Infocert', code: 'infocert' },
   { name: 'Manuale', code: 'manual' },
 ];
 
@@ -471,10 +474,30 @@ const saveCompanySettings = async () => {
 const saveSdiSettings = async () => {
   saving.value = true;
   try {
-    await apiService.put('/company-settings/sdi', sdi.value);
+    // Mappa il form SDI sulla shape attesa da PUT /api/v1/sdi/company-settings
+    // (schema partial — invia solo i campi SDI/numerazione, non l'anagrafica).
+    // Credenziali provider: usiamo i generici sdiProviderApiKey/Secret della
+    // CompanySettings come storage per username/password (Aruba) o apiKey/secret (FIC).
+    const payload: Record<string, unknown> = {
+      sdiCode: sdi.value.recipientCode || undefined,
+      sdiProvider: sdi.value.provider || undefined,
+      sdiProviderApiKey: sdi.value.aruba.username || undefined,
+      sdiProviderApiSecret: sdi.value.aruba.password || undefined,
+      sdiProviderEndpoint: sdi.value.aruba.endpoint || undefined,
+      taxRegime: sdi.value.taxRegime || undefined,
+      invoicePrefix: sdi.value.invoicePrefix || undefined,
+      invoiceNextNumber: sdi.value.invoiceNextNumber || undefined,
+    };
+
+    await apiService.put('/sdi/company-settings', payload);
     toast.add({ severity: 'success', summary: 'Salvato', detail: 'Configurazione SDI aggiornata', life: 3000 });
-  } catch (error) {
-    toast.add({ severity: 'error', summary: 'Errore', detail: 'Impossibile salvare la configurazione', life: 3000 });
+  } catch (error: any) {
+    toast.add({
+      severity: 'error',
+      summary: 'Errore',
+      detail: error?.message || 'Impossibile salvare la configurazione',
+      life: 5000,
+    });
   } finally {
     saving.value = false;
   }
@@ -549,6 +572,8 @@ onMounted(() => {
 <style scoped>
 .company-settings-page {
   max-width: 1200px;
+  width: 100%;
+  margin: 0 auto;
 }
 
 .settings-tabs {

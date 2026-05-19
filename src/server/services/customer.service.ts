@@ -88,8 +88,36 @@ class CustomerService {
       prisma.customer.count({ where }),
     ]);
 
+    // Calcola totalSpent / totalOrders runtime sommando gli ordini non cancellati
+    const customerIds = items.map((c) => c.id);
+    const orderAgg = customerIds.length
+      ? await prisma.order.groupBy({
+          by: ['customerId'],
+          where: {
+            customerId: { in: customerIds },
+            status: { not: 'CANCELLED' },
+          },
+          _sum: { total: true },
+          _count: { _all: true },
+        })
+      : [];
+    const aggByCustomer = new Map<string, { spent: number; count: number }>(
+      orderAgg.map((r) => [
+        r.customerId as string,
+        { spent: Number(r._sum.total || 0), count: r._count._all || 0 },
+      ])
+    );
+    const enriched = items.map((c) => {
+      const agg = aggByCustomer.get(c.id);
+      return {
+        ...c,
+        totalSpent: agg ? agg.spent : Number((c as any).totalSpent || 0),
+        totalOrders: agg ? agg.count : (c as any).totalOrders || 0,
+      };
+    });
+
     return {
-      items,
+      items: enriched,
       pagination: {
         total,
         page,

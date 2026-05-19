@@ -51,6 +51,8 @@ import billingRoutes from './routes/billing.routes';
 import adminRoutes from './routes/admin.routes';
 import { initQueueSystem, shutdownSystems } from './config/features';
 import { validateStripeConfig } from './config/stripe.config';
+import { authenticate } from './middleware/auth.middleware';
+import { requireFeature } from './middleware/subscription.middleware';
 
 // Shop/E-commerce routes (public)
 import shopCartRoutes from './routes/shop-cart.routes';
@@ -190,6 +192,9 @@ async function setupServer() {
   await server.register(mrpRoutes, { prefix: `${apiPrefix}/mrp` });
   await server.register(materialRoutes, { prefix: `${apiPrefix}/materials` });
   await server.register(operationTypeRoutes, { prefix: `${apiPrefix}/operation-types` });
+  // Manufacturing/Accounting/SDI: rimosso feature gate per il primo lancio.
+  // Tutti i piani vedono i moduli; chi non li usa semplicemente non li apre.
+  // Il gate per-feature puo' essere riattivato in futuro decommentando i blocchi.
   await server.register(manufacturingRoutes, { prefix: `${apiPrefix}/manufacturing` });
   await server.register(productCategoryRoutes, { prefix: `${apiPrefix}/product-categories` });
   await server.register(priceListRoutes, { prefix: `${apiPrefix}/pricelists` });
@@ -215,6 +220,10 @@ async function setupServer() {
   const onboardingRoutes = (await import('./routes/onboarding.routes')).default;
   await server.register(tenantRoutes, { prefix: `${apiPrefix}/tenant` });
   await server.register(onboardingRoutes, { prefix: `${apiPrefix}/onboarding` });
+
+  // Ticket / Feedback routes
+  const ticketRoutes = (await import('./routes/ticket.routes')).default;
+  await server.register(ticketRoutes, { prefix: `${apiPrefix}/tickets` });
 
   // Shop/E-commerce routes (public API for frontend)
   await server.register(shopCartRoutes, { prefix: `${apiPrefix}/shop/cart` });

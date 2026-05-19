@@ -136,7 +136,11 @@ class LogisticsPlanningService {
     const futureDate = new Date();
     futureDate.setDate(futureDate.getDate() + daysAhead);
 
-    // Trova ordini acquisto con consegne pendenti
+    // Trova ordini acquisto con consegne pendenti.
+    // Filtri:
+    //  - status ∈ {CONFIRMED, SENT, PARTIALLY_RECEIVED} (default)
+    //  - data attesa entro daysAhead (oppure nessuna data) — controlla
+    //    SIA estimatedDeliveryDate SIA expectedDate
     const purchaseOrders = await prisma.purchaseOrder.findMany({
       where: {
         status: {
@@ -145,7 +149,8 @@ class LogisticsPlanningService {
         ...(supplierId && { supplierId }),
         OR: [
           { estimatedDeliveryDate: { lte: futureDate } },
-          { estimatedDeliveryDate: null },
+          { estimatedDeliveryDate: null, expectedDate: { lte: futureDate } },
+          { estimatedDeliveryDate: null, expectedDate: null },
         ],
       },
       include: {
@@ -174,14 +179,16 @@ class LogisticsPlanningService {
       ],
     });
 
-    // Calcola quantità ricevute per ogni ordine
+    // Calcola quantità ricevute per ogni ordine.
+    // Fonte di verità: purchaseOrderItem.receivedQuantity (aggiornato da
+    // purchaseOrderRepository.receiveItems). I goodsReceipts vengono usati
+    // solo come fallback se receivedQuantity non è stato incrementato.
     const incoming: IncomingMaterial[] = purchaseOrders.map((po) => {
-      // Calcola quantità ricevute per item
-      const receivedQtyByItem: Record<string, number> = {};
+      const receivedQtyFromGR: Record<string, number> = {};
       for (const gr of po.goodsReceipts) {
-        for (const item of gr.items) {
-          const key = item.purchaseOrderItemId;
-          receivedQtyByItem[key] = (receivedQtyByItem[key] || 0) + item.receivedQuantity;
+        for (const it of gr.items) {
+          const key = it.purchaseOrderItemId;
+          receivedQtyFromGR[key] = (receivedQtyFromGR[key] || 0) + it.receivedQuantity;
         }
       }
 
@@ -190,10 +197,13 @@ class LogisticsPlanningService {
         orderNumber: po.orderNumber,
         supplierId: po.supplierId,
         supplierName: po.supplier.businessName,
-        estimatedDeliveryDate: po.estimatedDeliveryDate,
+        estimatedDeliveryDate: po.estimatedDeliveryDate || po.expectedDate,
         deliveryStatus: po.deliveryStatus || 'PENDING',
         items: po.items.map((item) => {
-          const receivedQty = receivedQtyByItem[item.id] || 0;
+          const receivedQty = Math.max(
+            item.receivedQuantity || 0,
+            receivedQtyFromGR[item.id] || 0
+          );
           return {
             productId: item.productId || undefined,
             materialId: item.materialId || undefined,

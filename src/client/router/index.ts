@@ -50,6 +50,7 @@ const router = createRouter({
       meta: { requiresAuth: false },
     },
 
+
     // ===== ONBOARDING ROUTES =====
     {
       path: '/onboarding',
@@ -145,6 +146,14 @@ const router = createRouter({
           meta: { roles: ORDER_VIEWERS },
         },
         {
+          // Alias /orders/new -> Orders page con flag per aprire dialog Nuovo Ordine
+          // (gestito da Orders.vue tramite query/state `?new=1`)
+          path: '/orders/new',
+          name: 'OrderNew',
+          component: () => import('../pages/Orders.vue'),
+          meta: { roles: ORDER_VIEWERS },
+        },
+        {
           path: '/customers',
           name: 'Customers',
           component: () => import('../pages/Customers.vue'),
@@ -161,6 +170,11 @@ const router = createRouter({
           name: 'PriceLists',
           component: () => import('../pages/PriceLists.vue'),
           meta: { roles: STAFF_AND_SALES },
+        },
+        {
+          // Alias storico: redirect /price-lists -> /pricelists per evitare 404
+          path: '/price-lists',
+          redirect: '/pricelists',
         },
         {
           path: '/accounting',
@@ -197,6 +211,12 @@ const router = createRouter({
           name: 'PurchaseOrders',
           component: () => import('../pages/PurchaseOrders.vue'),
           meta: { roles: STAFF_AND_WAREHOUSE },
+        },
+        {
+          path: '/goods-receipts',
+          name: 'GoodsReceipts',
+          component: () => import('../pages/GoodsReceipts.vue'),
+          meta: { roles: ['ADMIN', 'MANAGER', 'MAGAZZINIERE'] },
         },
         {
           path: '/notifications',
@@ -257,6 +277,16 @@ const router = createRouter({
           name: 'TeamMembers',
           component: () => import('../pages/TeamMembers.vue'),
           meta: { roles: ['ADMIN'] },
+        },
+        {
+          path: '/feedback',
+          name: 'MyFeedback',
+          component: () => import('../pages/MyFeedback.vue'),
+        },
+        {
+          path: '/profile',
+          name: 'Profile',
+          component: () => import('../pages/Profile.vue'),
         },
         {
           path: '/invoices',
@@ -342,6 +372,17 @@ router.beforeEach(async (to, _from, next) => {
   if (requiresAuth && !authStore.isAuthenticated) {
     next('/login');
     return;
+  }
+
+  // We have a token but user not loaded yet (page reload, freshly verified
+  // email, etc.). Load user + tenant from /auth/me before continuing so the
+  // UI shows the correct identity instead of the "Admin User" fallback.
+  if (authStore.isAuthenticated && !authStore.user) {
+    const ok = await authStore.checkAuth();
+    if (!ok && requiresAuth) {
+      next('/login');
+      return;
+    }
   }
 
   // Authenticated - redirect away from login

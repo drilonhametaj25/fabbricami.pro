@@ -57,16 +57,47 @@ class ProductService {
   }
 
   /**
-   * Crea nuovo prodotto
+   * Crea nuovo prodotto.
+   * Se webSlug non è fornito, lo genera automaticamente dal nome (slugify).
    */
   async createProduct(data: CreateProductInput) {
-    // Verifica che SKU sia univoco
     const existing = await productRepository.findBySku(data.sku);
     if (existing) {
       throw new Error(`Product with SKU ${data.sku} already exists`);
     }
 
-    return productRepository.create(data as any);
+    const payload: any = { ...data };
+    if (!payload.webSlug && payload.name) {
+      payload.webSlug = await this.generateUniqueSlug(payload.name);
+    }
+
+    return productRepository.create(payload);
+  }
+
+  /**
+   * Genera uno slug univoco a partire dal nome.
+   */
+  private async generateUniqueSlug(name: string): Promise<string> {
+    const base = name
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '')
+      .slice(0, 80) || 'prodotto';
+
+    let candidate = base;
+    let i = 1;
+    while (i < 100) {
+      const taken = await prisma.product.findFirst({
+        where: { webSlug: candidate },
+        select: { id: true },
+      });
+      if (!taken) return candidate;
+      i++;
+      candidate = `${base}-${i}`;
+    }
+    return `${base}-${Date.now()}`;
   }
 
   /**

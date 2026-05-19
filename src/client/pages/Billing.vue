@@ -208,11 +208,48 @@
     <!-- Plan Selection Dialog -->
     <Dialog
       v-model:visible="showPlanSelector"
-      header="Conferma Cambio Piano"
+      :header="selectedPlan ? 'Conferma Cambio Piano' : 'Scegli il nuovo piano'"
       :modal="true"
-      :style="{ width: '500px' }"
+      :style="{ width: selectedPlan ? '500px' : '720px' }"
+      @hide="onPlanDialogHide"
     >
-      <div v-if="selectedPlan" class="plan-change-dialog">
+      <!-- STEP 1: scelta piano (nessun piano preselezionato, es. da bottone header) -->
+      <div v-if="!selectedPlan" class="plan-picker">
+        <p class="plan-picker-intro">
+          Seleziona il piano a cui vuoi passare. Il piano attuale è
+          <strong>{{ subscriptionStore.currentPlanName }}</strong>.
+        </p>
+        <div class="plan-picker-grid">
+          <div
+            v-for="plan in subscriptionStore.availablePlans"
+            :key="plan.code"
+            class="plan-picker-card"
+            :class="{ disabled: plan.code === subscriptionStore.currentPlanCode }"
+            @click="plan.code !== subscriptionStore.currentPlanCode && (selectedPlan = plan)"
+          >
+            <div class="plan-picker-name">
+              {{ plan.name }}
+              <Tag
+                v-if="plan.code === subscriptionStore.currentPlanCode"
+                value="Attuale"
+                severity="secondary"
+              />
+            </div>
+            <div class="plan-picker-price">
+              <strong>{{ formatPrice(billingPeriod === 'yearly' ? plan.priceYearly : plan.priceMonthly) }}</strong>
+              <span>/{{ billingPeriod === 'yearly' ? 'anno' : 'mese' }}</span>
+            </div>
+            <div class="plan-picker-limits">
+              {{ plan.limits.maxUsers === -1 ? '∞' : plan.limits.maxUsers }} utenti ·
+              {{ plan.limits.maxWarehouses === -1 ? '∞' : plan.limits.maxWarehouses }} magazzini ·
+              {{ plan.limits.maxProducts === -1 ? '∞' : plan.limits.maxProducts.toLocaleString('it-IT') }} prodotti
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP 2: conferma cambio piano -->
+      <div v-else class="plan-change-dialog">
         <p>
           Stai passando da <strong>{{ subscriptionStore.currentPlanName }}</strong>
           a <strong>{{ selectedPlan.name }}</strong>.
@@ -223,6 +260,23 @@
             <strong>{{ formatPrice(billingPeriod === 'yearly' ? selectedPlan.priceYearly : selectedPlan.priceMonthly) }}/{{ billingPeriod === 'yearly' ? 'anno' : 'mese' }}</strong>
           </div>
         </div>
+
+        <!-- Warning downgrade su risorse oltre il limite del nuovo piano -->
+        <div v-if="downgradeOverages.length > 0" class="downgrade-warning">
+          <i class="pi pi-exclamation-triangle"></i>
+          <div>
+            <strong>Attenzione: alcune risorse superano i limiti del piano scelto</strong>
+            <ul>
+              <li v-for="o in downgradeOverages" :key="o.key">
+                {{ o.label }}: <strong>{{ o.current }}</strong> attuali ·
+                <strong>{{ o.newLimit === -1 ? '∞' : o.newLimit }}</strong> consentiti dal piano {{ selectedPlan.name }}
+                (rimuovine almeno <strong>{{ o.toRemove }}</strong>)
+              </li>
+            </ul>
+            <small>Riduci le risorse oltre limite prima del downgrade per evitare blocchi alle nuove creazioni.</small>
+          </div>
+        </div>
+
         <p class="change-note" v-if="isPlanUpgrade(selectedPlan)">
           Il cambio sarà effettivo immediatamente. Ti verrà addebitata la differenza proporzionale.
         </p>
@@ -230,9 +284,18 @@
           Il downgrade sarà effettivo alla fine del periodo corrente.
         </p>
       </div>
+
       <template #footer>
         <Button label="Annulla" severity="secondary" @click="showPlanSelector = false" />
         <Button
+          v-if="selectedPlan"
+          label="← Cambia piano scelto"
+          severity="secondary"
+          text
+          @click="selectedPlan = null"
+        />
+        <Button
+          v-if="selectedPlan"
           label="Conferma Cambio"
           icon="pi pi-check"
           @click="confirmPlanChange"
@@ -333,6 +396,51 @@ const statusLabel = computed(() => {
       return 'Sconosciuto';
   }
 });
+
+// Mappa key risorsa (es. 'warehouses') → limit key del piano (es. 'maxWarehouses')
+const USAGE_PLAN_LIMIT_MAP: Record<string, { limitKey: string; label: string }> = {
+  users: { limitKey: 'maxUsers', label: 'Utenti' },
+  warehouses: { limitKey: 'maxWarehouses', label: 'Magazzini' },
+  products: { limitKey: 'maxProducts', label: 'Prodotti' },
+  customers: { limitKey: 'maxCustomers', label: 'Clienti' },
+  suppliers: { limitKey: 'maxSuppliers', label: 'Fornitori' },
+  orders: { limitKey: 'maxOrders', label: 'Ordini' },
+};
+
+/**
+ * Risorse che superano i limiti del piano selezionato (solo per downgrade).
+ */
+const downgradeOverages = computed<Array<{ key: string; label: string; current: number; newLimit: number; toRemove: number }>>(() => {
+  const plan = selectedPlan.value;
+  if (!plan) return [];
+  if (isPlanUpgrade(plan)) return [];
+
+  const usage = subscriptionStore.usage || {};
+  const limits: any = plan.limits || {};
+  const out: Array<{ key: string; label: string; current: number; newLimit: number; toRemove: number }> = [];
+
+  for (const [usageKey, meta] of Object.entries(USAGE_PLAN_LIMIT_MAP)) {
+    const stat = (usage as any)[usageKey];
+    if (!stat) continue;
+    const newLimit = limits[meta.limitKey];
+    if (newLimit === undefined || newLimit === -1) continue;
+    if (typeof stat.current === 'number' && stat.current > newLimit) {
+      out.push({
+        key: usageKey,
+        label: meta.label,
+        current: stat.current,
+        newLimit,
+        toRemove: stat.current - newLimit,
+      });
+    }
+  }
+  return out;
+});
+
+function onPlanDialogHide() {
+  // Reset stato quando il dialog si chiude (X, ESC o click outside)
+  selectedPlan.value = null;
+}
 
 // Methods
 function formatDate(dateString: string | null | undefined): string {
@@ -893,4 +1001,83 @@ onMounted(async () => {
     grid-template-columns: 1fr;
   }
 }
+
+/* Plan picker (step 1 del dialog Cambia Piano) */
+.plan-picker-intro {
+  margin: 0 0 var(--space-4) 0;
+  color: var(--color-gray-600);
+}
+.plan-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--space-3);
+}
+.plan-picker-card {
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--border-radius-md);
+  padding: var(--space-3);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  background: white;
+}
+.plan-picker-card:hover {
+  border-color: var(--color-primary-500, #3b82f6);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  transform: translateY(-1px);
+}
+.plan-picker-card.disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  background: var(--color-gray-50);
+}
+.plan-picker-card.disabled:hover {
+  border-color: var(--color-gray-200);
+  box-shadow: none;
+  transform: none;
+}
+.plan-picker-name {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-weight: 700;
+  font-size: var(--font-size-base);
+  color: var(--color-gray-900);
+  margin-bottom: var(--space-2);
+}
+.plan-picker-price {
+  font-size: var(--font-size-lg);
+  color: var(--color-primary-600, #2563eb);
+  margin-bottom: var(--space-2);
+}
+.plan-picker-price strong { font-size: var(--font-size-xl); }
+.plan-picker-price span { color: var(--color-gray-500); font-size: var(--font-size-sm); }
+.plan-picker-limits {
+  font-size: var(--font-size-sm);
+  color: var(--color-gray-600);
+}
+
+/* Downgrade warning box */
+.downgrade-warning {
+  display: flex;
+  gap: var(--space-3);
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  color: #9a3412;
+  border-radius: var(--border-radius-md);
+  padding: var(--space-3);
+  margin: var(--space-3) 0;
+}
+.downgrade-warning > i {
+  color: #ea580c;
+  font-size: 1.25rem;
+  margin-top: 2px;
+}
+.downgrade-warning ul {
+  margin: var(--space-2) 0;
+  padding-left: 1.25rem;
+}
+.downgrade-warning li { margin: 2px 0; }
+.downgrade-warning small { color: #9a3412; opacity: 0.85; }
+
 </style>

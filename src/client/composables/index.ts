@@ -1,4 +1,4 @@
-// EcommerceERP - Composables
+// FabbricaMi.pro - Composables
 
 // API & Data
 export { useApi } from './useApi';

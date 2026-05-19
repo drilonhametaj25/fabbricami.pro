@@ -1,4 +1,4 @@
-// EcommerceERP - Pinia Stores
+// FabbricaMi.pro - Pinia Stores
 
 export { useAuthStore } from './auth.store';
 export { useNotificationStore } from './notification.store';

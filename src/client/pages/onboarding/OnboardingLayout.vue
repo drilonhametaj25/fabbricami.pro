@@ -120,12 +120,17 @@ onMounted(async () => {
 
 <style scoped>
 .onboarding-layout {
+  /* width:100% perche' #app e' display:flex e senza questo il figlio
+     prende solo la larghezza del contenuto, lasciando vuoto il resto */
+  width: 100%;
+  flex: 1;
   min-height: 100vh;
   background: linear-gradient(135deg, var(--color-primary-50), var(--color-blue-50));
   display: flex;
   align-items: center;
   justify-content: center;
   padding: var(--space-6);
+  box-sizing: border-box;
 }
 
 .onboarding-container {

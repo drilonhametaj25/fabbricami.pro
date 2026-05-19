@@ -105,10 +105,10 @@ function openHelp() {
 function openSupport() {
   // Open support email
   const supportEmail = 'support@ecommerceerp.com';
-  const subject = encodeURIComponent('Richiesta di supporto - EcommerceERP');
+  const subject = encodeURIComponent('Richiesta di supporto - FabbricaMi.pro');
   const body = encodeURIComponent(`Ciao,
 
-Ho bisogno di assistenza con EcommerceERP.
+Ho bisogno di assistenza con FabbricaMi.pro.
 
 Descrizione del problema:
 

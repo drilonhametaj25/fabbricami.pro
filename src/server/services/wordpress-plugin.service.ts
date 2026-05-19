@@ -17,6 +17,7 @@ export interface CreateCredentialInput {
   username: string;
   password: string;
   label?: string;
+  tenantId?: string;
 }
 
 export interface SyncLogEntry {
@@ -55,7 +56,7 @@ class WordPressPluginService {
    * Crea nuove credenziali per il plugin WordPress
    */
   async createCredentials(input: CreateCredentialInput): Promise<{ credential: PluginCredential; plainPassword: string }> {
-    const { username, password, label } = input;
+    const { username, password, label, tenantId } = input;
 
     // Verifica che username non esista già
     const existing = await prisma.wordPressPluginAuth.findUnique({
@@ -74,6 +75,7 @@ class WordPressPluginService {
         username,
         password: hashedPassword,
         label: label || null,
+        tenantId: tenantId || null,
         isActive: true,
       },
     });
@@ -94,7 +96,7 @@ class WordPressPluginService {
   /**
    * Genera e crea credenziali automatiche
    */
-  async generateCredentials(label?: string): Promise<{ credential: PluginCredential; username: string; password: string }> {
+  async generateCredentials(label?: string, tenantId?: string): Promise<{ credential: PluginCredential; username: string; password: string }> {
     const username = `wp_plugin_${crypto.randomBytes(4).toString('hex')}`;
     const password = this.generateSecurePassword(32);
 
@@ -102,6 +104,7 @@ class WordPressPluginService {
       username,
       password,
       label,
+      tenantId,
     });
 
     return {

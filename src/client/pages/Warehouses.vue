@@ -6,7 +6,14 @@
       icon="pi pi-building"
     >
       <template #actions>
-        <Button label="Nuovo Magazzino" icon="pi pi-plus" @click="openCreateDialog" />
+        <span v-tooltip.left="limitReached ? 'Limite raggiunto, effettua l\'upgrade per aggiungerne altri' : null">
+          <Button
+            label="Nuovo Magazzino"
+            icon="pi pi-plus"
+            :disabled="limitReached"
+            @click="openCreateDialog"
+          />
+        </span>
       </template>
     </PageHeader>
 
@@ -184,7 +191,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import Button from 'primevue/button';
 import InputText from 'primevue/inputtext';
 import Textarea from 'primevue/textarea';
@@ -195,11 +202,22 @@ import Checkbox from 'primevue/checkbox';
 import { useToast } from 'primevue/usetoast';
 import { useConfirm } from 'primevue/useconfirm';
 import { apiService } from '../services/api.service';
+import { useSubscriptionStore } from '../stores/subscription.store';
 import PageHeader from '../components/PageHeader.vue';
 import type { Warehouse } from '../../shared/types';
 
 const toast = useToast();
 const confirm = useConfirm();
+const subscriptionStore = useSubscriptionStore();
+
+// Limit gating: -1 = illimitato. Il bottone "Nuovo Magazzino" deve disabilitarsi
+// quando il tenant ha raggiunto il limite del piano corrente.
+const limitReached = computed(() => {
+  const stat = subscriptionStore.usage?.warehouses;
+  if (!stat) return false;
+  if (stat.limit === -1) return false;
+  return stat.current >= stat.limit;
+});
 
 // State
 const warehouses = ref<Warehouse[]>([]);
@@ -343,6 +361,9 @@ async function saveWarehouse() {
 
     closeDialog();
     await loadWarehouses();
+    // Aggiorna i counter di utilizzo cosi' il bottone si disabilita se ora
+    // siamo al limite del piano.
+    subscriptionStore.fetchUsage();
   } catch (error: any) {
     console.error('Error saving warehouse:', error);
     toast.add({
@@ -426,6 +447,9 @@ function formatAddress(address: any) {
 // Lifecycle
 onMounted(() => {
   loadWarehouses();
+  // Refresh usage stats per il gating del bottone (MainLayout li carica al boot,
+  // ma li ricarichiamo qui per riflettere subito un magazzino appena creato).
+  subscriptionStore.fetchUsage();
 });
 </script>
 

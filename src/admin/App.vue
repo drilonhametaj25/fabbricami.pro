@@ -18,6 +18,8 @@ const menuItems = [
   { label: 'Dashboard', icon: 'pi pi-chart-bar', route: '/dashboard' },
   { label: 'Piani', icon: 'pi pi-credit-card', route: '/plans' },
   { label: 'Tenant', icon: 'pi pi-building', route: '/tenants' },
+  { label: 'Coupon', icon: 'pi pi-percentage', route: '/coupons' },
+  { label: 'Segnalazioni', icon: 'pi pi-comments', route: '/tickets' },
   { label: 'Stripe', icon: 'pi pi-bolt', route: '/stripe' },
   { label: 'Audit Log', icon: 'pi pi-history', route: '/audit-logs' },
 ];

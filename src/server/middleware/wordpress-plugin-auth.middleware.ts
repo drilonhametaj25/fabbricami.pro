@@ -117,7 +117,7 @@ export const addWordPressPluginCorsHeaders = async (
     reply.header('Access-Control-Allow-Origin', allowedOrigin);
   }
   reply.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  reply.header('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-EcommerceERP-API-Key');
+  reply.header('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-FabbricaMi.pro-API-Key');
   reply.header('Access-Control-Allow-Credentials', 'true');
 };
 

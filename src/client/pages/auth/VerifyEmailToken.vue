@@ -12,6 +12,7 @@
         </div>
         <h1>Email Verificata!</h1>
         <p>Il tuo indirizzo email è stato verificato con successo.</p>
+        <p class="redirect-hint">Stiamo aprendo la configurazione iniziale...</p>
         <Button
           label="Continua con la configurazione"
           icon="pi pi-arrow-right"
@@ -26,17 +27,27 @@
         </div>
         <h1>Verifica Fallita</h1>
         <p>{{ errorMessage }}</p>
+
+        <div class="resend-section">
+          <label for="resendEmail">Per richiedere un nuovo link, inserisci la tua email:</label>
+          <InputText
+            id="resendEmail"
+            v-model="resendEmail"
+            type="email"
+            placeholder="nome@azienda.it"
+            class="w-full"
+          />
+        </div>
+
         <div class="error-actions">
           <Button
             label="Richiedi nuovo link"
             severity="secondary"
             @click="requestNewLink"
             :loading="requesting"
+            :disabled="!resendEmail || !isValidEmail(resendEmail)"
           />
-          <Button
-            label="Vai al Login"
-            @click="goToLogin"
-          />
+          <Button label="Vai al Login" @click="goToLogin" />
         </div>
       </div>
     </div>
@@ -48,17 +59,25 @@ import { ref, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import ProgressSpinner from 'primevue/progressspinner';
 import Button from 'primevue/button';
+import InputText from 'primevue/inputtext';
 import { useToast } from 'primevue/usetoast';
 import api from '../../services/api.service';
+import { useAuthStore } from '../../stores/auth.store';
 
 const route = useRoute();
 const router = useRouter();
 const toast = useToast();
+const auth = useAuthStore();
 
 const loading = ref(true);
 const success = ref(false);
 const errorMessage = ref('');
 const requesting = ref(false);
+const resendEmail = ref('');
+
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
 
 async function verifyToken() {
   const token = route.query.token as string;
@@ -70,15 +89,37 @@ async function verifyToken() {
   }
 
   try {
+    // Backend response shape after fix:
+    // { success: true, data: { token, refreshToken, user, tenant, message } }
     const response = await api.post('/auth/verify-email', { token });
 
-    if (response.success) {
+    if (response.success && response.data?.token) {
+      // Persist the new session so the user can proceed to /onboarding
+      // without a separate login step.
+      auth.setSession({
+        user: response.data.user,
+        token: response.data.token,
+        refreshToken: response.data.refreshToken,
+        tenant: response.data.tenant || null,
+      });
+
+      success.value = true;
+      // Auto-redirect after a short moment so the user sees the confirmation
+      setTimeout(() => {
+        router.push('/onboarding');
+      }, 1500);
+    } else if (response.success) {
+      // Backwards compat: verify ok but no token issued
       success.value = true;
     } else {
-      errorMessage.value = response.error || 'Il link di verifica non è valido o è scaduto';
+      errorMessage.value =
+        response.error || 'Il link di verifica non è valido o è scaduto';
     }
-  } catch (error) {
-    errorMessage.value = 'Errore durante la verifica. Riprova più tardi.';
+  } catch (error: any) {
+    errorMessage.value =
+      error?.response?.data?.error ||
+      error?.message ||
+      'Errore durante la verifica. Riprova più tardi.';
   } finally {
     loading.value = false;
   }
@@ -93,15 +134,28 @@ function goToLogin() {
 }
 
 async function requestNewLink() {
+  if (!resendEmail.value || !isValidEmail(resendEmail.value)) {
+    toast.add({
+      severity: 'warn',
+      summary: 'Email mancante',
+      detail: 'Inserisci una email valida per ricevere un nuovo link',
+      life: 4000,
+    });
+    return;
+  }
+
   requesting.value = true;
   try {
-    const response = await api.post('/auth/resend-verification');
+    const response = await api.post('/auth/resend-verification', {
+      email: resendEmail.value,
+    });
     if (response.success) {
       toast.add({
         severity: 'success',
         summary: 'Email Inviata',
-        detail: 'Un nuovo link di verifica è stato inviato',
-        life: 5000,
+        detail:
+          'Se l\'indirizzo è registrato, riceverai un nuovo link di verifica',
+        life: 6000,
       });
     } else {
       toast.add({
@@ -111,6 +165,14 @@ async function requestNewLink() {
         life: 5000,
       });
     }
+  } catch (error: any) {
+    toast.add({
+      severity: 'error',
+      summary: 'Errore',
+      detail:
+        error?.response?.data?.error || 'Impossibile inviare il link al momento',
+      life: 5000,
+    });
   } finally {
     requesting.value = false;
   }
@@ -133,7 +195,7 @@ onMounted(() => {
 
 .auth-container {
   width: 100%;
-  max-width: 400px;
+  max-width: 420px;
   background: white;
   border-radius: var(--border-radius-xl);
   box-shadow: var(--shadow-xl);
@@ -195,9 +257,32 @@ p {
   margin: 0;
 }
 
+.redirect-hint {
+  font-size: var(--font-size-sm);
+  color: var(--color-gray-500);
+  font-style: italic;
+}
+
+.resend-section {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.resend-section label {
+  font-size: var(--font-size-sm);
+  color: var(--color-gray-700);
+  font-weight: 500;
+}
+
 .error-actions {
   display: flex;
   gap: var(--space-3);
   margin-top: var(--space-4);
+  flex-wrap: wrap;
+  justify-content: center;
 }
 </style>

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-EcommerceERP - Enterprise resource planning system for e-commerce with real-time inventory tracking, production management, accounting, employee management, and custom e-commerce frontend.
+FabbricaMi.pro - Enterprise resource planning system for e-commerce with real-time inventory tracking, production management, accounting, employee management, and custom e-commerce frontend.
 
 **Three main applications:**
 1. **ERP Backend** (Fastify API) - Port 3000

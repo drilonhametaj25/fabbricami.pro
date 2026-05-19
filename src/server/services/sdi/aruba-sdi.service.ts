@@ -96,13 +96,10 @@ class ArubaSdiService implements ISdiProvider {
 
   /**
    * Verifica se il provider è configurato
+   * Aruba richiede username + password. L'endpoint è opzionale (default Aruba prod/sandbox).
    */
   isConfigured(): boolean {
-    return !!(
-      this.config.username &&
-      this.config.password &&
-      (this.config.apiKey || this.config.apiSecret)
-    );
+    return !!(this.config.username && this.config.password);
   }
 
   /**

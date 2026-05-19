@@ -1,4 +1,4 @@
-# 🎯 EcommerceERP - Sistema Gestionale Completo
+# 🎯 FabbricaMi.pro - Sistema Gestionale Completo
 
 **Versione:** 2.0.0
 **Stato:** Backend 95% Completato | Frontend 60% Completato
@@ -286,4 +286,4 @@ MIT License - vedi file [LICENSE](LICENSE)
 
 ## 🙏 Credits
 
-Sviluppato con ❤️ per EcommerceERP
+Sviluppato con ❤️ per FabbricaMi.pro

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ============================================
-# EcommerceERP - Backup Script
+# FabbricaMi.pro - Backup Script
 # ============================================
 # Esegue backup automatico di:
 # - Database PostgreSQL
@@ -24,7 +24,7 @@ RETENTION_MONTHLY=12
 # Variabili ambiente (da .env o docker)
 DB_HOST="${POSTGRES_HOST:-postgres}"
 DB_PORT="${POSTGRES_PORT:-5432}"
-DB_NAME="${POSTGRES_DB:-ecommerce_erp}"
+DB_NAME="${POSTGRES_DB:-fabbricami_pro}"
 DB_USER="${POSTGRES_USER:-postgres}"
 DB_PASSWORD="${POSTGRES_PASSWORD}"
 
@@ -243,7 +243,7 @@ show_stats() {
 # Main
 main() {
     log_info "============================================"
-    log_info "EcommerceERP - Backup $BACKUP_TYPE"
+    log_info "FabbricaMi.pro - Backup $BACKUP_TYPE"
     log_info "Data: $(date)"
     log_info "============================================"
 

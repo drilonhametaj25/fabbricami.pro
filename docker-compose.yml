@@ -7,7 +7,7 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: ecommerce_erp
+      POSTGRES_DB: fabbricami_pro
       PGDATA: /var/lib/postgresql/data/pgdata
     ports:
       - "5432:5432"
@@ -51,7 +51,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/ecommerce_erp?schema=public
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/fabbricami_pro?schema=public
       REDIS_HOST: redis
       REDIS_PORT: 6379
       NODE_ENV: development

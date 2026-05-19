@@ -1,8 +1,8 @@
-# Architettura EcommerceERP SaaS
+# Architettura FabbricaMi.pro SaaS
 
 ## Overview
 
-EcommerceERP è un sistema gestionale multi-tenant per e-commerce con produzione, progettato per aziende che vendono tramite WordPress/WooCommerce e hanno processi produttivi interni.
+FabbricaMi.pro è un sistema gestionale multi-tenant per e-commerce con produzione, progettato per aziende che vendono tramite WordPress/WooCommerce e hanno processi produttivi interni.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -87,7 +87,7 @@ EcommerceERP è un sistema gestionale multi-tenant per e-commerce con produzione
 ## Struttura Directory
 
 ```
-ecommerce-erp/
+fabbricami-pro/
 ├── docs/                       # Documentazione
 │   ├── ARCHITECTURE.md         # Questo file
 │   ├── DATA_MODEL.md           # Schema ER

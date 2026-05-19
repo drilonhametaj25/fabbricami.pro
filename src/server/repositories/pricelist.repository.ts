@@ -64,7 +64,7 @@ class PriceListRepository {
   }) {
     const { skip, take, isActive, search, orderBy } = options;
 
-    return await prisma.priceList.findMany({
+    const lists = await prisma.priceList.findMany({
       where: {
         ...(isActive !== undefined && { isActive }),
         ...(search && {
@@ -88,6 +88,28 @@ class PriceListRepository {
       take,
       orderBy: orderBy || { priority: 'desc' },
     });
+
+    // Per ogni listino calcola lo sconto medio degli item (utile in UI quando
+    // globalDiscount=0 ma sono stati configurati discountPercent per-item)
+    const listIds = lists.map((l) => l.id);
+    const itemAvgs = listIds.length
+      ? await prisma.priceListItem.groupBy({
+          by: ['priceListId'],
+          where: {
+            priceListId: { in: listIds },
+            discountPercent: { not: null },
+          },
+          _avg: { discountPercent: true },
+        })
+      : [];
+    const avgByList = new Map<string, number>(
+      itemAvgs.map((a) => [a.priceListId, Number(a._avg.discountPercent || 0)])
+    );
+
+    return lists.map((l) => ({
+      ...l,
+      itemsAverageDiscount: avgByList.get(l.id) ?? 0,
+    }));
   }
 
   /**

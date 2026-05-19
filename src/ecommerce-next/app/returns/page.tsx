@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { RotateCcw, CheckCircle, XCircle, Clock, Mail } from 'lucide-react';
 
 export const metadata: Metadata = {
-  title: 'Resi e Rimborsi | EcommerceERP',
+  title: 'Resi e Rimborsi | FabbricaMi.pro',
   description: 'Politica di reso e rimborso del nostro e-commerce.',
 };
 

@@ -105,7 +105,7 @@ class ExportService {
   private companyEmail: string;
 
   constructor() {
-    this.companyName = process.env.COMPANY_NAME || 'EcommerceERP';
+    this.companyName = process.env.COMPANY_NAME || 'FabbricaMi.pro';
     this.companyAddress = process.env.COMPANY_ADDRESS || 'Via Example 123, 00100 Roma';
     this.companyTaxId = process.env.COMPANY_TAX_ID || 'IT12345678901';
     this.companyPhone = process.env.COMPANY_PHONE || '+39 06 1234567';
@@ -276,7 +276,7 @@ class ExportService {
 
       // Footer
       doc.fontSize(8).text(
-        'Documento generato automaticamente da EcommerceERP',
+        'Documento generato automaticamente da FabbricaMi.pro',
         50,
         780,
         { align: 'center' }

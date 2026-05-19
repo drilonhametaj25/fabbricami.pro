@@ -98,8 +98,8 @@
           </Column>
           <Column field="globalDiscount" header="Sconto Base" sortable style="min-width: 120px">
             <template #body="{ data }">
-              <Tag :severity="data.globalDiscount > 0 ? 'success' : 'secondary'" class="discount-tag">
-                {{ data.globalDiscount }}%
+              <Tag :severity="formatDiscount(data) > 0 ? 'success' : 'secondary'" class="discount-tag">
+                {{ formatDiscount(data) }}%
               </Tag>
             </template>
           </Column>
@@ -266,7 +266,7 @@
           </div>
           <div class="detail-stats">
             <div class="stat">
-              <span class="stat-value">{{ selectedPriceList.globalDiscount }}%</span>
+              <span class="stat-value">{{ formatDiscount(selectedPriceList) }}%</span>
               <span class="stat-label">Sconto Base</span>
             </div>
             <div class="stat">
@@ -423,6 +423,20 @@ const formatCurrency = (value: number) => {
   }).format(value);
 };
 
+// Estrae lo sconto base in modo robusto: Prisma serializza Decimal come stringa,
+// quindi `data.globalDiscount` puo' essere string|number|Decimal. Accetta anche
+// la variante `discountPercentage` nel caso il backend cambi nome.
+// Fallback all'itemsAverageDiscount (calcolato dal backend) se globalDiscount=0
+// ma esistono sconti configurati a livello di item.
+const formatDiscount = (data: any): number => {
+  if (!data) return 0;
+  const raw = data.globalDiscount ?? data.discountPercentage ?? 0;
+  const n = Number(raw);
+  if (Number.isFinite(n) && n > 0) return n;
+  const avg = Number(data.itemsAverageDiscount ?? 0);
+  return Number.isFinite(avg) ? avg : 0;
+};
+
 const formatDate = (date: string | null | undefined) => {
   if (!date) return null;
   return new Date(date).toLocaleDateString('it-IT');
@@ -505,7 +519,7 @@ const editPriceList = (priceList: PriceList) => {
     code: priceList.code,
     name: priceList.name,
     description: priceList.description || '',
-    globalDiscount: priceList.globalDiscount,
+    globalDiscount: Number(priceList.globalDiscount) || 0,
     priority: priceList.priority,
     validFrom: priceList.validFrom ? new Date(priceList.validFrom) : null,
     validTo: priceList.validTo ? new Date(priceList.validTo) : null,

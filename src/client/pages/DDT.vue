@@ -775,7 +775,11 @@ onMounted(() => {
 
 <style scoped>
 .ddt-page {
+  /* width:100% perche' .content e' display:flex e senza questo
+     il figlio prende solo la larghezza del contenuto */
+  width: 100%;
   max-width: 1600px;
+  margin: 0 auto;
 }
 
 .stats-grid {

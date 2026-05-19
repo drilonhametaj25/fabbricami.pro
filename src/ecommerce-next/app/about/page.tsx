@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { Award, Users, Globe, Heart } from 'lucide-react';
 
 export const metadata: Metadata = {
-  title: 'Chi Siamo | EcommerceERP',
+  title: 'Chi Siamo | FabbricaMi.pro',
   description: 'Scopri la storia del nostro e-commerce e i valori che ci guidano.',
 };
 

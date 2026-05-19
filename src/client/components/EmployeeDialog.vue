@@ -43,11 +43,14 @@
         <label for="hourlyRate">Costo Orario (€/h)</label>
         <InputNumber
           id="hourlyRate"
-          v-model="form.hourlyRate"
+          :model-value="form.hourlyRate"
+          @input="(e: any) => form.hourlyRate = e.value ?? 0"
           mode="currency"
           currency="EUR"
           locale="it-IT"
           class="w-full"
+          :min="0"
+          :step="0.5"
           :minFractionDigits="2"
           :maxFractionDigits="2"
         />

@@ -107,6 +107,11 @@
           <span class="nav-label">Ordini Acquisto</span>
         </router-link>
 
+        <router-link v-if="canAccessModule('goods-receipts')" to="/goods-receipts" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Entrate Merce' : null">
+          <i class="pi pi-truck"></i>
+          <span class="nav-label">Entrate Merce</span>
+        </router-link>
+
         <router-link v-if="canAccessModule('logistics')" to="/logistics" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'Logistica' : null">
           <i class="pi pi-compass"></i>
           <span class="nav-label">Logistica</span>
@@ -216,6 +221,18 @@
             </div>
           </div>
           <Button
+            icon="pi pi-user"
+            class="p-button-text p-button-rounded"
+            @click="router.push('/profile')"
+            v-tooltip.bottom="'Profilo'"
+          />
+          <Button
+            icon="pi pi-comments"
+            class="p-button-text p-button-rounded"
+            @click="router.push('/feedback')"
+            v-tooltip.bottom="'Le mie segnalazioni'"
+          />
+          <Button
             icon="pi pi-sign-out"
             class="p-button-text p-button-rounded"
             @click="handleLogout"
@@ -225,6 +242,15 @@
       </header>
 
       <main class="content">
+        <!-- Trial ending banner: gentle from day 7, urgent from day 3, blocking on expiry -->
+        <PlanLimitBanner
+          v-if="trialBannerVisible"
+          :message="trialBannerMessage"
+          :severity="trialBannerSeverity"
+          :dismissible="trialBannerDismissible"
+          dismiss-key="trial-ending"
+          @upgrade="goToBilling"
+        />
         <PlanLimitBanner
           v-if="isNearLimit && limitMessage"
           :message="limitMessage"
@@ -235,6 +261,8 @@
         <router-view />
       </main>
     </div>
+
+    <FeedbackButton v-if="authStore.isAuthenticated" />
   </div>
 </template>
 
@@ -249,6 +277,7 @@ import { useSubscriptionStore } from '../stores/subscription.store';
 import { useRouter } from 'vue-router';
 import { usePermissions } from '../composables/usePermissions';
 import PlanLimitBanner from '../components/billing/PlanLimitBanner.vue';
+import FeedbackButton from '../components/FeedbackButton.vue';
 
 const { canAccessModule } = usePermissions();
 
@@ -268,9 +297,49 @@ const displayUserName = computed(() => {
 });
 
 // Tenant & Subscription computed
-const tenantName = computed(() => authStore.tenantName || 'EcommerceERP');
+const tenantName = computed(() => authStore.tenantName || 'FabbricaMi.pro');
 const isTrialing = computed(() => authStore.isTrialing);
 const trialDaysRemaining = computed(() => subscriptionStore.trialDaysRemaining);
+
+// Trial ending banner — strategia ibrida:
+//   day > 7   : nessun banner (basta il Tag nella sidebar)
+//   day 4-7   : warning, dismissibile per la sessione
+//   day 1-3   : warning forte, non dismissibile
+//   day <= 0  : danger "Trial scaduto", non dismissibile
+const trialBannerVisible = computed(() => {
+  if (!isTrialing.value) return false;
+  const d = trialDaysRemaining.value;
+  return d !== null && d <= 7;
+});
+
+const trialBannerMessage = computed(() => {
+  const d = trialDaysRemaining.value;
+  if (d === null) return '';
+  if (d <= 0) {
+    return 'Il tuo trial è scaduto. Aggiungi un metodo di pagamento per continuare a usare la piattaforma.';
+  }
+  if (d === 1) {
+    return 'Ultimo giorno di trial gratuito. Aggiungi un metodo di pagamento per non perdere l\'accesso domani.';
+  }
+  if (d <= 3) {
+    return `Trial in scadenza tra ${d} giorni. Aggiungi un metodo di pagamento per continuare senza interruzioni.`;
+  }
+  return `Restano ${d} giorni di trial gratuito. Aggiungi un metodo di pagamento quando vuoi per evitare interruzioni.`;
+});
+
+const trialBannerSeverity = computed<'warning' | 'danger' | 'info'>(() => {
+  const d = trialDaysRemaining.value;
+  if (d === null) return 'info';
+  if (d <= 0) return 'danger';
+  if (d <= 3) return 'danger';
+  return 'warning';
+});
+
+const trialBannerDismissible = computed(() => {
+  const d = trialDaysRemaining.value;
+  // Sopra 3 giorni l'utente puo' chiuderlo, sotto no (forziamo l'attenzione)
+  return d !== null && d > 3;
+});
 const isNearLimit = computed(() => subscriptionStore.isNearLimit);
 const limitMessage = computed(() => {
   if (!subscriptionStore.usage) return '';
@@ -302,6 +371,8 @@ onMounted(() => {
   notificationStore.loadUnreadCount();
   // Fetch subscription usage for plan limit checks
   subscriptionStore.fetchUsage();
+  // Carica la subscription corrente per popolare trial badge + banner
+  subscriptionStore.fetchSubscription();
 });
 
 const handleLogout = async () => {

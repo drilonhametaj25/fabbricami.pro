@@ -26,8 +26,18 @@ const loginSchema = z.object({
 const authRoutes: FastifyPluginAsync = async (server) => {
   /**
    * POST /login
+   * Stricter rate limit (10 attempts / 5 minutes per IP) to slow down
+   * credential-stuffing and brute-force attacks. The global rate-limit
+   * (100/min) is too generous for an auth endpoint.
    */
-  server.post('/login', async (request, reply) => {
+  server.post(
+    '/login',
+    {
+      config: {
+        rateLimit: { max: 10, timeWindow: '5 minutes' },
+      },
+    },
+    async (request, reply) => {
     const { email, password } = loginSchema.parse(request.body);
 
     const user = await prisma.user.findUnique({
@@ -255,10 +265,110 @@ const authRoutes: FastifyPluginAsync = async (server) => {
       },
     });
 
+    // Shape della response: { user, tenant } — il client (auth.store.ts)
+    // si aspetta data.user e data.tenant separati, non i campi flat.
     return reply.send({
       success: true,
-      data: userData,
+      data: {
+        user: userData
+          ? {
+              id: userData.id,
+              email: userData.email,
+              firstName: userData.firstName,
+              lastName: userData.lastName,
+              role: userData.role,
+              emailVerified: userData.emailVerified,
+              tenantId: userData.tenantId,
+              employee: userData.employee,
+            }
+          : null,
+        tenant: userData?.tenant
+          ? {
+              id: userData.tenant.id,
+              slug: userData.tenant.slug,
+              name: userData.tenant.name,
+              status: 'ACTIVE' as const,
+              subscription: userData.tenant.subscription
+                ? {
+                    status: userData.tenant.subscription.status,
+                    planCode: userData.tenant.subscription.plan?.code,
+                    planName: userData.tenant.subscription.plan?.name,
+                  }
+                : null,
+            }
+          : null,
+      },
     });
+  });
+
+  /**
+   * PATCH /me — aggiorna profilo utente
+   */
+  server.patch('/me', { preHandler: authenticate }, async (request: any, reply) => {
+    try {
+      const user = request.user;
+      const body = z
+        .object({
+          firstName: z.string().min(1).max(100).optional(),
+          lastName: z.string().min(1).max(100).optional(),
+        })
+        .parse(request.body);
+
+      const updated = await prisma.user.update({
+        where: { id: user.userId },
+        data: body,
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          role: true,
+        },
+      });
+      return reply.send({ success: true, data: updated });
+    } catch (error: any) {
+      return reply.status(400).send({ success: false, error: error.message });
+    }
+  });
+
+  /**
+   * POST /change-password — cambio password utente loggato
+   */
+  server.post('/change-password', { preHandler: authenticate }, async (request: any, reply) => {
+    try {
+      const user = request.user;
+      const body = z
+        .object({
+          currentPassword: z.string().min(1),
+          newPassword: z
+            .string()
+            .min(8)
+            .regex(/[A-Z]/, 'Almeno una lettera maiuscola')
+            .regex(/[a-z]/, 'Almeno una lettera minuscola')
+            .regex(/[0-9]/, 'Almeno un numero'),
+        })
+        .parse(request.body);
+
+      const dbUser = await prisma.user.findUnique({ where: { id: user.userId } });
+      if (!dbUser) {
+        return reply.status(404).send({ success: false, error: 'Utente non trovato' });
+      }
+
+      const valid = await comparePassword(body.currentPassword, dbUser.password);
+      if (!valid) {
+        return reply.status(400).send({ success: false, error: 'Password attuale non corretta' });
+      }
+
+      const newHash = await hashPassword(body.newPassword);
+      await prisma.user.update({
+        where: { id: user.userId },
+        data: { password: newHash },
+      });
+
+      return reply.send({ success: true, message: 'Password aggiornata' });
+    } catch (error: any) {
+      return reply.status(400).send({ success: false, error: error.message });
+    }
   });
 
   // ============================================
@@ -267,9 +377,18 @@ const authRoutes: FastifyPluginAsync = async (server) => {
 
   /**
    * POST /register
-   * Register a new tenant with admin user
+   * Register a new tenant with admin user.
+   * Tighter rate limit (5 attempts / 10 minutes per IP) to prevent spam signups
+   * and email-verification abuse.
    */
-  server.post('/register', async (request, reply) => {
+  server.post(
+    '/register',
+    {
+      config: {
+        rateLimit: { max: 5, timeWindow: '10 minutes' },
+      },
+    },
+    async (request, reply) => {
     try {
       const body = registerSchema.body.parse(request.body);
 
@@ -312,7 +431,8 @@ const authRoutes: FastifyPluginAsync = async (server) => {
       const tenant = await tenantService.setupInitialTenant(
         user.id,
         body.companyName,
-        body.plan || 'PRO'
+        body.plan || 'PRO',
+        body.billingCycle || 'monthly'
       );
 
       // Send verification email (using SaaS template)
@@ -357,7 +477,7 @@ const authRoutes: FastifyPluginAsync = async (server) => {
 
   /**
    * POST /verify-email
-   * Verify email address with token
+   * Verify email address with token, then issue JWT so user goes straight to onboarding
    */
   server.post('/verify-email', async (request, reply) => {
     try {
@@ -367,6 +487,22 @@ const authRoutes: FastifyPluginAsync = async (server) => {
         where: {
           emailVerifyToken: token,
           emailVerifyTokenExpires: { gt: new Date() },
+        },
+        include: {
+          tenant: {
+            select: {
+              id: true,
+              slug: true,
+              name: true,
+              status: true,
+              subscription: {
+                select: {
+                  status: true,
+                  plan: { select: { code: true, name: true } },
+                },
+              },
+            },
+          },
         },
       });
 
@@ -388,15 +524,49 @@ const authRoutes: FastifyPluginAsync = async (server) => {
       });
 
       // Send welcome email (using SaaS template with tenant name)
-      const tenant = await prisma.tenant.findFirst({
-        where: { members: { some: { userId: user.id } } },
-        select: { name: true },
-      });
-      await emailService.sendSaasWelcomeEmail(user.email, user.firstName, tenant?.name || 'il tuo account');
+      await emailService.sendSaasWelcomeEmail(
+        user.email,
+        user.firstName,
+        user.tenant?.name || 'il tuo account'
+      );
+
+      // Issue JWT now that the email is verified — user can proceed straight
+      // into onboarding without a separate login step.
+      const payload = {
+        userId: user.id,
+        email: user.email,
+        role: user.role,
+        tenantId: user.tenantId || undefined,
+        tenantSlug: user.tenant?.slug,
+        planCode: user.tenant?.subscription?.plan?.code,
+      };
+      const jwtToken = generateToken(payload);
+      const refreshToken = generateRefreshToken(payload);
 
       return reply.send({
         success: true,
-        data: { message: 'Email verificata con successo' },
+        data: {
+          message: 'Email verificata con successo',
+          token: jwtToken,
+          refreshToken,
+          user: {
+            id: user.id,
+            email: user.email,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            role: user.role,
+            emailVerified: true,
+          },
+          tenant: user.tenant
+            ? {
+                id: user.tenant.id,
+                slug: user.tenant.slug,
+                name: user.tenant.name,
+                status: user.tenant.status,
+                subscription: user.tenant.subscription,
+              }
+            : null,
+        },
       });
     } catch (error) {
       return reply.status(400).send({
@@ -408,9 +578,17 @@ const authRoutes: FastifyPluginAsync = async (server) => {
 
   /**
    * POST /resend-verification
-   * Resend email verification link
+   * Resend email verification link.
+   * Tight rate limit (3 / 10min) to prevent email-spam abuse via this endpoint.
    */
-  server.post('/resend-verification', async (request, reply) => {
+  server.post(
+    '/resend-verification',
+    {
+      config: {
+        rateLimit: { max: 3, timeWindow: '10 minutes' },
+      },
+    },
+    async (request, reply) => {
     try {
       const { email } = resendVerificationSchema.body.parse(request.body);
 
@@ -762,21 +940,11 @@ const authRoutes: FastifyPluginAsync = async (server) => {
             id: user.tenant.id,
             slug: user.tenant.slug,
             name: user.tenant.name,
-            subscription: user.tenant.subscription ? {
-              status: user.tenant.subscription.status,
-              planCode: user.tenant.subscription.plan.code,
-              planName: user.tenant.subscription.plan.name,
-            } : null,
           } : null,
-          token,
-          refreshToken,
         },
       });
     } catch (error) {
-      return reply.status(400).send({
-        success: false,
-        error: error instanceof Error ? error.message : 'Errore accettazione invito',
-      });
+      return reply.status(400).send({ success: false, error: error instanceof Error ? error.message : "Errore" });
     }
   });
 };

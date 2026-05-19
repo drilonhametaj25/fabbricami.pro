@@ -195,23 +195,93 @@ class PurchaseOrderService {
   }
 
   /**
-   * Aggiorna ordine d'acquisto
+   * Aggiorna ordine d'acquisto. Supporta campi scalari + righe items.
+   * - id presente → UPDATE riga (quantity / unitPrice / tax)
+   * - id assente   → CREATE riga (richiede productId o materialId)
+   * Ricalcola sempre subtotal/tax/total dopo la mutazione delle righe.
    */
-  async updatePurchaseOrder(id: string, data: UpdatePurchaseOrderInput) {
+  async updatePurchaseOrder(id: string, data: UpdatePurchaseOrderInput & { items?: any[] }) {
     const existing = await purchaseOrderRepository.findById(id);
     if (!existing) {
       throw new Error('Ordine d\'acquisto non trovato');
     }
 
-    // Non permettere modifiche se già ricevuto
     if (existing.status === 'RECEIVED' || existing.status === 'CANCELLED') {
       throw new Error('Non è possibile modificare un ordine ricevuto o cancellato');
     }
 
-    const order = await purchaseOrderRepository.update(id, data);
+    const { items, ...scalarData } = data;
 
-    logger.info(`Updated purchase order: ${order.orderNumber}`);
+    if (Object.keys(scalarData).length > 0) {
+      await purchaseOrderRepository.update(id, scalarData as any);
+    }
 
+    if (items && Array.isArray(items) && items.length > 0) {
+      await prisma.$transaction(async (tx) => {
+        for (const it of items) {
+          const tax = typeof it.tax === 'number' ? it.tax : 22;
+          const total = Number((it.quantity * it.unitPrice * (1 + tax / 100)).toFixed(2));
+          if (it.id) {
+            const existingItem = await tx.purchaseOrderItem.findFirst({
+              where: { id: it.id, purchaseOrderId: id },
+              select: { id: true, receivedQuantity: true },
+            });
+            if (!existingItem) {
+              throw new Error(`Riga PO ${it.id} non trovata o non appartiene all'ordine`);
+            }
+            if (it.quantity < existingItem.receivedQuantity) {
+              throw new Error(
+                `Quantità nuova (${it.quantity}) inferiore a quella già ricevuta (${existingItem.receivedQuantity})`
+              );
+            }
+            await tx.purchaseOrderItem.update({
+              where: { id: it.id },
+              data: { quantity: it.quantity, unitPrice: it.unitPrice, tax, total },
+            });
+          } else {
+            if (!it.productId && !it.materialId) {
+              throw new Error('Nuova riga PO senza productId né materialId');
+            }
+            await tx.purchaseOrderItem.create({
+              data: {
+                purchaseOrderId: id,
+                productId: it.productId || null,
+                materialId: it.materialId || null,
+                quantity: it.quantity,
+                unitPrice: it.unitPrice,
+                tax,
+                total,
+              },
+            });
+          }
+        }
+
+        const allItems = await tx.purchaseOrderItem.findMany({
+          where: { purchaseOrderId: id },
+          select: { quantity: true, unitPrice: true, tax: true, total: true },
+        });
+        let subtotal = 0;
+        let taxAmount = 0;
+        for (const r of allItems) {
+          const lineNet = Number(r.quantity) * Number(r.unitPrice);
+          subtotal += lineNet;
+          taxAmount += lineNet * (Number(r.tax) / 100);
+        }
+        const totalAmount = subtotal + taxAmount;
+
+        await tx.purchaseOrder.update({
+          where: { id },
+          data: {
+            subtotalAmount: Number(subtotal.toFixed(2)),
+            taxAmount: Number(taxAmount.toFixed(2)),
+            totalAmount: Number(totalAmount.toFixed(2)),
+          },
+        });
+      });
+    }
+
+    const order = await purchaseOrderRepository.findById(id);
+    logger.info(`Updated purchase order: ${(order as any)?.orderNumber || id}`);
     return order;
   }
 

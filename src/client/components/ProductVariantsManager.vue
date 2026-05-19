@@ -127,6 +127,8 @@
       :header="isEditing ? 'Modifica Variante' : 'Nuova Variante'"
       :modal="true"
       :style="{ width: '700px', maxWidth: '95vw' }"
+      :appendTo="'body'"
+      @hide="onDialogHide"
     >
       <div class="variant-form">
         <!-- Basic Info -->
@@ -299,6 +301,7 @@
       :header="`Giacenze - ${selectedVariant?.name || ''}`"
       :modal="true"
       :style="{ width: '600px', maxWidth: '95vw' }"
+      :appendTo="'body'"
     >
       <ProductInventoryManager
         v-if="selectedVariant"
@@ -419,6 +422,13 @@ const openCreateDialog = () => {
   dialogVisible.value = true;
 };
 
+const onDialogHide = () => {
+  // Reset completo al close per evitare residui (cause del bug "duplicato")
+  isEditing.value = false;
+  selectedVariant.value = null;
+  Object.assign(form, getDefaultForm());
+};
+
 const editVariant = (variant: ProductVariant) => {
   isEditing.value = true;
   Object.assign(form, {
@@ -506,13 +516,19 @@ const saveVariant = async () => {
     let response;
 
     if (isEditing.value) {
-      response = await api.put(`/products/${props.productId}/variants/${form.id}`, data);
+      // Backend espone PATCH /products/variants/:variantId (route flat),
+      // non c'è PUT su path nidificato. Usiamo PATCH sull'endpoint corretto.
+      response = await api.patch(`/products/variants/${form.id}`, data);
     } else {
       response = await api.post(`/products/${props.productId}/variants`, data);
     }
 
-    if (response.success) {
-      await loadVariants();
+    // Ricarica la lista comunque (anche se response.success è falsy ma non
+    // siamo finiti nel catch): garantisce sync UI ↔ DB e fixa il bug
+    // "lista varianti non refresha dopo POST".
+    await loadVariants();
+
+    if (response?.success !== false) {
       dialogVisible.value = false;
       toast.add({
         severity: 'success',
@@ -527,6 +543,10 @@ const saveVariant = async () => {
       detail: error.message || 'Errore salvataggio variante',
       life: 3000,
     });
+    // anche in errore, tenta refresh — la richiesta POST può essere
+    // andata a buon fine ma il client ha ricevuto un errore di rete
+    // sulla risposta successiva (es. redirect 402)
+    try { await loadVariants(); } catch (_) { /* noop */ }
   } finally {
     saving.value = false;
   }

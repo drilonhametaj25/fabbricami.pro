@@ -99,7 +99,7 @@ const setTenantStatusSchema = {
 // ROUTES
 // ============================================
 
-export default async function adminRoutes(fastify: FastifyInstance) {
+async function adminRoutes(fastify: FastifyInstance) {
   // ==========================================
   // PUBLIC AUTH ROUTES (No auth required)
   // ==========================================
@@ -108,7 +108,17 @@ export default async function adminRoutes(fastify: FastifyInstance) {
      * POST /admin/auth/login
      * Login super admin
      */
-    publicFastify.post('/auth/login', async (request: FastifyRequest, reply: FastifyReply) => {
+    publicFastify.post(
+      '/auth/login',
+      {
+        // Very tight rate limit on SuperAdmin login — there should only ever
+        // be a handful of legitimate logins per day. 5 attempts / 15 minutes
+        // per IP makes brute-forcing impractical.
+        config: {
+          rateLimit: { max: 5, timeWindow: '15 minutes' },
+        },
+      },
+      async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const parsed = loginSchema.body.safeParse(request.body);
         if (!parsed.success) {
@@ -619,5 +629,443 @@ export default async function adminRoutes(fastify: FastifyInstance) {
       return errorResponse(reply, error.message, 500);
     }
   });
+
+  // ==========================================
+  // COUPONS MANAGEMENT
+  // ==========================================
+
+  /**
+   * GET /admin/coupons — lista coupon
+   */
+  protectedFastify.get('/coupons', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const query = request.query as any;
+      const page = Math.max(1, parseInt(query.page) || 1);
+      const limit = Math.min(100, parseInt(query.limit) || 50);
+
+      const [items, total] = await Promise.all([
+        prisma.coupon.findMany({
+          orderBy: { createdAt: 'desc' },
+          skip: (page - 1) * limit,
+          take: limit,
+        }),
+        prisma.coupon.count(),
+      ]);
+
+      return successResponse(reply, { items, total, page, limit });
+    } catch (error: any) {
+      return errorResponse(reply, error.message, 500);
+    }
+  });
+
+  /**
+   * POST /admin/coupons — crea coupon
+   */
+  protectedFastify.post('/coupons', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const body = request.body as any;
+      const coupon = await prisma.coupon.create({
+        data: {
+          code: body.code,
+          name: body.name || null,
+          type: body.type,
+          discountValue: body.value,
+          scope: body.scope || 'ENTIRE_ORDER',
+          validFrom: body.validFrom ? new Date(body.validFrom) : new Date(),
+          validTo: body.validUntil ? new Date(body.validUntil) : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+          maxUses: body.maxUses ?? null,
+          isActive: body.isActive ?? true,
+        },
+      });
+
+      const superAdminId = (request as any).superAdmin?.superAdminId;
+      if (superAdminId) {
+        await logSuperAdminAction(superAdminId, 'CREATE_COUPON', {
+          entityType: 'COUPON',
+          entityId: coupon.id,
+          details: { code: coupon.code },
+          ipAddress: getClientIp(request),
+          userAgent: getUserAgent(request),
+        });
+      }
+
+      return successResponse(reply, coupon, 201);
+    } catch (error: any) {
+      return errorResponse(reply, error.message, 500);
+    }
+  });
+
+  /**
+   * PUT /admin/coupons/:id — aggiorna coupon
+   */
+  protectedFastify.put('/coupons/:id', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const body = request.body as any;
+
+      const data: any = {};
+      if (body.name !== undefined) data.name = body.name;
+      if (body.type !== undefined) data.type = body.type;
+      if (body.value !== undefined) data.discountValue = body.value;
+      if (body.validFrom !== undefined) data.validFrom = body.validFrom ? new Date(body.validFrom) : undefined;
+      if (body.validUntil !== undefined) data.validTo = body.validUntil ? new Date(body.validUntil) : undefined;
+      if (body.maxUses !== undefined) data.maxUses = body.maxUses;
+      if (body.isActive !== undefined) data.isActive = body.isActive;
+
+      const coupon = await prisma.coupon.update({ where: { id }, data });
+
+      const superAdminId = (request as any).superAdmin?.superAdminId;
+      if (superAdminId) {
+        await logSuperAdminAction(superAdminId, 'UPDATE_COUPON', {
+          entityType: 'COUPON',
+          entityId: id,
+          details: body,
+          ipAddress: getClientIp(request),
+          userAgent: getUserAgent(request),
+        });
+      }
+
+      return successResponse(reply, coupon);
+    } catch (error: any) {
+      return errorResponse(reply, error.message, 500);
+    }
+  });
+
+  /**
+   * DELETE /admin/coupons/:id — elimina coupon (solo se mai usato)
+   */
+  protectedFastify.delete('/coupons/:id', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const { id } = request.params as { id: string };
+
+      const existing = await prisma.coupon.findUnique({
+        where: { id },
+        include: { _count: { select: { usages: true } } },
+      });
+
+      if (!existing) {
+        return errorResponse(reply, 'Coupon non trovato', 404);
+      }
+
+      if (existing._count.usages > 0) {
+        return errorResponse(
+          reply,
+          `Impossibile eliminare: il coupon è stato usato ${existing._count.usages} volte. Disattivalo invece.`,
+          400
+        );
+      }
+
+      await prisma.coupon.delete({ where: { id } });
+
+      const superAdminId = (request as any).superAdmin?.superAdminId;
+      if (superAdminId) {
+        await logSuperAdminAction(superAdminId, 'DELETE_COUPON', {
+          entityType: 'COUPON',
+          entityId: id,
+          details: { code: existing.code },
+          ipAddress: getClientIp(request),
+          userAgent: getUserAgent(request),
+        });
+      }
+
+      return successResponse(reply, { id, deleted: true });
+    } catch (error: any) {
+      return errorResponse(reply, error.message, 500);
+    }
+  });
+
+  // ==========================================
+  // SIGNUP COUPONS (SaaS signup-time discounts)
+  // ==========================================
+  // These are separate from order-level Coupons (which belong to tenants and
+  // apply to their customers' e-commerce orders). SignupCoupons are
+  // platform-owned and apply to the subscription billing at signup.
+
+  /**
+   * GET /admin/signup-coupons — lista coupon signup
+   */
+  protectedFastify.get('/signup-coupons', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const query = request.query as any;
+      const page = Math.max(1, Number(query.page) || 1);
+      const limit = Math.min(100, Number(query.limit) || 50);
+
+      const [items, total] = await Promise.all([
+        prisma.signupCoupon.findMany({
+          orderBy: { createdAt: 'desc' },
+          skip: (page - 1) * limit,
+          take: limit,
+          include: {
+            _count: { select: { usages: true } },
+          },
+        }),
+        prisma.signupCoupon.count(),
+      ]);
+
+      return successResponse(reply, { items, total, page, limit });
+    } catch (error: any) {
+      return errorResponse(reply, error.message, 500);
+    }
+  });
+
+  /**
+   * POST /admin/signup-coupons — crea coupon signup
+   */
+  protectedFastify.post('/signup-coupons', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const body = request.body as any;
+
+      if (!body.code || !body.type || body.discountValue === undefined) {
+        return errorResponse(reply, 'code, type e discountValue sono obbligatori', 400);
+      }
+
+      const validFrom = body.validFrom ? new Date(body.validFrom) : new Date();
+      const validTo = body.validTo
+        ? new Date(body.validTo)
+        : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+
+      if (validFrom >= validTo) {
+        return errorResponse(reply, 'validFrom deve essere prima di validTo', 400);
+      }
+
+      const allowedTypes = ['PERCENTAGE', 'FIXED_AMOUNT', 'FREE_TRIAL_DAYS'];
+      if (!allowedTypes.includes(body.type)) {
+        return errorResponse(reply, `type deve essere uno di: ${allowedTypes.join(', ')}`, 400);
+      }
+
+      if (body.type === 'PERCENTAGE' && (body.discountValue < 0 || body.discountValue > 100)) {
+        return errorResponse(reply, 'PERCENTAGE deve essere tra 0 e 100', 400);
+      }
+
+      const coupon = await prisma.signupCoupon.create({
+        data: {
+          code: String(body.code).toUpperCase().trim(),
+          name: body.name || null,
+          description: body.description || null,
+          type: body.type,
+          discountValue: body.discountValue,
+          applicablePlans: body.applicablePlans || undefined,
+          applicableBillingCycles: body.applicableBillingCycles || undefined,
+          durationMonths: body.durationMonths ?? null,
+          validFrom,
+          validTo,
+          maxUses: body.maxUses ?? null,
+          maxUsesPerTenant: body.maxUsesPerTenant ?? 1,
+          stripeCouponId: body.stripeCouponId || null,
+          isActive: body.isActive ?? true,
+        },
+      });
+
+      const superAdminId = (request as any).superAdmin?.superAdminId;
+      if (superAdminId) {
+        await logSuperAdminAction(superAdminId, 'CREATE_SIGNUP_COUPON', {
+          entityType: 'SIGNUP_COUPON',
+          entityId: coupon.id,
+          details: { code: coupon.code, type: coupon.type, discountValue: Number(coupon.discountValue) },
+          ipAddress: getClientIp(request),
+          userAgent: getUserAgent(request),
+        });
+      }
+
+      return successResponse(reply, coupon, 201);
+    } catch (error: any) {
+      if (error.code === 'P2002') {
+        return errorResponse(reply, 'Esiste gia un coupon con questo codice', 409);
+      }
+      return errorResponse(reply, error.message, 500);
+    }
+  });
+
+  /**
+   * PUT /admin/signup-coupons/:id — aggiorna coupon signup
+   */
+  protectedFastify.put('/signup-coupons/:id', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const body = request.body as any;
+
+      const data: any = {};
+      if (body.name !== undefined) data.name = body.name;
+      if (body.description !== undefined) data.description = body.description;
+      if (body.type !== undefined) data.type = body.type;
+      if (body.discountValue !== undefined) data.discountValue = body.discountValue;
+      if (body.applicablePlans !== undefined) data.applicablePlans = body.applicablePlans;
+      if (body.applicableBillingCycles !== undefined)
+        data.applicableBillingCycles = body.applicableBillingCycles;
+      if (body.durationMonths !== undefined) data.durationMonths = body.durationMonths;
+      if (body.validFrom !== undefined)
+        data.validFrom = body.validFrom ? new Date(body.validFrom) : undefined;
+      if (body.validTo !== undefined)
+        data.validTo = body.validTo ? new Date(body.validTo) : undefined;
+      if (body.maxUses !== undefined) data.maxUses = body.maxUses;
+      if (body.maxUsesPerTenant !== undefined) data.maxUsesPerTenant = body.maxUsesPerTenant;
+      if (body.stripeCouponId !== undefined) data.stripeCouponId = body.stripeCouponId;
+      if (body.isActive !== undefined) data.isActive = body.isActive;
+
+      if (data.validFrom && data.validTo && data.validFrom >= data.validTo) {
+        return errorResponse(reply, 'validFrom deve essere prima di validTo', 400);
+      }
+
+      const coupon = await prisma.signupCoupon.update({ where: { id }, data });
+
+      const superAdminId = (request as any).superAdmin?.superAdminId;
+      if (superAdminId) {
+        await logSuperAdminAction(superAdminId, 'UPDATE_SIGNUP_COUPON', {
+          entityType: 'SIGNUP_COUPON',
+          entityId: id,
+          details: body,
+          ipAddress: getClientIp(request),
+          userAgent: getUserAgent(request),
+        });
+      }
+
+      return successResponse(reply, coupon);
+    } catch (error: any) {
+      return errorResponse(reply, error.message, 500);
+    }
+  });
+
+  /**
+   * DELETE /admin/signup-coupons/:id — elimina coupon signup (solo se mai usato)
+   */
+  protectedFastify.delete('/signup-coupons/:id', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const { id } = request.params as { id: string };
+
+      const existing = await prisma.signupCoupon.findUnique({
+        where: { id },
+        include: { _count: { select: { usages: true } } },
+      });
+
+      if (!existing) {
+        return errorResponse(reply, 'Signup coupon non trovato', 404);
+      }
+
+      if (existing._count.usages > 0) {
+        return errorResponse(
+          reply,
+          `Impossibile eliminare: il coupon è stato usato ${existing._count.usages} volte. Disattivalo invece.`,
+          400
+        );
+      }
+
+      await prisma.signupCoupon.delete({ where: { id } });
+
+      const superAdminId = (request as any).superAdmin?.superAdminId;
+      if (superAdminId) {
+        await logSuperAdminAction(superAdminId, 'DELETE_SIGNUP_COUPON', {
+          entityType: 'SIGNUP_COUPON',
+          entityId: id,
+          details: { code: existing.code },
+          ipAddress: getClientIp(request),
+          userAgent: getUserAgent(request),
+        });
+      }
+
+      return successResponse(reply, { id, deleted: true });
+    } catch (error: any) {
+      return errorResponse(reply, error.message, 500);
+    }
+  });
+
+  // ==========================================
+  // INTEGRATIONS — FATTURE IN CLOUD (SaaS billing)
+  // ==========================================
+
+  const FIC_SETTING_KEY = 'integration_fatture_in_cloud';
+
+  protectedFastify.get('/integrations/fic', async (_request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const setting = await prisma.systemSetting.findUnique({ where: { key: FIC_SETTING_KEY } });
+      const value = (setting?.value as any) || {};
+      return successResponse(reply, {
+        companyId: value.companyId || '',
+        hasApiToken: !!value.apiToken,
+        documentType: value.documentType || 'TD01',
+        defaultVatRate: value.defaultVatRate ?? 22,
+        autoSendSdi: value.autoSendSdi ?? true,
+        enabled: value.enabled ?? false,
+      });
+    } catch (error: any) {
+      return errorResponse(reply, error.message, 500);
+    }
+  });
+
+  protectedFastify.put('/integrations/fic', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const body = request.body as any;
+      const existing = await prisma.systemSetting.findUnique({ where: { key: FIC_SETTING_KEY } });
+      const oldValue = (existing?.value as any) || {};
+      const newValue: any = {
+        companyId: body.companyId ?? oldValue.companyId ?? '',
+        apiToken: body.apiToken ?? oldValue.apiToken ?? null,
+        documentType: body.documentType ?? oldValue.documentType ?? 'TD01',
+        defaultVatRate: body.defaultVatRate ?? oldValue.defaultVatRate ?? 22,
+        autoSendSdi: body.autoSendSdi ?? oldValue.autoSendSdi ?? true,
+        enabled: body.enabled ?? oldValue.enabled ?? false,
+      };
+      await prisma.systemSetting.upsert({
+        where: { key: FIC_SETTING_KEY },
+        update: { value: newValue },
+        create: { key: FIC_SETTING_KEY, value: newValue, description: 'FIC SaaS billing' },
+      });
+      return successResponse(reply, { saved: true });
+    } catch (error: any) {
+      return errorResponse(reply, error.message, 500);
+    }
+  });
+
+  protectedFastify.post('/integrations/fic/test', async (_request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const setting = await prisma.systemSetting.findUnique({ where: { key: FIC_SETTING_KEY } });
+      const value = (setting?.value as any) || {};
+      if (!value.companyId || !value.apiToken) {
+        return errorResponse(reply, 'Configurazione FIC incompleta', 400);
+      }
+      const r = await fetch(`https://api-v2.fattureincloud.it/c/${value.companyId}/info`, {
+        headers: { Authorization: `Bearer ${value.apiToken}`, Accept: 'application/json' },
+      });
+      if (!r.ok) {
+        return errorResponse(reply, `FIC ha risposto ${r.status}`, 400);
+      }
+      const data: any = await r.json();
+      return successResponse(reply, { message: `Connesso a ${data?.data?.name || 'FIC'}` });
+    } catch (error: any) {
+      return errorResponse(reply, error.message, 500);
+    }
+  });
+
+  protectedFastify.get('/integrations/fic/invoices', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const query = request.query as { limit?: string; status?: string };
+      const limit = Math.min(parseInt(query.limit || '100', 10), 500);
+      const where: any = {
+        OR: [
+          { ficInvoiceId: { not: null } },
+          { ficStatus: { not: null } },
+        ],
+      };
+      if (query.status) where.ficStatus = query.status;
+
+      const items = await prisma.billingHistory.findMany({
+        where: where as any,
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        include: {
+          subscription: {
+            include: {
+              tenant: { select: { id: true, name: true, slug: true } },
+            },
+          },
+        },
+      });
+
+      return successResponse(reply, items);
+    } catch (error: any) {
+      return errorResponse(reply, error.message, 500);
+    }
+  });
   }); // End of protectedRoutes register
 }
+
+export default adminRoutes;
