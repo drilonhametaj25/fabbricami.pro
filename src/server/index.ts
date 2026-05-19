@@ -62,6 +62,7 @@ import shopProductsRoutes from './routes/shop-products.routes';
 import shopCategoriesRoutes from './routes/shop-categories.routes';
 import shopAuthRoutes from './routes/shop-auth.routes';
 import shopCheckoutRoutes from './routes/shop-checkout.routes';
+import stripeWebhookRoutes from './routes/stripe-webhook.routes';
 import newsletterRoutes from './routes/newsletter.routes';
 
 // Create Fastify instance
@@ -238,6 +239,10 @@ async function setupServer() {
   await server.register(shopCategoriesRoutes, { prefix: `${apiPrefix}/shop/categories` });
   await server.register(shopAuthRoutes, { prefix: `${apiPrefix}/shop/auth` });
   await server.register(shopCheckoutRoutes, { prefix: `${apiPrefix}/shop/checkout` });
+  // Webhook dedicato per Stripe (subscriptions SaaS) — alias canonico.
+  // Il vecchio endpoint /shop/checkout/stripe/webhook resta funzionante per
+  // configurazioni Stripe esistenti.
+  await server.register(stripeWebhookRoutes, { prefix: `${apiPrefix}/webhooks` });
   await server.register(newsletterRoutes, { prefix: `${apiPrefix}/newsletter` });
 
   logger.info('✅ All routes registered');

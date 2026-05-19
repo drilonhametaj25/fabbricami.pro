@@ -210,6 +210,10 @@ export const useSubscriptionStore = defineStore('subscription', () => {
       const response = await api.patch<Subscription>('/subscription', { planCode });
       if (response.success) {
         currentSubscription.value = response.data;
+        // currentPlan e' un computed su availablePlans; usage dipende dai
+        // limiti del nuovo piano. Senza questo refresh la UI mostra ancora
+        // nome/prezzo/barre del vecchio piano.
+        await Promise.all([fetchPlans(), fetchUsage()]);
         return true;
       } else {
         error.value = response.error || 'Errore aggiornamento abbonamento';
@@ -233,6 +237,7 @@ export const useSubscriptionStore = defineStore('subscription', () => {
       });
       if (response.success) {
         currentSubscription.value = response.data;
+        await fetchUsage();
         return true;
       } else {
         error.value = response.error || 'Errore cancellazione abbonamento';
@@ -254,6 +259,7 @@ export const useSubscriptionStore = defineStore('subscription', () => {
       const response = await api.post<Subscription>('/subscription/reactivate');
       if (response.success) {
         currentSubscription.value = response.data;
+        await fetchUsage();
         return true;
       } else {
         error.value = response.error || 'Errore riattivazione abbonamento';

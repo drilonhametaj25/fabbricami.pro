@@ -275,7 +275,11 @@ async function skipWarehouse() {
   try {
     const success = await skipWarehouseApi();
     if (success) {
-      router.push('/');
+      // create-warehouse è l'ultimo step prima del complete: goToNextStep
+      // calcola la transizione e navigherà a '/' (mappato a 'complete').
+      // Manteniamo la single source of truth nel composable invece che fare
+      // router.push('/') hardcoded qua.
+      goToNextStep('create-warehouse');
     }
   } finally {
     skipping.value = false;

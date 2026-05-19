@@ -40,8 +40,8 @@
     <div class="trial-info">
       <i class="pi pi-info-circle"></i>
       <div>
-        <strong>14 giorni di prova gratuita</strong>
-        <p>Prova tutte le funzionalita senza impegno. Nessun addebito durante il periodo di prova.</p>
+        <strong>14 giorni di prova gratuita, senza carta</strong>
+        <p>Nessun addebito automatico. Al termine dei 14 giorni dovrai aggiungere un metodo di pagamento per continuare ad usare il servizio.</p>
       </div>
     </div>
 
@@ -62,16 +62,6 @@
         @click="setupPayment"
       />
     </div>
-
-    <!-- Skip Option -->
-    <div class="skip-option">
-      <Button
-        label="Configura dopo"
-        text
-        size="small"
-        @click="skipStep"
-      />
-    </div>
   </div>
 </template>
 
@@ -86,7 +76,7 @@ import { useOnboarding } from '../../composables/useOnboarding';
 const _router = useRouter();
 const route = useRoute();
 const toast = useToast();
-const { setupBilling, skipBilling, goToNextStep } = useOnboarding();
+const { setupBilling, goToNextStep } = useOnboarding();
 
 // State
 const loading = ref(false);
@@ -199,17 +189,6 @@ async function setupPayment() {
   }
 }
 
-async function skipStep() {
-  loading.value = true;
-  try {
-    const success = await skipBilling();
-    if (success) {
-      goToNextStep();
-    }
-  } finally {
-    loading.value = false;
-  }
-}
 </script>
 
 <style scoped>

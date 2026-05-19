@@ -84,7 +84,10 @@ const subscriptionRoutes: FastifyPluginAsync = async (server) => {
 
         return reply.send({
           success: true,
-          data: session,
+          data: {
+            checkoutUrl: session.url,
+            sessionId: session.sessionId,
+          },
         });
       } catch (error) {
         return reply.status(400).send({

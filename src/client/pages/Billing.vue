@@ -6,6 +6,20 @@
       icon="pi pi-credit-card"
     />
 
+    <!-- Banner di redirect 402 dal subscription gate -->
+    <div v-if="upgradeBanner" class="upgrade-banner" :class="upgradeBanner.severity">
+      <i class="pi pi-exclamation-circle"></i>
+      <div class="upgrade-banner-content">
+        <strong>{{ upgradeBanner.title }}</strong>
+        <p>{{ upgradeBanner.message }}</p>
+      </div>
+      <Button
+        :label="upgradeBanner.cta"
+        icon="pi pi-arrow-up"
+        @click="showPlanSelector = true"
+      />
+    </div>
+
     <!-- Current Plan Section -->
     <div class="plan-overview">
       <div class="current-plan-card">
@@ -51,6 +65,7 @@
             severity="secondary"
             @click="openCustomerPortal"
             :loading="openingPortal"
+            v-tooltip.bottom="'Apri il portale di Stripe per aggiornare il metodo di pagamento, scaricare le fatture e gestire i dati di fatturazione.'"
           />
           <Button
             v-if="subscriptionStore.willCancelAtPeriodEnd"
@@ -334,6 +349,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
+import { useRoute } from 'vue-router';
 import PageHeader from '../components/PageHeader.vue';
 import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
@@ -347,7 +363,56 @@ import { useSubscriptionStore } from '../stores/subscription.store';
 import type { SubscriptionPlan } from '../types';
 
 const toast = useToast();
+const route = useRoute();
 const subscriptionStore = useSubscriptionStore();
+
+// Banner di redirect dall'interceptor 402: se l'utente è arrivato qui perché
+// trial scaduto / pagamento in ritardo, mostriamo un messaggio diretto.
+const upgradeBanner = computed(() => {
+  const reason = (route.query.reason as string) || sessionStorage.getItem('billing_redirect_reason') || '';
+  if (!reason && route.query.upgrade !== '1') return null;
+  const customMessage = sessionStorage.getItem('billing_redirect_message') || '';
+  switch (reason) {
+    case 'TRIAL_EXPIRED_NEEDS_PLAN':
+    case 'TRIAL_EXPIRED':
+      return {
+        severity: 'danger',
+        title: 'Il tuo periodo di prova è terminato',
+        message: customMessage || 'Aggiungi un metodo di pagamento e scegli un piano per continuare ad usare la piattaforma.',
+        cta: 'Scegli un piano',
+      };
+    case 'SUBSCRIPTION_PAST_DUE':
+    case 'PAST_DUE':
+      return {
+        severity: 'warning',
+        title: 'Pagamento in ritardo',
+        message: customMessage || 'L\'ultimo addebito non è andato a buon fine. Aggiorna il metodo di pagamento per riprendere il servizio.',
+        cta: 'Gestisci pagamento',
+      };
+    case 'SUBSCRIPTION_CANCELLED':
+    case 'CANCELLED':
+      return {
+        severity: 'danger',
+        title: 'Subscription cancellata',
+        message: customMessage || 'La tua subscription è stata cancellata. Sottoscrivi di nuovo per ripristinare l\'accesso.',
+        cta: 'Sottoscrivi',
+      };
+    case 'NO_SUBSCRIPTION':
+      return {
+        severity: 'warning',
+        title: 'Nessuna subscription attiva',
+        message: customMessage || 'Per usare la piattaforma scegli uno dei piani disponibili.',
+        cta: 'Scegli un piano',
+      };
+    default:
+      return {
+        severity: 'warning',
+        title: 'Aggiorna il tuo abbonamento',
+        message: customMessage || 'Per continuare ad usare la piattaforma è necessario un abbonamento attivo.',
+        cta: 'Scegli un piano',
+      };
+  }
+});
 
 // State
 const loading = ref(false);
@@ -584,12 +649,22 @@ async function openCustomerPortal() {
     const portalUrl = await subscriptionStore.openCustomerPortal();
     if (portalUrl) {
       window.open(portalUrl, '_blank');
+    } else {
+      // Lo store cattura l'errore di rete/Stripe ed espone .error.
+      // Mostriamo il messaggio reale (es. "Stripe non configurato") invece
+      // di un generico, cosi' l'utente capisce cosa fare.
+      toast.add({
+        severity: 'error',
+        summary: 'Errore',
+        detail: subscriptionStore.error || 'Impossibile aprire il portale Stripe',
+        life: 5000,
+      });
     }
   } catch (error) {
     toast.add({
       severity: 'error',
       summary: 'Errore',
-      detail: 'Impossibile aprire il portale Stripe',
+      detail: error instanceof Error ? error.message : 'Impossibile aprire il portale Stripe',
       life: 5000,
     });
   } finally {
@@ -672,6 +747,50 @@ onMounted(async () => {
 <style scoped>
 .billing-page {
   max-width: 1200px;
+  margin: 0 auto;
+}
+
+.upgrade-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--border-radius-lg);
+  margin-bottom: var(--space-5);
+  border: 1px solid;
+}
+
+.upgrade-banner.danger {
+  background: var(--color-red-50, #fef2f2);
+  border-color: var(--color-red-300, #fca5a5);
+  color: var(--color-red-700, #b91c1c);
+}
+
+.upgrade-banner.warning {
+  background: var(--color-amber-50, #fffbeb);
+  border-color: var(--color-amber-300, #fcd34d);
+  color: var(--color-amber-800, #92400e);
+}
+
+.upgrade-banner i {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+
+.upgrade-banner-content {
+  flex: 1;
+}
+
+.upgrade-banner-content strong {
+  display: block;
+  font-size: var(--font-size-lg, 1.125rem);
+  margin-bottom: var(--space-1);
+}
+
+.upgrade-banner-content p {
+  margin: 0;
+  font-size: var(--font-size-sm, 0.875rem);
+  opacity: 0.9;
 }
 
 /* Current Plan Card */

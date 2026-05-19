@@ -24,6 +24,7 @@ const SUBSCRIPTION_BYPASS_PREFIXES = [
   '/api/v1/tenant',        // tenant settings, members, profile
   '/api/v1/notifications', // notifications visibility
   '/api/v1/admin',         // SuperAdmin (uses its own auth)
+  '/api/v1/webhooks',      // webhook ingress (Stripe, etc.) — usano proprie verifiche
   '/api/v1/wordpress/plugin/download',  // download plugin always allowed
   '/api/v1/wordpress/settings',         // configurazione WP sempre accessibile
 ];
@@ -110,21 +111,30 @@ export async function runSubscriptionGate(
 
   const validStatuses: SaasSubscriptionStatus[] = ['ACTIVE', 'TRIALING'];
   if (!validStatuses.includes(subscription.status)) {
-    const statusMessages: Partial<Record<SaasSubscriptionStatus, string>> = {
-      PAST_DUE:
-        'Il pagamento della tua subscription è in ritardo. Aggiorna il metodo di pagamento per continuare.',
-      CANCELLED:
-        'La tua subscription è stata cancellata. Sottoscrivi di nuovo per continuare.',
-      PAUSED:
-        'La tua subscription è in pausa. Riattivala per continuare a usare la piattaforma.',
+    const statusMessages: Partial<Record<SaasSubscriptionStatus, { message: string; code: string }>> = {
+      PAST_DUE: {
+        message: 'Il pagamento della tua subscription è in ritardo. Aggiorna il metodo di pagamento per continuare.',
+        code: 'SUBSCRIPTION_PAST_DUE',
+      },
+      CANCELLED: {
+        message: 'La tua subscription è stata cancellata. Sottoscrivi di nuovo per continuare.',
+        code: 'SUBSCRIPTION_CANCELLED',
+      },
+      PAUSED: {
+        message: 'La tua subscription è in pausa. Riattivala per continuare a usare la piattaforma.',
+        code: 'SUBSCRIPTION_PAUSED',
+      },
+      EXPIRED: {
+        message: 'Il tuo periodo di prova è terminato. Aggiungi un metodo di pagamento per continuare.',
+        code: 'TRIAL_EXPIRED_NEEDS_PLAN',
+      },
     };
+    const entry = statusMessages[subscription.status];
     reply.status(402).send({
       success: false,
       error: 'Subscription inactive',
-      code: `SUBSCRIPTION_${subscription.status}`,
-      message:
-        statusMessages[subscription.status] ||
-        'La tua subscription non è in uno stato valido per continuare.',
+      code: entry?.code || `SUBSCRIPTION_${subscription.status}`,
+      message: entry?.message || 'La tua subscription non è in uno stato valido per continuare.',
     });
     return { blocked: true };
   }

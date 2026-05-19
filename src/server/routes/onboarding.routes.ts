@@ -397,7 +397,11 @@ const onboardingRoutes: FastifyPluginAsync = async (server) => {
 
   /**
    * POST /onboarding/skip-billing
-   * Skip billing setup (use free trial)
+   * DEPRECATED — il bypass del billing è stato chiuso. Per compatibilità con
+   * client già deployati (es. mobile/PWA che ancora chiamano questo endpoint),
+   * ora garantiamo che il tenant abbia una trial subscription `TRIALING` e
+   * marchiamo billing come configurato. Il flag legacy `billingSkipped` viene
+   * rimosso dai settings.
    */
   server.post(
     '/skip-billing',
@@ -405,29 +409,47 @@ const onboardingRoutes: FastifyPluginAsync = async (server) => {
     async (request, reply) => {
       const tenantRequest = request as TenantRequest;
 
-      // Get current tenant settings
       const tenant = await prisma.tenant.findUnique({
         where: { id: tenantRequest.tenant.tenantId },
+        include: { subscription: true },
       });
 
-      const currentSettings = (tenant?.settings as Record<string, unknown>) || {};
+      if (!tenant) {
+        return reply.status(404).send({ success: false, error: 'Tenant non trovato' });
+      }
+
+      // Crea trial se non esiste (senza Stripe — il gate del trial scaduto
+      // forzerà l'upgrade più avanti)
+      if (!tenant.subscription) {
+        try {
+          await subscriptionService.createTrialSubscription(tenant.id, 'PRO', 'monthly');
+        } catch (subError) {
+          logger.warn('Trial subscription creation on skip-billing failed: ' + String(subError));
+        }
+      }
+
+      const currentSettings = (tenant.settings as Record<string, unknown>) || {};
+      // Rimuovi billingSkipped: ora ogni tenant ha sempre una subscription
+      const { billingSkipped: _legacy, ...rest } = currentSettings as { billingSkipped?: unknown } & Record<string, unknown>;
       const newSettings = {
-        ...currentSettings,
-        billingConfigured: false,
-        billingSkipped: true,
+        ...rest,
+        billingConfigured: true,
         billing: {
-          skippedAt: new Date().toISOString(),
+          trialStarted: true,
+          trialStartedAt: new Date().toISOString(),
+          trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+          planCode: 'PRO',
         },
       };
 
       await prisma.tenant.update({
-        where: { id: tenantRequest.tenant.tenantId },
+        where: { id: tenant.id },
         data: { settings: newSettings },
       });
 
       return reply.send({
         success: true,
-        data: { message: 'Setup billing saltato' },
+        data: { message: 'Prova gratuita attivata' },
       });
     }
   );

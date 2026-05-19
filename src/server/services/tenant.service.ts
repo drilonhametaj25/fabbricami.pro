@@ -191,8 +191,14 @@ class TenantService {
   async isSlugAvailable(slug: string): Promise<boolean> {
     const sanitized = this.sanitizeSlug(slug);
 
-    // Check reserved slugs
-    const reserved = ['app', 'api', 'admin', 'www', 'mail', 'support', 'help', 'docs', 'blog'];
+    // Check reserved slugs — proteggono subdomain operativi/marketing e tenant
+    // demo da collisioni accidentali con tenant utente.
+    const reserved = [
+      'app', 'api', 'admin', 'www', 'mail', 'support', 'help', 'docs', 'blog',
+      'demo', 'staging', 'dev', 'test', 'preview', 'auth', 'login', 'signup',
+      'register', 'billing', 'pay', 'payment', 'webhook', 'webhooks',
+      'static', 'assets', 'cdn', 'media', 'public',
+    ];
     if (reserved.includes(sanitized)) {
       return false;
     }
@@ -205,8 +211,11 @@ class TenantService {
   }
 
   /**
-   * Setup initial tenant for a new user registration
-   * Creates tenant, adds user as admin member, creates trial subscription
+   * Setup initial tenant for a new user registration.
+   * Crea tenant + membership + user.tenantId + trial subscription dentro a una
+   * transazione atomica: se una qualsiasi delle operazioni fallisce, viene fatto
+   * rollback. Senza questo, un fallimento parziale lascerebbe l'utente in stato
+   * inconsistente (es. user senza tenantId → JWT senza tenantId → leak).
    */
   async setupInitialTenant(
     userId: string,
@@ -214,7 +223,7 @@ class TenantService {
     planCode: string = 'PRO',
     billingCycle: 'monthly' | 'annual' = 'monthly'
   ): Promise<TenantWithSubscription> {
-    // Generate unique slug from tenant name
+    // Generate unique slug from tenant name (con blacklist riservati)
     const baseSlug = this.sanitizeSlug(tenantName);
     let slug = baseSlug;
     let attempt = 0;
@@ -224,38 +233,37 @@ class TenantService {
       slug = `${baseSlug}-${attempt}`;
     }
 
-    // Create tenant
-    const tenant = await prisma.tenant.create({
-      data: {
-        name: tenantName,
-        slug,
-        status: 'ACTIVE',
-        settings: {},
-      },
+    const tenantId = await prisma.$transaction(async (tx) => {
+      const tenant = await tx.tenant.create({
+        data: {
+          name: tenantName,
+          slug,
+          status: 'ACTIVE',
+          settings: {},
+        },
+      });
+
+      await tx.tenantMember.create({
+        data: {
+          tenantId: tenant.id,
+          userId,
+          role: 'ADMIN',
+          invitedAt: new Date(),
+          acceptedAt: new Date(),
+        },
+      });
+
+      await tx.user.update({
+        where: { id: userId },
+        data: { tenantId: tenant.id },
+      });
+
+      await subscriptionService.createTrialSubscription(tenant.id, planCode, billingCycle, tx);
+
+      return tenant.id;
     });
 
-    // Add user as admin member
-    await prisma.tenantMember.create({
-      data: {
-        tenantId: tenant.id,
-        userId,
-        role: 'ADMIN',
-        invitedAt: new Date(),
-        acceptedAt: new Date(), // Auto-accepted for creator
-      },
-    });
-
-    // Update user's tenantId
-    await prisma.user.update({
-      where: { id: userId },
-      data: { tenantId: tenant.id },
-    });
-
-    // Create trial subscription
-    await subscriptionService.createTrialSubscription(tenant.id, planCode, billingCycle);
-
-    // Return full tenant details
-    return this.getTenantWithDetails(tenant.id) as Promise<TenantWithSubscription>;
+    return this.getTenantWithDetails(tenantId) as Promise<TenantWithSubscription>;
   }
 
   /**

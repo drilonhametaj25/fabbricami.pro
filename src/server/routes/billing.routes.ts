@@ -228,7 +228,7 @@ const billingRoutes: FastifyPluginAsync = async (server) => {
         const session = await subscriptionService.createPortalSession(
           tenantRequest.tenant.tenantId
         );
-        return reply.send({ success: true, data: { url: session.url } });
+        return reply.send({ success: true, data: { portalUrl: session.url } });
       } catch (e: any) {
         return reply.status(400).send({ success: false, error: e.message });
       }

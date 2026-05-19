@@ -96,13 +96,24 @@ const authRoutes: FastifyPluginAsync = async (server) => {
       });
     }
 
+    // Difesa in profondità: un utente verificato deve sempre avere un tenant
+    // associato. Se manca, è uno stato corrotto: non emettiamo un JWT senza
+    // tenantId (porterebbe il middleware a fallback potenzialmente insicuri).
+    if (!user.tenantId || !user.tenant) {
+      return reply.status(500).send({
+        success: false,
+        error: 'Account in stato inconsistente. Contatta il supporto.',
+        code: 'TENANT_MISSING',
+      });
+    }
+
     const payload = {
       userId: user.id,
       email: user.email,
       role: user.role,
-      tenantId: user.tenantId || undefined,
-      tenantSlug: user.tenant?.slug,
-      planCode: user.tenant?.subscription?.plan?.code,
+      tenantId: user.tenantId,
+      tenantSlug: user.tenant.slug,
+      planCode: user.tenant.subscription?.plan?.code,
     };
 
     const token = generateToken(payload);
@@ -178,13 +189,21 @@ const authRoutes: FastifyPluginAsync = async (server) => {
         });
       }
 
+      if (!user.tenantId || !user.tenant) {
+        return reply.status(500).send({
+          success: false,
+          error: 'Account in stato inconsistente. Contatta il supporto.',
+          code: 'TENANT_MISSING',
+        });
+      }
+
       const newPayload = {
         userId: user.id,
         email: user.email,
         role: user.role,
-        tenantId: user.tenantId || undefined,
-        tenantSlug: user.tenant?.slug,
-        planCode: user.tenant?.subscription?.plan?.code,
+        tenantId: user.tenantId,
+        tenantSlug: user.tenant.slug,
+        planCode: user.tenant.subscription?.plan?.code,
       };
 
       const token = generateToken(newPayload);
@@ -532,13 +551,21 @@ const authRoutes: FastifyPluginAsync = async (server) => {
 
       // Issue JWT now that the email is verified — user can proceed straight
       // into onboarding without a separate login step.
+      if (!user.tenantId || !user.tenant) {
+        return reply.status(500).send({
+          success: false,
+          error: 'Account in stato inconsistente. Contatta il supporto.',
+          code: 'TENANT_MISSING',
+        });
+      }
+
       const payload = {
         userId: user.id,
         email: user.email,
         role: user.role,
-        tenantId: user.tenantId || undefined,
-        tenantSlug: user.tenant?.slug,
-        planCode: user.tenant?.subscription?.plan?.code,
+        tenantId: user.tenantId,
+        tenantSlug: user.tenant.slug,
+        planCode: user.tenant.subscription?.plan?.code,
       };
       const jwtToken = generateToken(payload);
       const refreshToken = generateRefreshToken(payload);
@@ -907,14 +934,22 @@ const authRoutes: FastifyPluginAsync = async (server) => {
         throw new Error('Utente non trovato');
       }
 
-      // Generate tokens
+      // Generate tokens — un utente invitato e accettato deve avere un tenant
+      if (!user.tenantId || !user.tenant) {
+        return reply.status(500).send({
+          success: false,
+          error: 'Account in stato inconsistente. Contatta il supporto.',
+          code: 'TENANT_MISSING',
+        });
+      }
+
       const payload = {
         userId: user.id,
         email: user.email,
         role: user.role,
-        tenantId: user.tenantId || undefined,
-        tenantSlug: user.tenant?.slug,
-        planCode: user.tenant?.subscription?.plan?.code,
+        tenantId: user.tenantId,
+        tenantSlug: user.tenant.slug,
+        planCode: user.tenant.subscription?.plan?.code,
       };
 
       const token = generateToken(payload);

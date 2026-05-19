@@ -287,14 +287,18 @@ class SubscriptionService {
   }
 
   /**
-   * Start a trial subscription (without Stripe)
+   * Start a trial subscription (without Stripe).
+   * Accetta un client Prisma opzionale per essere usato dentro a transazioni.
    */
   async createTrialSubscription(
     tenantId: string,
     planCode: string,
-    billingCycle: 'monthly' | 'annual' | 'yearly' = 'monthly'
+    billingCycle: 'monthly' | 'annual' | 'yearly' = 'monthly',
+    tx?: Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
   ): Promise<SubscriptionInfo> {
-    const plan = await prisma.subscriptionPlan.findUnique({
+    const client = tx ?? prisma;
+
+    const plan = await client.subscriptionPlan.findUnique({
       where: { code: planCode },
     });
 
@@ -307,7 +311,7 @@ class SubscriptionService {
     const trialEndsAt = new Date(now.getTime() + trialDays * 24 * 60 * 60 * 1000);
     const billingInterval = billingCycle === 'annual' || billingCycle === 'yearly' ? 'yearly' : 'monthly';
 
-    const subscription = await prisma.saasSubscription.create({
+    const subscription = await client.saasSubscription.create({
       data: {
         tenantId,
         planId: plan.id,
@@ -513,7 +517,12 @@ class SubscriptionService {
   }
 
   /**
-   * Create Stripe Customer Portal session
+   * Create Stripe Customer Portal session.
+   *
+   * Se il tenant non ha ancora un customer Stripe (tipico per TRIAL e demo,
+   * dove `createTrialSubscription` non lo crea), lo creiamo al volo: cosi'
+   * anche gli utenti in trial possono aprire il portale e gestire metodi di
+   * pagamento / fatture / dati fiscali prima dell'upgrade.
    */
   async createPortalSession(tenantId: string, returnUrl?: string): Promise<{ url: string }> {
     if (!stripe) {
@@ -524,12 +533,47 @@ class SubscriptionService {
       where: { tenantId },
     });
 
-    if (!subscription?.stripeCustomerId) {
-      throw new Error('Customer Stripe non trovato');
+    let stripeCustomerId = subscription?.stripeCustomerId;
+
+    if (!stripeCustomerId) {
+      const tenant = await prisma.tenant.findUnique({
+        where: { id: tenantId },
+        include: {
+          members: {
+            where: { role: 'ADMIN' },
+            include: { user: true },
+            take: 1,
+          },
+        },
+      });
+
+      if (!tenant) {
+        throw new Error('Tenant non trovato');
+      }
+
+      const adminEmail = tenant.members[0]?.user?.email || `${tenant.slug}@tenant.local`;
+
+      const customer = await stripe.customers.create({
+        email: adminEmail,
+        name: tenant.name,
+        metadata: {
+          tenantId: tenant.id,
+          tenantSlug: tenant.slug,
+        },
+      });
+
+      stripeCustomerId = customer.id;
+
+      if (subscription) {
+        await prisma.saasSubscription.update({
+          where: { tenantId },
+          data: { stripeCustomerId },
+        });
+      }
     }
 
     const session = await stripe.billingPortal.sessions.create({
-      customer: subscription.stripeCustomerId,
+      customer: stripeCustomerId,
       return_url: returnUrl || `${APP_URL}/settings/billing`,
     });
 

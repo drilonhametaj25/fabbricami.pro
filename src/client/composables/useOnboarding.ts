@@ -1,6 +1,7 @@
 import { ref, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../services/api.service';
+import { clearOnboardingCache } from '../router';
 import type {
   OnboardingStatus,
   OnboardingStep,
@@ -102,7 +103,13 @@ export function useOnboarding() {
     return completedSteps.value.includes(stepId);
   }
 
-  // Recupera lo stato corrente dell'onboarding
+  // Recupera lo stato corrente dell'onboarding.
+  //
+  // Ogni fetch invalida ANCHE la cache del router guard. Senza questo passo, la
+  // guard manteneva per 60s il vecchio currentStep e dopo uno skip dell'ultimo
+  // step (warehouse) ridirigeva l'utente a /onboarding/setup-billing invece di
+  // farlo atterrare sulla dashboard. Mantenere il cache pinned al fresh value
+  // è il modo più semplice di evitare race fra UI navigation e guard.
   async function fetchStatus(): Promise<OnboardingStatus | null> {
     loading.value = true;
     error.value = null;
@@ -111,6 +118,7 @@ export function useOnboarding() {
       const response = await api.get<OnboardingStatus>('/onboarding/status');
       if (response.success) {
         status.value = response.data;
+        clearOnboardingCache();
         return response.data;
       } else {
         error.value = response.error || 'Errore caricamento stato onboarding';
@@ -331,26 +339,12 @@ export function useOnboarding() {
     }
   }
 
-  // Salta setup billing - usa trial gratuito
+  // DEPRECATED: lo step di billing non è più skippabile. Questa funzione
+  // rimane per backward-compat ma ora chiama l'endpoint setup-billing in
+  // modalità trial. Da rimuovere quando tutti i client saranno aggiornati.
   async function skipBilling(): Promise<boolean> {
-    loading.value = true;
-    error.value = null;
-
-    try {
-      const response = await api.post('/onboarding/skip-billing');
-      if (response.success) {
-        await fetchStatus();
-        return true;
-      } else {
-        error.value = response.error || 'Errore skip billing';
-        return false;
-      }
-    } catch (err) {
-      error.value = err instanceof Error ? err.message : 'Errore skip billing';
-      return false;
-    } finally {
-      loading.value = false;
-    }
+    const result = await setupBilling(true, 'PRO');
+    return result.success;
   }
 
   // Marca l'onboarding come completo
@@ -409,8 +403,16 @@ export function useOnboarding() {
     }
   }
 
-  // Naviga allo step successivo
-  function goToNextStep(): void {
+  // Naviga allo step successivo nell'ordine canonico.
+  //
+  // FIX: in passato si usava `currentStep.value` (computed da
+  // `status.currentStep`, che il backend ricalcola come "il primo step
+  // incompleto"). Ma "il primo step incompleto" NON è uguale a "lo step su cui
+  // l'utente è ora": dopo aver skippato WP, se billing era ancora vuoto, il
+  // backend ritornava `currentStep='setup-billing'` → `goToNextStep` mandava a
+  // wordpress-integration → loop. Adesso lo step di partenza viene letto
+  // dall'URL corrente; può essere overridato da `fromStep` per casi speciali.
+  function goToNextStep(fromStep?: OnboardingStep): void {
     const stepOrder: OnboardingStep[] = [
       'verify-email',
       'company-settings',
@@ -419,8 +421,24 @@ export function useOnboarding() {
       'create-warehouse',
       'complete',
     ];
-    const currentIdx = stepOrder.indexOf(currentStep.value);
-    if (currentIdx < stepOrder.length - 1) {
+
+    // Ricava lo step di partenza dall'URL se non passato esplicitamente
+    let from: OnboardingStep | null = fromStep ?? null;
+    if (!from) {
+      const path = router.currentRoute.value.path;
+      const match = path.match(/\/onboarding\/([\w-]+)/);
+      const fromUrl = match?.[1] as OnboardingStep | undefined;
+      if (fromUrl && stepOrder.includes(fromUrl)) {
+        from = fromUrl;
+      } else {
+        // Fallback: se URL non onboarding (es. chiamato post-stripe-redirect)
+        // usiamo il currentStep dal backend.
+        from = currentStep.value;
+      }
+    }
+
+    const currentIdx = stepOrder.indexOf(from);
+    if (currentIdx >= 0 && currentIdx < stepOrder.length - 1) {
       const nextStep = stepOrder[currentIdx + 1];
       if (nextStep === 'complete') {
         router.push('/');

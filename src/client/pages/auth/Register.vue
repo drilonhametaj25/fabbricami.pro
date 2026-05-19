@@ -310,18 +310,20 @@ async function register() {
     });
 
     if (response.success) {
-      // Login automatico dopo registrazione
-      await authStore.login(form.email, form.password);
-
+      // Il backend richiede verifica email PRIMA di emettere JWT: l'utente
+      // deve cliccare il link nella mail per essere loggato e accedere
+      // all'onboarding. Niente auto-login qui (fallirebbe con EMAIL_NOT_VERIFIED).
       toast.add({
         severity: 'success',
         summary: 'Account Creato',
-        detail: 'Benvenuto! Completa la configurazione del tuo account.',
-        life: 5000,
+        detail: 'Ti abbiamo inviato un\'email di conferma. Clicca il link per attivare l\'account.',
+        life: 7000,
       });
 
-      // Redirect a onboarding
-      router.push('/onboarding');
+      router.push({
+        path: '/auth/login',
+        query: { verifyEmail: '1', email: form.email },
+      });
     } else {
       toast.add({
         severity: 'error',

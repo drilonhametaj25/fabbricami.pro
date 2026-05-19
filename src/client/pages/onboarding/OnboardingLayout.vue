@@ -37,14 +37,16 @@
       </main>
 
       <!-- Footer -->
+      <!--
+        I bottoni "Salta per ora" vivono nelle singole page (contestuali al
+        form): SetupBilling "Configura dopo", WordPressIntegration "Salterò
+        questo passaggio", CreateWarehouse "Salta per ora". Avere un secondo
+        "Salta per ora" anche in footer creava UX confusa (due bottoni con la
+        stessa label che facevano la stessa cosa o, peggio, cose diverse a
+        seconda dello step).
+      -->
       <footer class="onboarding-footer">
-        <Button
-          v-if="showSkipButton"
-          label="Salta per ora"
-          severity="secondary"
-          text
-          @click="skipStep"
-        />
+        <span /> <!-- spacer per mantenere logout a destra in space-between -->
         <Button
           v-if="showLogoutButton"
           label="Esci"
@@ -67,7 +69,7 @@ import { useOnboarding } from '../../composables/useOnboarding';
 import { useAuthStore } from '../../stores/auth.store';
 
 const router = useRouter();
-const _route = useRoute();
+const route = useRoute();
 const authStore = useAuthStore();
 const {
   status,
@@ -76,30 +78,49 @@ const {
   steps,
   isStepCompleted,
   fetchStatus,
-  skipBilling,
   skipWarehouse,
   skipWordPressIntegration,
+  goToNextStep,
 } = useOnboarding();
+
+// Lo step "su cui l'utente è ora" si ricava dall'URL, NON da
+// `currentStep.value` (che il backend computa come "primo incompleto" e quindi
+// può differire dalla pagina che l'utente sta effettivamente vedendo dopo un
+// passaggio di skip/continua).
+const currentStepFromUrl = computed(() => {
+  const match = route.path.match(/\/onboarding\/([\w-]+)/);
+  return (match?.[1] ?? '') as
+    | 'verify-email'
+    | 'company-settings'
+    | 'setup-billing'
+    | 'wordpress-integration'
+    | 'create-warehouse'
+    | 'complete'
+    | '';
+});
 
 // Computed
 const showSkipButton = computed(() => {
-  return currentStep.value === 'setup-billing' || currentStep.value === 'create-warehouse' || currentStep.value === 'wordpress-integration';
+  const step = currentStepFromUrl.value;
+  // setup-billing è obbligatorio: l'utente deve scegliere se attivare la prova
+  // o configurare il pagamento. Niente skip per questo step.
+  return step === 'create-warehouse' || step === 'wordpress-integration';
 });
 
 const showLogoutButton = computed(() => true);
 
 // Methods
 async function skipStep() {
-  if (currentStep.value === 'setup-billing') {
-    await skipBilling();
-    router.push('/onboarding/wordpress-integration');
-  } else if (currentStep.value === 'create-warehouse') {
-    await skipWarehouse();
-    router.push('/');
-  } else if (currentStep.value === 'wordpress-integration') {
+  const step = currentStepFromUrl.value;
+  // setup-billing non è mai skippabile (il pulsante non viene mostrato).
+  if (step === 'wordpress-integration') {
     await skipWordPressIntegration();
-    router.push('/onboarding/create-warehouse');
+  } else if (step === 'create-warehouse') {
+    await skipWarehouse();
+  } else {
+    return;
   }
+  goToNextStep(step as any);
 }
 
 async function logout() {
@@ -111,7 +132,7 @@ async function logout() {
 onMounted(async () => {
   await fetchStatus();
 
-  // Se onboarding completo, redirect a dashboard
+  // Se onboarding già completo, vai alla dashboard.
   if (status.value?.currentStep === 'complete') {
     router.push('/');
   }

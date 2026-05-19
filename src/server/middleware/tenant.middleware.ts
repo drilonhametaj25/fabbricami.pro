@@ -40,9 +40,11 @@ export interface TenantRequest extends FastifyRequest {
  * Middleware per estrarre e validare il tenant dalla request
  *
  * Il tenant può essere identificato tramite:
- * 1. JWT token (userId con tenantId associato)
- * 2. Header X-Tenant-Id (per client API)
- * 3. Subdomain (es. acme.erpsaas.com)
+ * 1. JWT token (userId con tenantId associato) — fonte primaria per client autenticati
+ * 2. Header X-Tenant-Id (per integrazioni API esplicite con API key)
+ *
+ * NON usiamo più il subdomain come fonte: era un fallback pericoloso che poteva
+ * far finire un utente autenticato nel tenant sbagliato se il JWT non aveva tenantId.
  */
 export async function tenantMiddleware(
   request: FastifyRequest,
@@ -57,31 +59,11 @@ export async function tenantMiddleware(
       tenantId = authRequest.user.tenantId;
     }
 
-    // 2. Fallback: header X-Tenant-Id (per API esterne)
+    // 2. Fallback: header X-Tenant-Id (per API esterne con API key)
     if (!tenantId) {
       const headerTenantId = request.headers['x-tenant-id'];
       if (typeof headerTenantId === 'string') {
         tenantId = headerTenantId;
-      }
-    }
-
-    // 3. Fallback: subdomain
-    if (!tenantId) {
-      const host = request.headers.host;
-      if (host) {
-        // Estrai subdomain (es. "acme" da "acme.erpsaas.com")
-        const parts = host.split('.');
-        if (parts.length >= 3) {
-          const subdomain = parts[0];
-          // Cerca tenant per slug
-          const tenant = await prisma.tenant.findUnique({
-            where: { slug: subdomain },
-            select: { id: true, slug: true, status: true },
-          });
-          if (tenant) {
-            tenantId = tenant.id;
-          }
-        }
       }
     }
 
@@ -90,7 +72,7 @@ export async function tenantMiddleware(
       return reply.status(400).send({
         success: false,
         error: 'Tenant not specified',
-        message: 'Request must include tenant identification via JWT, X-Tenant-Id header, or subdomain',
+        message: 'Request must include tenant identification via JWT or X-Tenant-Id header',
       });
     }
 
@@ -201,8 +183,9 @@ export async function verifyTenantMembership(
 }
 
 /**
- * Middleware opzionale per route pubbliche che possono opzionalmente avere un tenant
- * Non fallisce se non c'è tenant, ma lo imposta se disponibile
+ * Middleware opzionale per route pubbliche che possono opzionalmente avere un tenant.
+ * Non fallisce se non c'è tenant, ma lo imposta se disponibile.
+ * Risolve tenantId SOLO da JWT o header X-Tenant-Id, mai da subdomain.
  */
 export async function optionalTenantMiddleware(
   request: FastifyRequest,
