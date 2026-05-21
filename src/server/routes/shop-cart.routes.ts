@@ -1,12 +1,15 @@
 import { FastifyPluginAsync } from 'fastify';
 import cartService from '../services/cart.service';
 import { successResponse, errorResponse } from '../utils/response.util';
+import { shopTenantMiddleware } from '../middleware/shop-tenant.middleware';
 
 /**
  * Shop Cart Routes
  * API pubbliche per gestione carrello e-commerce
  */
 const shopCartRoutes: FastifyPluginAsync = async (fastify) => {
+  fastify.addHook('preHandler', shopTenantMiddleware);
+
   // ==================
   // CART OPERATIONS
   // ==================

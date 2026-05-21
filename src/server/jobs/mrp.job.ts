@@ -1,8 +1,7 @@
 import queueManager from '../services/queue.service';
 import { mrpService } from '../services/mrp.service';
 import { capacityPlanningService } from '../services/capacity-planning.service';
-import { prisma } from '../config/database';
-import { tenantContext } from '../middleware/tenant.middleware';
+import { forEachActiveTenant } from '../utils/tenant-fanout';
 import logger from '../config/logger';
 
 /**
@@ -10,36 +9,9 @@ import logger from '../config/logger';
  * Ricalcolo automatico fabbisogni materiali e capacity planning.
  * - Run notturno (02:00) per refresh del piano e notifica colli di bottiglia.
  * - Run mid-morning (10:30) per controllo carenze critiche.
+ *
+ * Helper `forEachActiveTenant` estratto in utils/tenant-fanout.ts per riuso.
  */
-
-/**
- * Itera tutti i tenant ACTIVE ed esegue `fn` dentro lo scope tenant context
- * (`tenantContext.run`) cosi' le query Prisma sono auto-scoped dal `$use`
- * middleware. CRITICAL: i BullMQ worker NON ereditano AsyncLocalStorage
- * dalla request, devono settarlo manualmente.
- */
-async function forEachActiveTenant(
-  fn: (tenantId: string, tenantSlug: string) => Promise<void>
-): Promise<void> {
-  const tenants = await prisma.tenant.findMany({
-    where: { status: 'ACTIVE' },
-    select: { id: true, slug: true, status: true },
-  });
-
-  for (const tenant of tenants) {
-    await tenantContext.run(
-      { tenantId: tenant.id, tenantSlug: tenant.slug, tenantStatus: tenant.status },
-      async () => {
-        try {
-          await fn(tenant.id, tenant.slug);
-        } catch (err: any) {
-          logger.error(`Job failed for tenant ${tenant.slug}: ${err.message}`);
-          // Continua con il prossimo tenant; l'errore di uno non blocca gli altri.
-        }
-      }
-    );
-  }
-}
 
 /**
  * Ricalcola fabbisogni MRP per ordini confermati. Notifica:

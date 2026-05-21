@@ -3,6 +3,7 @@ import { FastifyInstance, FastifyRequest } from 'fastify';
 import { WebSocket } from 'ws';
 import logger from '../config/logger';
 import { prisma } from '../config/database';
+import { runWithTenant } from './tenant-context';
 
 // Types/Interfaces
 interface SocketConnection {
@@ -12,6 +13,7 @@ interface SocketConnection {
 interface WebSocketClient {
   id: string;
   userId: string;
+  tenantId: string;
   socket: SocketConnection;
 }
 
@@ -22,17 +24,41 @@ interface WebSocketMessage {
 
 /**
  * WebSocket Handler
- * Gestione connessioni WebSocket per real-time updates
+ * Real-time updates scoped per tenant. Ogni client è associato al tenantId
+ * derivato dal JWT al momento della connessione. Broadcast e sendToClient
+ * filtrano per tenantId — un client non riceve mai messaggi di altri tenant.
  */
 
 const clients = new Map<string, WebSocketClient>();
 
 /**
- * Broadcast messaggio a tutti i client connessi
+ * Broadcast a tutti i client del tenant specificato.
+ * tenantId è OBBLIGATORIO: usare broadcastGlobal() per messaggi di sistema.
  */
-export function broadcast(message: WebSocketMessage) {
+export function broadcast(tenantId: string, message: WebSocketMessage) {
+  if (!tenantId) {
+    throw new Error('[ws] broadcast() richiede tenantId. Usa broadcastGlobal() per messaggi di sistema.');
+  }
   const messageStr = JSON.stringify(message);
-  
+  let count = 0;
+  clients.forEach((client) => {
+    if (client.tenantId !== tenantId) return;
+    try {
+      client.socket.socket.send(messageStr);
+      count++;
+    } catch (error) {
+      logger.error(`Failed to send message to client ${client.id}: ${error}`);
+    }
+  });
+  logger.debug(`Broadcasted ${message.type} to ${count} clients of tenant ${tenantId}`);
+}
+
+/**
+ * Broadcast cross-tenant (system-wide). Usare con cautela — solo per
+ * messaggi che TUTTI gli utenti devono ricevere (es. manutenzione globale).
+ */
+export function broadcastGlobal(message: WebSocketMessage) {
+  const messageStr = JSON.stringify(message);
   clients.forEach((client) => {
     try {
       client.socket.socket.send(messageStr);
@@ -40,20 +66,19 @@ export function broadcast(message: WebSocketMessage) {
       logger.error(`Failed to send message to client ${client.id}: ${error}`);
     }
   });
-
-  logger.debug(`Broadcasted message to ${clients.size} clients: ${message.type}`);
+  logger.debug(`Broadcasted GLOBAL ${message.type} to ${clients.size} clients`);
 }
 
 /**
- * Invia messaggio a cliente specifico
+ * Invia messaggio a un utente specifico (filtrato per tenantId per
+ * impedire cross-tenant impersonation se due tenant condividono userId).
  */
-export function sendToClient(userId: string, message: WebSocketMessage) {
-  const client = Array.from(clients.values()).find((c) => c.userId === userId);
-
+export function sendToClient(tenantId: string, userId: string, message: WebSocketMessage) {
+  const client = Array.from(clients.values()).find((c) => c.userId === userId && c.tenantId === tenantId);
   if (client) {
     try {
       client.socket.socket.send(JSON.stringify(message));
-      logger.debug(`Sent message to user ${userId}: ${message.type}`);
+      logger.debug(`Sent ${message.type} to user ${userId} (tenant ${tenantId})`);
     } catch (error) {
       logger.error(`Failed to send message to user ${userId}: ${error}`);
     }
@@ -61,80 +86,71 @@ export function sendToClient(userId: string, message: WebSocketMessage) {
 }
 
 /**
- * Gestisce scanner barcode
+ * Gestisce scanner barcode (tenant-scoped via runWithTenant)
  */
 async function handleBarcodeScanned(data: any, client: WebSocketClient) {
   const { barcode, action } = data;
+  logger.info(`Barcode scanned: ${barcode} - Action: ${action} - Tenant: ${client.tenantId}`);
 
-  logger.info(`Barcode scanned: ${barcode} - Action: ${action}`);
-
-  try {
-    // Trova prodotto per barcode (univoco per tenant: middleware aggiunge tenantId)
-    const product = await prisma.product.findFirst({
-      where: { barcode },
-      include: {
-        inventory: true,
-      },
-    });
-
-    if (!product) {
-      sendToClient(client.userId, {
-        type: 'barcode-error',
-        data: { error: 'Prodotto non trovato', barcode },
+  await runWithTenant(client.tenantId, async () => {
+    try {
+      const product = await prisma.product.findFirst({
+        where: { barcode },
+        include: { inventory: true },
       });
-      return;
-    }
 
-    // Invia dati prodotto al client
-    sendToClient(client.userId, {
-      type: 'barcode-success',
-      data: { product, action },
-    });
-  } catch (error: any) {
-    logger.error(`Barcode scan error: ${error.message}`);
-    sendToClient(client.userId, {
-      type: 'barcode-error',
-      data: { error: error.message, barcode },
-    });
-  }
+      if (!product) {
+        sendToClient(client.tenantId, client.userId, {
+          type: 'barcode-error',
+          data: { error: 'Prodotto non trovato', barcode },
+        });
+        return;
+      }
+
+      sendToClient(client.tenantId, client.userId, {
+        type: 'barcode-success',
+        data: { product, action },
+      });
+    } catch (error: any) {
+      logger.error(`Barcode scan error: ${error.message}`);
+      sendToClient(client.tenantId, client.userId, {
+        type: 'barcode-error',
+        data: { error: error.message, barcode },
+      });
+    }
+  });
 }
 
 /**
- * Gestisce aggiornamento giacenze real-time
+ * Gestisce aggiornamento giacenze real-time (broadcast scoped al tenant del client)
  */
-async function handleInventoryUpdate(data: any) {
+async function handleInventoryUpdate(data: any, client: WebSocketClient) {
   const { productId, warehouseId, location, quantity } = data;
-
-  logger.info(`Inventory update: Product ${productId} in ${location}`);
-
-  // Broadcast aggiornamento a tutti i client
-  broadcast({
+  logger.info(`Inventory update: Product ${productId} in ${location} (tenant ${client.tenantId})`);
+  broadcast(client.tenantId, {
     type: 'inventory-updated',
     data: { productId, warehouseId, location, quantity },
   });
 }
 
 /**
- * Gestisce notifica real-time
+ * Notifica real-time a un utente specifico (scoped al tenant del client mittente)
  */
-function handleNotification(data: any) {
+function handleNotification(data: any, client: WebSocketClient) {
   const { userId, notification } = data;
-
-  logger.info(`Sending notification to user ${userId}`);
-
-  sendToClient(userId, {
+  logger.info(`Sending notification to user ${userId} (tenant ${client.tenantId})`);
+  sendToClient(client.tenantId, userId, {
     type: 'notification',
     data: notification,
   });
 }
 
 /**
- * Gestisce aggiornamento dashboard real-time
+ * Gestisce aggiornamento dashboard real-time (broadcast scoped al tenant del client)
  */
-function handleDashboardUpdate(data: any) {
-  logger.info('Broadcasting dashboard update');
-
-  broadcast({
+function handleDashboardUpdate(data: any, client: WebSocketClient) {
+  logger.info(`Broadcasting dashboard update (tenant ${client.tenantId})`);
+  broadcast(client.tenantId, {
     type: 'dashboard-update',
     data,
   });
@@ -146,7 +162,7 @@ function handleDashboardUpdate(data: any) {
  * Auth: il browser non puo' settare header custom su `new WebSocket(url)`.
  * Estraiamo il JWT da query string `?token=...` (es. da `?token=${authStore.token}`).
  * In alternativa accettiamo il token via Sec-WebSocket-Protocol (compat con piu' setup).
- * Token invalido o mancante -> close con codice 4401.
+ * Token invalido o mancante → close con 4401. tenantId mancante nel JWT → close 4401.
  */
 export function initWebSocket(server: FastifyInstance) {
   (server.get as any)('/ws', { websocket: true }, async (socket: SocketConnection, request: FastifyRequest): Promise<void> => {
@@ -174,7 +190,7 @@ export function initWebSocket(server: FastifyInstance) {
 
     // 2. Verifica JWT
     let userId: string;
-    let tenantId: string | undefined;
+    let tenantId: string;
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const jwt = require('jsonwebtoken') as typeof import('jsonwebtoken');
@@ -185,10 +201,9 @@ export function initWebSocket(server: FastifyInstance) {
         tenantId?: string;
       };
       userId = decoded.userId || decoded.id || '';
+      if (!userId) throw new Error('Invalid token payload (no userId)');
+      if (!decoded.tenantId) throw new Error('Invalid token payload (no tenantId)');
       tenantId = decoded.tenantId;
-      if (!userId) {
-        throw new Error('Invalid token payload (no userId)');
-      }
     } catch (err: any) {
       logger.warn(`WS reject ${clientId}: invalid token - ${err.message}`);
       try {
@@ -199,17 +214,17 @@ export function initWebSocket(server: FastifyInstance) {
       return;
     }
 
-    logger.info(`WebSocket client connected: ${clientId} (User: ${userId}, Tenant: ${tenantId || 'none'})`);
+    logger.info(`WebSocket client connected: ${clientId} (User: ${userId}, Tenant: ${tenantId})`);
 
     const client: WebSocketClient = {
       id: clientId,
       userId,
+      tenantId,
       socket,
     };
 
     clients.set(clientId, client);
 
-    // Invia conferma connessione
     socket.socket.send(
       JSON.stringify({
         type: 'connected',
@@ -217,7 +232,6 @@ export function initWebSocket(server: FastifyInstance) {
       })
     );
 
-    // Gestisci messaggi in arrivo
     socket.socket.on('message', async (messageBuffer: Buffer) => {
       try {
         const message = JSON.parse(messageBuffer.toString()) as WebSocketMessage;
@@ -230,15 +244,15 @@ export function initWebSocket(server: FastifyInstance) {
             break;
 
           case 'inventory-update':
-            await handleInventoryUpdate(message.data);
+            await handleInventoryUpdate(message.data, client);
             break;
 
           case 'notification':
-            handleNotification(message.data);
+            handleNotification(message.data, client);
             break;
 
           case 'dashboard-update':
-            handleDashboardUpdate(message.data);
+            handleDashboardUpdate(message.data, client);
             break;
 
           case 'ping':
@@ -253,13 +267,11 @@ export function initWebSocket(server: FastifyInstance) {
       }
     });
 
-    // Gestisci disconnessione
     socket.socket.on('close', () => {
       clients.delete(clientId);
       logger.info(`WebSocket client disconnected: ${clientId}`);
     });
 
-    // Gestisci errori
     socket.socket.on('error', (error: Error) => {
       logger.error(`WebSocket error for client ${clientId}: ${error.message}`);
       clients.delete(clientId);
@@ -270,7 +282,7 @@ export function initWebSocket(server: FastifyInstance) {
 }
 
 /**
- * Ottieni statistiche connessioni
+ * Ottieni statistiche connessioni (cross-tenant: solo super-admin dovrebbe leggere)
  */
 export function getStats() {
   return {
@@ -278,6 +290,7 @@ export function getStats() {
     clients: Array.from(clients.values()).map((c) => ({
       id: c.id,
       userId: c.userId,
+      tenantId: c.tenantId,
     })),
   };
 }

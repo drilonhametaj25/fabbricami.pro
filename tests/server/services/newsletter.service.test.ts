@@ -1,3 +1,4 @@
+import '../helpers/tenant-mock';
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 
 // Mock PrismaClient

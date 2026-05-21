@@ -1,5 +1,6 @@
 import { randomBytes, createHash } from 'crypto';
 import { prisma } from '../config/database';
+import { requireCurrentTenantId } from '../middleware/tenant.middleware';
 
 // Mailchimp configuration
 const MAILCHIMP_API_KEY = process.env.MAILCHIMP_API_KEY || '';
@@ -252,13 +253,15 @@ class NewsletterService {
     const twelveMonthsAgo = new Date();
     twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
 
+    const tenantId = requireCurrentTenantId();
     const subscriptionsByMonth = await prisma.$queryRaw<{ month: string; count: bigint }[]>`
-      SELECT TO_CHAR(DATE_TRUNC('month', "confirmedAt"), 'YYYY-MM') as month,
+      SELECT TO_CHAR(DATE_TRUNC('month', confirmed_at), 'YYYY-MM') as month,
              COUNT(*) as count
-      FROM "NewsletterSubscription"
+      FROM newsletter_subscriptions
       WHERE status = 'CONFIRMED'
-        AND "confirmedAt" >= ${twelveMonthsAgo}
-      GROUP BY DATE_TRUNC('month', "confirmedAt")
+        AND confirmed_at >= ${twelveMonthsAgo}
+        AND tenant_id = ${tenantId}
+      GROUP BY DATE_TRUNC('month', confirmed_at)
       ORDER BY month ASC
     `;
 

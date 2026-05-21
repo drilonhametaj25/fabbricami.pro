@@ -74,6 +74,14 @@ async function apiFetch<T>(
     (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
   }
 
+  // Dev convenience: in dev il backend non vede il subdomain del cliente
+  // (chiamiamo http://localhost:3000), quindi gli passiamo lo slug via header.
+  // In produzione il backend risolve via Host/X-Forwarded-Host gestito da Traefik.
+  const devTenantSlug = process.env.NEXT_PUBLIC_TENANT_SLUG;
+  if (devTenantSlug && !(headers as Record<string, string>)['X-Tenant-Slug']) {
+    (headers as Record<string, string>)['X-Tenant-Slug'] = devTenantSlug;
+  }
+
   const response = await fetch(url, {
     ...restOptions,
     headers,

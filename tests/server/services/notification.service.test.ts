@@ -1,3 +1,4 @@
+import '../helpers/tenant-mock';
 // Mock logger
 const mockLogger = {
   info: jest.fn(),

@@ -3,7 +3,8 @@ import jwt from 'jsonwebtoken';
 import { config } from '../config/environment';
 import { prisma } from '../config/database';
 import { UserRole } from '@prisma/client';
-import { tenantContext, TenantContext } from './tenant.middleware';
+import { TenantContext } from './tenant.middleware';
+import { setTenantContext } from '../utils/tenant-context';
 import { runSubscriptionGate, SubscriptionGateContext } from './subscription-gate';
 
 // Types
@@ -11,8 +12,9 @@ export interface JWTPayload {
   userId: string;
   email: string;
   role: UserRole;
-  // Multi-tenancy fields
-  tenantId?: string;
+  // Multi-tenancy fields — tenantId obbligatorio per impedire token "orfani"
+  // che bypassano lo scoping (vedi fix S577/S583).
+  tenantId: string;
   tenantSlug?: string;
   planCode?: string; // STARTER, PRO, BUSINESS
 }
@@ -107,7 +109,7 @@ export async function authenticate(
         tenantSlug: user.tenant.slug,
         tenantStatus: user.tenant.status,
       };
-      tenantContext.enterWith(ctx);
+      setTenantContext(ctx);
 
       // SUBSCRIPTION GATE — applied to all authenticated routes.
       // Bypass paths (auth/billing/onboarding/tickets/...) keep working
@@ -167,18 +169,26 @@ export function authorize(...allowedRoles: UserRole[]) {
 }
 
 /**
- * Generate JWT token
+ * Generate JWT token. Throws se tenantId mancante: nessun token può essere
+ * emesso senza tenant scope (defense-in-depth contro flow rotti che
+ * accidentalmente generano token orfani).
  */
 export function generateToken(payload: JWTPayload): string {
+  if (!payload.tenantId) {
+    throw new Error('[auth] generateToken: payload.tenantId obbligatorio');
+  }
   return jwt.sign(payload, config.jwt.secret, {
     expiresIn: config.jwt.expiresIn as jwt.SignOptions['expiresIn'],
   });
 }
 
 /**
- * Generate refresh token
+ * Generate refresh token (stessi requisiti del token principale).
  */
 export function generateRefreshToken(payload: JWTPayload): string {
+  if (!payload.tenantId) {
+    throw new Error('[auth] generateRefreshToken: payload.tenantId obbligatorio');
+  }
   return jwt.sign(payload, config.jwt.refreshSecret, {
     expiresIn: config.jwt.refreshExpiresIn as jwt.SignOptions['expiresIn'],
   });

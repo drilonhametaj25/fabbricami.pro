@@ -56,6 +56,17 @@ const envSchema = z.object({
   FRONTEND_URL: z.string().default('http://localhost:3001'),
   APP_URL: z.string().default('http://localhost:5173'),
 
+  // Base domain per risoluzione tenant via subdomain dello shop pubblico.
+  // Es. "fabbricami.pro" → "acme.fabbricami.pro" risolve al tenant slug=acme.
+  // Lasciare vuoto in dev (Nuxt gira su localhost:3001, si usa X-Tenant-Slug).
+  SHOP_BASE_DOMAIN: z.string().optional(),
+
+  // Tenant isolation guardrails (Prisma middleware in src/server/config/database.ts).
+  // STRICT: query verso modelli tenant-scoped senza contesto attivo → throw.
+  // DEBUG: log diagnostico verboso di ogni query con tenantId iniettato.
+  TENANT_STRICT_MODE: z.string().default('false'),
+  TENANT_DEBUG_MODE: z.string().default('false'),
+
   // SaaS Settings
   DEFAULT_TRIAL_DAYS: z.string().default('14'),
 
@@ -259,6 +270,15 @@ export const config = {
   frontend: {
     url: env.FRONTEND_URL,  // E-commerce frontend (Nuxt 3)
     appUrl: env.APP_URL,    // ERP admin frontend (Vue 3)
+  },
+
+  shop: {
+    baseDomain: env.SHOP_BASE_DOMAIN || null,
+  },
+
+  tenant: {
+    strictMode: env.TENANT_STRICT_MODE === 'true',
+    debugMode: env.TENANT_DEBUG_MODE === 'true',
   },
 
   saas: {

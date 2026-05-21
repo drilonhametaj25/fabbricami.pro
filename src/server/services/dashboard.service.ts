@@ -13,6 +13,7 @@
 
 import { prisma } from '../config/database';
 import { suggestionEngineService } from './suggestion-engine.service';
+import { requireCurrentTenantId } from '../middleware/tenant.middleware';
 import { UserRole, Prisma } from '@prisma/client';
 
 // ============================================
@@ -306,11 +307,13 @@ class DashboardService {
     // KPI basati su ruolo
     if (['ADMIN', 'MANAGER', 'MAGAZZINIERE'].includes(role)) {
       // Stock alerts
+      const tenantId = requireCurrentTenantId();
       const lowStockCount = await prisma.$queryRaw<[{ count: bigint }]>`
         SELECT COUNT(DISTINCT p.id) as count
         FROM products p
         LEFT JOIN inventory_items i ON p.id = i.product_id
         WHERE p.is_active = true
+          AND p.tenant_id = ${tenantId}
         GROUP BY p.id, p.min_stock
         HAVING COALESCE(SUM(i.quantity - i.reserved_quantity), 0) <= COALESCE(p.min_stock, 0)
           AND COALESCE(p.min_stock, 0) > 0
@@ -662,11 +665,13 @@ class DashboardService {
 
     // Valore magazzino
     if (['ADMIN', 'MANAGER', 'MAGAZZINIERE'].includes(role)) {
+      const tenantId = requireCurrentTenantId();
       const stockValue = await prisma.$queryRaw<[{ value: number }]>`
         SELECT COALESCE(SUM((i.quantity - i.reserved_quantity) * COALESCE(p.cost, 0)), 0) as value
         FROM inventory_items i
         JOIN products p ON i.product_id = p.id
         WHERE p.is_active = true
+          AND p.tenant_id = ${tenantId}
       `;
 
       items.push({

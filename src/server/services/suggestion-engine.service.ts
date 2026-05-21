@@ -17,6 +17,7 @@
 
 import { prisma } from '../config/database';
 import { logger } from '../config/logger';
+import { requireCurrentTenantId } from '../middleware/tenant.middleware';
 import {
   SuggestionType,
   SuggestionPriority,
@@ -130,6 +131,7 @@ class SuggestionEngineService {
    * Genera alert per prodotti con scorte critiche (stock <= 0 o <= minStock)
    */
   private async generateStockoutAlerts(): Promise<number> {
+    const tenantId = requireCurrentTenantId();
     // Trova prodotti con stock critico
     const criticalProducts = await prisma.$queryRaw<Array<{
       product_id: string;
@@ -151,6 +153,7 @@ class SuggestionEngineService {
       FROM products p
       LEFT JOIN inventory_items i ON p.id = i.product_id
       WHERE p.is_active = true
+        AND p.tenant_id = ${tenantId}
       GROUP BY p.id, p.name, p.sku, p.min_stock, p.reorder_point, p.cost
       HAVING COALESCE(SUM(i.quantity - i.reserved_quantity), 0) <= COALESCE(p.min_stock, 0)
          AND COALESCE(p.min_stock, 0) > 0
@@ -205,6 +208,7 @@ class SuggestionEngineService {
    * Genera suggerimenti di riordino basati su velocità di vendita
    */
   private async generateReorderSuggestions(): Promise<number> {
+    const tenantId = requireCurrentTenantId();
     // Calcola velocità media vendita negli ultimi 30 giorni
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -230,6 +234,7 @@ class SuggestionEngineService {
         JOIN orders o ON oi.order_id = o.id
         WHERE o.status IN ('SHIPPED', 'DELIVERED', 'COMPLETED')
           AND o.order_date >= ${thirtyDaysAgo}
+          AND o.tenant_id = ${tenantId}
         GROUP BY oi.product_id
       ),
       stock_status AS (
@@ -243,6 +248,7 @@ class SuggestionEngineService {
         FROM products p
         LEFT JOIN inventory_items i ON p.id = i.product_id
         WHERE p.is_active = true
+          AND p.tenant_id = ${tenantId}
         GROUP BY p.id, p.name, p.sku, p.reorder_point, p.min_stock
       )
       SELECT
@@ -324,6 +330,7 @@ class SuggestionEngineService {
    * Genera alert per prodotti con margine basso (<15%)
    */
   private async generateMarginAlerts(): Promise<number> {
+    const tenantId = requireCurrentTenantId();
     // Trova prodotti con margine basso
     const lowMarginProducts = await prisma.$queryRaw<Array<{
       product_id: string;
@@ -347,6 +354,7 @@ class SuggestionEngineService {
         END as margin_percent
       FROM products p
       WHERE p.is_active = true
+        AND p.tenant_id = ${tenantId}
         AND p.price > 0
         AND p.cost IS NOT NULL
         AND p.cost > 0
@@ -404,6 +412,7 @@ class SuggestionEngineService {
    * Genera suggerimenti basati su trend vendite (+/-30%)
    */
   private async generateTrendSuggestions(): Promise<number> {
+    const tenantId = requireCurrentTenantId();
     // Confronta vendite ultime 2 settimane vs 2 settimane precedenti
     const today = new Date();
     const twoWeeksAgo = new Date(today);
@@ -428,6 +437,7 @@ class SuggestionEngineService {
         WHERE o.status IN ('SHIPPED', 'DELIVERED', 'COMPLETED')
           AND o.order_date >= ${twoWeeksAgo}
           AND o.order_date < ${today}
+          AND o.tenant_id = ${tenantId}
         GROUP BY oi.product_id
       ),
       previous_period AS (
@@ -439,6 +449,7 @@ class SuggestionEngineService {
         WHERE o.status IN ('SHIPPED', 'DELIVERED', 'COMPLETED')
           AND o.order_date >= ${fourWeeksAgo}
           AND o.order_date < ${twoWeeksAgo}
+          AND o.tenant_id = ${tenantId}
         GROUP BY oi.product_id
       )
       SELECT
@@ -456,6 +467,7 @@ class SuggestionEngineService {
       LEFT JOIN current_period cp ON p.id = cp.product_id
       LEFT JOIN previous_period pp ON p.id = pp.product_id
       WHERE p.is_active = true
+        AND p.tenant_id = ${tenantId}
         AND (COALESCE(cp.sales, 0) > 0 OR COALESCE(pp.sales, 0) > 0)
         AND ABS(
           CASE
@@ -534,6 +546,7 @@ class SuggestionEngineService {
    * Identifica prodotti senza vendite da 90+ giorni
    */
   private async generateDeadStockAlerts(): Promise<number> {
+    const tenantId = requireCurrentTenantId();
     const ninetyDaysAgo = new Date();
     ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
 
@@ -553,6 +566,7 @@ class SuggestionEngineService {
         FROM order_items oi
         JOIN orders o ON oi.order_id = o.id
         WHERE o.status IN ('SHIPPED', 'DELIVERED', 'COMPLETED')
+          AND o.tenant_id = ${tenantId}
         GROUP BY oi.product_id
       )
       SELECT
@@ -571,6 +585,7 @@ class SuggestionEngineService {
       LEFT JOIN inventory_items i ON p.id = i.product_id
       LEFT JOIN last_sales ls ON p.id = ls.product_id
       WHERE p.is_active = true
+        AND p.tenant_id = ${tenantId}
       GROUP BY p.id, p.name, p.sku, ls.last_sale_date
       HAVING COALESCE(SUM(i.quantity - i.reserved_quantity), 0) > 0
         AND (
@@ -631,6 +646,7 @@ class SuggestionEngineService {
    * Suggerisce produzione batch quando più prodotti necessitano dello stesso materiale
    */
   private async generateBatchProductionSuggestions(): Promise<number> {
+    const tenantId = requireCurrentTenantId();
     // Trova materiali con scorte basse usati da più prodotti in esaurimento
     const batchOpportunities = await prisma.$queryRaw<Array<{
       material_id: string;
@@ -649,6 +665,7 @@ class SuggestionEngineService {
         FROM products p
         LEFT JOIN inventory_items i ON p.id = i.product_id
         WHERE p.is_active = true
+          AND p.tenant_id = ${tenantId}
         GROUP BY p.id, p.name
         HAVING COALESCE(SUM(i.quantity - i.reserved_quantity), 0) <= COALESCE(p.reorder_point, 10)
       ),
@@ -666,6 +683,7 @@ class SuggestionEngineService {
         JOIN low_stock_products lsp ON b.product_id = lsp.product_id
         JOIN materials m ON bi.material_id = m.id
         WHERE b.is_active = true
+          AND m.tenant_id = ${tenantId}
         GROUP BY bi.material_id, m.name, m.sku, m.current_stock
         HAVING COUNT(DISTINCT lsp.product_id) >= 2
       )
@@ -722,6 +740,7 @@ class SuggestionEngineService {
    * Suggerisce raggruppamento ordini fornitore per ottimizzare spedizioni
    */
   private async generateOrderGroupingSuggestions(): Promise<number> {
+    const tenantId = requireCurrentTenantId();
     // Trova fornitori con più prodotti da riordinare
     const groupingOpportunities = await prisma.$queryRaw<Array<{
       supplier_id: string;
@@ -740,6 +759,7 @@ class SuggestionEngineService {
         FROM products p
         LEFT JOIN inventory_items i ON p.id = i.product_id
         WHERE p.is_active = true
+          AND p.tenant_id = ${tenantId}
         GROUP BY p.id, p.name, p.cost, p.reorder_point
         HAVING COALESCE(SUM(i.quantity - i.reserved_quantity), 0) <= COALESCE(p.reorder_point, 10)
       ),
@@ -756,6 +776,7 @@ class SuggestionEngineService {
         JOIN products p ON si.product_id = p.id
         JOIN low_stock_products lsp ON p.id = lsp.product_id
         WHERE s.is_active = true
+          AND s.tenant_id = ${tenantId}
         GROUP BY si.supplier_id, s.name, s.min_order_value
         HAVING COUNT(DISTINCT lsp.product_id) >= 2
       )
@@ -908,6 +929,7 @@ class SuggestionEngineService {
    * Identifica problemi con fornitori (ritardi, qualità)
    */
   private async generateSupplierIssueSuggestions(): Promise<number> {
+    const tenantId = requireCurrentTenantId();
     // Trova fornitori con ordini in ritardo
     const today = new Date();
 
@@ -928,6 +950,8 @@ class SuggestionEngineService {
       JOIN purchase_orders po ON s.id = po.supplier_id
       WHERE po.status IN ('SENT', 'CONFIRMED', 'PARTIALLY_RECEIVED')
         AND po.expected_date < ${today}
+        AND s.tenant_id = ${tenantId}
+        AND po.tenant_id = ${tenantId}
       GROUP BY s.id, s.name
       HAVING COUNT(DISTINCT po.id) >= 1
       ORDER BY COUNT(DISTINCT po.id) DESC, avg_delay_days DESC

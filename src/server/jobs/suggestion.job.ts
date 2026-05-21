@@ -9,6 +9,7 @@ import { prisma } from '../config/database';
 import { logger } from '../config/logger';
 import { config } from '../config/environment';
 import { emailService } from '../services/email.service';
+import { forEachActiveTenant } from '../utils/tenant-fanout';
 
 // URL frontend per link nelle email
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -82,26 +83,22 @@ export async function processSuggestionJob(job: Job<SuggestionJobData>): Promise
  * Esegue tutti gli algoritmi del motore suggerimenti
  */
 async function processGenerateAll() {
-  logger.info('Avvio generazione suggerimenti notturna...');
-
+  logger.info('Avvio generazione suggerimenti notturna (multi-tenant)...');
   const startTime = Date.now();
+  let totalCreated = 0;
+  let totalErrors = 0;
 
-  // Esegui tutti gli algoritmi
-  const result = await suggestionEngineService.runAllAlgorithms();
+  await forEachActiveTenant(async (_tenantId, tenantSlug) => {
+    const result = await suggestionEngineService.runAllAlgorithms();
+    totalCreated += result.created;
+    totalErrors += result.errors.length;
+    if (result.errors.length > 0) {
+      logger.warn(`[${tenantSlug}] errori generazione:`, result.errors);
+    }
+  });
 
   const duration = Date.now() - startTime;
-
-  logger.info(
-    `Generazione completata in ${duration}ms: ` +
-    `creati=${result.created}, errori=${result.errors.length}`
-  );
-
-  if (result.errors.length > 0) {
-    logger.warn('Errori durante generazione:', result.errors);
-  }
-
-  // Log statistiche run
-  logger.info(`Suggestion generation stats: created=${result.created}, errors=${result.errors.length}, duration=${duration}ms`);
+  logger.info(`Suggestion generation stats: created=${totalCreated}, errors=${totalErrors}, duration=${duration}ms`);
 }
 
 /**
@@ -109,23 +106,21 @@ async function processGenerateAll() {
  * Marca come EXPIRED i suggerimenti con expiresAt passato
  */
 async function processCleanupExpired() {
-  logger.info('Cleanup suggerimenti scaduti...');
+  logger.info('Cleanup suggerimenti scaduti (multi-tenant)...');
+  let total = 0;
 
-  const now = new Date();
-
-  const updated = await prisma.suggestion.updateMany({
-    where: {
-      status: 'PENDING',
-      expiresAt: {
-        lt: now,
-      },
-    },
-    data: {
-      status: 'EXPIRED',
-    },
+  await forEachActiveTenant(async (_tenantId, tenantSlug) => {
+    const updated = await prisma.suggestion.updateMany({
+      where: { status: 'PENDING', expiresAt: { lt: new Date() } },
+      data: { status: 'EXPIRED' },
+    });
+    total += updated.count;
+    if (updated.count > 0) {
+      logger.info(`[${tenantSlug}] marcati ${updated.count} suggerimenti come scaduti`);
+    }
   });
 
-  logger.info(`Marcati ${updated.count} suggerimenti come scaduti`);
+  logger.info(`Marcati ${total} suggerimenti come scaduti (totale tenants)`);
 }
 
 /**
@@ -133,16 +128,24 @@ async function processCleanupExpired() {
  * Verifica se i suggerimenti sono stati risolti automaticamente
  */
 async function processAutoResolve() {
-  logger.info('Verifica auto-risoluzione suggerimenti...');
+  logger.info('Verifica auto-risoluzione suggerimenti (multi-tenant)...');
+  let totalResolved = 0;
 
+  await forEachActiveTenant(async (_tenantId, tenantSlug) => {
+    const resolved = await processAutoResolveForTenant();
+    totalResolved += resolved;
+    if (resolved > 0) {
+      logger.info(`[${tenantSlug}] auto-risolti ${resolved} suggerimenti`);
+    }
+  });
+
+  logger.info(`Auto-risolti ${totalResolved} suggerimenti (totale tenants)`);
+}
+
+async function processAutoResolveForTenant(): Promise<number> {
   const pendingSuggestions = await prisma.suggestion.findMany({
-    where: {
-      status: 'PENDING',
-    },
-    include: {
-      product: true,
-      material: true,
-    },
+    where: { status: 'PENDING' },
+    include: { product: true, material: true },
   });
 
   let resolved = 0;
@@ -220,7 +223,7 @@ async function processAutoResolve() {
     }
   }
 
-  logger.info(`Auto-risolti ${resolved} suggerimenti`);
+  return resolved;
 }
 
 /**
@@ -228,27 +231,30 @@ async function processAutoResolve() {
  * Riassume i suggerimenti critici e urgenti agli utenti abilitati
  */
 async function processDailyDigest() {
-  logger.info('Invio digest giornaliero suggerimenti...');
+  logger.info('Invio digest giornaliero suggerimenti (multi-tenant)...');
 
   if (!emailService.isEnabled()) {
     logger.warn('Email service non abilitato, skip digest');
     return;
   }
 
+  let totalSent = 0;
+  await forEachActiveTenant(async (_tenantId, tenantSlug) => {
+    const sent = await processDailyDigestForTenant();
+    totalSent += sent;
+    if (sent > 0) logger.info(`[${tenantSlug}] inviati ${sent} digest giornalieri`);
+  });
+  logger.info(`Inviati ${totalSent} digest giornalieri (totale tenants)`);
+}
+
+async function processDailyDigestForTenant(): Promise<number> {
   // Trova utenti con digest giornaliero abilitato
   const usersWithDigest = await prisma.userDashboardPreference.findMany({
-    where: {
-      emailDailyDigest: true,
-    },
-    include: {
-      user: true,
-    },
+    where: { emailDailyDigest: true },
+    include: { user: true },
   });
 
-  if (usersWithDigest.length === 0) {
-    logger.info('Nessun utente con digest giornaliero abilitato');
-    return;
-  }
+  if (usersWithDigest.length === 0) return 0;
 
   // Recupera suggerimenti critici e alti delle ultime 24 ore
   const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -259,26 +265,18 @@ async function processDailyDigest() {
       priority: { in: ['CRITICAL', 'HIGH'] },
       createdAt: { gte: yesterday },
     },
-    orderBy: [
-      { priority: 'asc' },
-      { createdAt: 'desc' },
-    ],
+    orderBy: [{ priority: 'asc' }, { createdAt: 'desc' }],
     take: 20,
   });
 
-  if (criticalSuggestions.length === 0) {
-    logger.info('Nessun suggerimento critico da inviare');
-    return;
-  }
+  if (criticalSuggestions.length === 0) return 0;
 
   // Statistiche generali
   const stats = await suggestionEngineService.getStats();
 
   let sentCount = 0;
-
   for (const userPref of usersWithDigest) {
     if (!userPref.user.email || !userPref.user.isActive) continue;
-
     try {
       await sendDailyDigestEmail(
         userPref.user.email,
@@ -292,7 +290,7 @@ async function processDailyDigest() {
     }
   }
 
-  logger.info(`Inviati ${sentCount} digest giornalieri`);
+  return sentCount;
 }
 
 /**
@@ -300,27 +298,30 @@ async function processDailyDigest() {
  * Report completo settimanale con statistiche e trend
  */
 async function processWeeklyDigest() {
-  logger.info('Invio digest settimanale suggerimenti...');
+  logger.info('Invio digest settimanale suggerimenti (multi-tenant)...');
 
   if (!emailService.isEnabled()) {
     logger.warn('Email service non abilitato, skip digest');
     return;
   }
 
+  let totalSent = 0;
+  await forEachActiveTenant(async (_tenantId, tenantSlug) => {
+    const sent = await processWeeklyDigestForTenant();
+    totalSent += sent;
+    if (sent > 0) logger.info(`[${tenantSlug}] inviati ${sent} digest settimanali`);
+  });
+  logger.info(`Inviati ${totalSent} digest settimanali (totale tenants)`);
+}
+
+async function processWeeklyDigestForTenant(): Promise<number> {
   // Trova utenti con digest settimanale abilitato
   const usersWithDigest = await prisma.userDashboardPreference.findMany({
-    where: {
-      emailWeeklyDigest: true,
-    },
-    include: {
-      user: true,
-    },
+    where: { emailWeeklyDigest: true },
+    include: { user: true },
   });
 
-  if (usersWithDigest.length === 0) {
-    logger.info('Nessun utente con digest settimanale abilitato');
-    return;
-  }
+  if (usersWithDigest.length === 0) return 0;
 
   // Statistiche settimana
   const lastWeek = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
@@ -369,10 +370,8 @@ async function processWeeklyDigest() {
   });
 
   let sentCount = 0;
-
   for (const userPref of usersWithDigest) {
     if (!userPref.user.email || !userPref.user.isActive) continue;
-
     try {
       await sendWeeklyDigestEmail(
         userPref.user.email,
@@ -386,8 +385,7 @@ async function processWeeklyDigest() {
       logger.error(`Errore invio digest settimanale a ${userPref.user.email}:`, error);
     }
   }
-
-  logger.info(`Inviati ${sentCount} digest settimanali`);
+  return sentCount;
 }
 
 /**

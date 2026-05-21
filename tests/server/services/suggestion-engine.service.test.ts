@@ -1,3 +1,4 @@
+import '../helpers/tenant-mock';
 /**
  * Suggestion Engine Service Tests
  * Comprehensive tests for intelligent suggestion generation and management

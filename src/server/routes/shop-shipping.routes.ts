@@ -1,12 +1,15 @@
 import { FastifyPluginAsync } from 'fastify';
 import shopShippingService from '../services/shop-shipping.service';
 import { successResponse, errorResponse } from '../utils/response.util';
+import { shopTenantMiddleware } from '../middleware/shop-tenant.middleware';
 
 /**
  * Shop Shipping Routes
  * API pubbliche per calcolo spedizioni e-commerce
  */
 const shopShippingRoutes: FastifyPluginAsync = async (fastify) => {
+  fastify.addHook('preHandler', shopTenantMiddleware);
+
   /**
    * POST /api/v1/shop/shipping/calculate
    * Calcola metodi di spedizione disponibili

@@ -1,6 +1,7 @@
 import { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import { shopAuthService, CustomerTokenPayload } from '../services/shop-auth.service';
 import { successResponse, errorResponse } from '../utils/response.util';
+import { shopTenantMiddleware } from '../middleware/shop-tenant.middleware';
 
 // Extend FastifyRequest to include customer
 declare module 'fastify' {
@@ -34,6 +35,8 @@ async function customerAuthMiddleware(
 }
 
 const shopAuthRoutes: FastifyPluginAsync = async (fastify) => {
+  fastify.addHook('preHandler', shopTenantMiddleware);
+
   // Register a new customer
   fastify.post('/register', async (request: FastifyRequest, reply: FastifyReply) => {
     try {

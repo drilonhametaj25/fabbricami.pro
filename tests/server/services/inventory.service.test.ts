@@ -1,3 +1,4 @@
+import '../helpers/tenant-mock';
 /**
  * Inventory Service Tests
  * Comprehensive unit tests for inventory management functionality

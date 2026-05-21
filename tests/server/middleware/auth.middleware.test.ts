@@ -362,6 +362,7 @@ describe('Auth Middleware', () => {
         userId: 'user-1',
         email: 'test@test.com',
         role: 'ADMIN' as UserRole,
+        tenantId: 'tenant-1',
       }) as any;
       const reply = createMockReply();
       const middleware = authorize('ADMIN' as UserRole, 'MANAGER' as UserRole);
@@ -414,6 +415,7 @@ describe('Auth Middleware', () => {
         userId: 'user-1',
         email: 'test@test.com',
         role: 'ADMIN' as UserRole,
+        tenantId: 'tenant-1',
       };
 
       const token = generateToken(payload);
@@ -434,6 +436,7 @@ describe('Auth Middleware', () => {
         email: 'test@test.com',
         role: 'ADMIN' as UserRole,
         tenantId: 'tenant-1',
+        tenantId: 'tenant-1',
         tenantSlug: 'acme-corp',
         planCode: 'PRO',
       };
@@ -451,6 +454,7 @@ describe('Auth Middleware', () => {
         userId: 'user-1',
         email: 'test@test.com',
         role: 'ADMIN' as UserRole,
+        tenantId: 'tenant-1',
       };
 
       const token = generateToken(payload);
@@ -473,6 +477,7 @@ describe('Auth Middleware', () => {
         userId: 'user-1',
         email: 'test@test.com',
         role: 'ADMIN' as UserRole,
+        tenantId: 'tenant-1',
       };
 
       const token = generateRefreshToken(payload);
@@ -486,6 +491,7 @@ describe('Auth Middleware', () => {
         userId: 'user-1',
         email: 'test@test.com',
         role: 'ADMIN' as UserRole,
+        tenantId: 'tenant-1',
       };
 
       const token = generateRefreshToken(payload);
@@ -503,6 +509,7 @@ describe('Auth Middleware', () => {
         userId: 'user-1',
         email: 'test@test.com',
         role: 'ADMIN' as UserRole,
+        tenantId: 'tenant-1',
       };
 
       const accessToken = generateToken(payload);
@@ -525,6 +532,7 @@ describe('Auth Middleware', () => {
         userId: 'user-1',
         email: 'test@test.com',
         role: 'ADMIN' as UserRole,
+        tenantId: 'tenant-1',
       };
 
       const token = generateRefreshToken(payload);

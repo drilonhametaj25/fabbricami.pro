@@ -1,12 +1,15 @@
 import { FastifyPluginAsync } from 'fastify';
 import { prisma } from '../config/database';
 import { successResponse, errorResponse } from '../utils/response.util';
+import { shopTenantMiddleware } from '../middleware/shop-tenant.middleware';
 
 /**
  * Shop Products Routes
  * API pubbliche per catalogo prodotti e-commerce
  */
 const shopProductsRoutes: FastifyPluginAsync = async (fastify) => {
+  fastify.addHook('preHandler', shopTenantMiddleware);
+
   /**
    * GET /api/v1/shop/products
    * Lista prodotti pubblici con filtri

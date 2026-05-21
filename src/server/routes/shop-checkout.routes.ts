@@ -19,6 +19,7 @@ import {
 } from '../schemas/shop-checkout.schema';
 import { ShopShippingMethod } from '@prisma/client';
 import { prisma } from '../config/database';
+import { shopTenantMiddleware } from '../middleware/shop-tenant.middleware';
 
 // Extend FastifyRequest to include customer
 declare module 'fastify' {
@@ -47,6 +48,8 @@ async function optionalAuthMiddleware(
 }
 
 const shopCheckoutRoutes: FastifyPluginAsync = async (fastify) => {
+  // Tenant resolution MUST precede any DB access (Customer/Order lookup, ecc.).
+  fastify.addHook('preHandler', shopTenantMiddleware);
   // Apply optional auth to all routes
   fastify.addHook('preHandler', optionalAuthMiddleware);
 

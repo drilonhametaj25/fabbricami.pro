@@ -1,32 +1,33 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
-import { AsyncLocalStorage } from 'async_hooks';
 import { prisma } from '../config/database';
-import { TenantStatus } from '@prisma/client';
 import { AuthenticatedRequest } from './auth.middleware';
 import { runSubscriptionGate, SubscriptionGateContext } from './subscription-gate';
+import {
+  TenantContext,
+  setTenantContext,
+  getCurrentTenantContext,
+  getCurrentTenantId as _getCurrentTenantId,
+  requireCurrentTenantId as _requireCurrentTenantId,
+  _internalGetStorage,
+} from '../utils/tenant-context';
 
 // ============================================
-// TENANT CONTEXT
+// TENANT CONTEXT (re-export — single source of truth in utils/tenant-context.ts)
 // ============================================
 
-export interface TenantContext {
-  tenantId: string;
-  tenantSlug: string;
-  tenantStatus: TenantStatus;
-}
+export type { TenantContext };
 
-// AsyncLocalStorage per propagare il contesto tenant attraverso la request
-export const tenantContext = new AsyncLocalStorage<TenantContext>();
+// Storage AsyncLocalStorage — esposto SOLO per retrocompatibilità con call site
+// che facevano `tenantContext.enterWith(ctx)` o `tenantContext.run(...)`.
+// Nuovi call site dovrebbero usare setTenantContext()/runWithTenantContext() da utils/tenant-context.
+export const tenantContext = _internalGetStorage();
 
-// Helper per ottenere il contesto tenant corrente
 export function getCurrentTenant(): TenantContext | undefined {
-  return tenantContext.getStore();
+  return getCurrentTenantContext();
 }
 
-// Helper per ottenere tenantId corrente (usato dal Prisma middleware)
-export function getCurrentTenantId(): string | undefined {
-  return tenantContext.getStore()?.tenantId;
-}
+export const getCurrentTenantId = _getCurrentTenantId;
+export const requireCurrentTenantId = _requireCurrentTenantId;
 
 // ============================================
 // TENANT MIDDLEWARE
@@ -37,14 +38,17 @@ export interface TenantRequest extends FastifyRequest {
 }
 
 /**
- * Middleware per estrarre e validare il tenant dalla request
+ * Middleware per estrarre e validare il tenant dalla request.
  *
- * Il tenant può essere identificato tramite:
- * 1. JWT token (userId con tenantId associato) — fonte primaria per client autenticati
- * 2. Header X-Tenant-Id (per integrazioni API esplicite con API key)
+ * SOLO route ERP autenticate. Il tenantId è SEMPRE ricavato dal JWT —
+ * mai dal client (header/query/body), perché senza prova di possesso
+ * (firma + claim) sarebbe un IDOR cross-tenant garantito.
  *
- * NON usiamo più il subdomain come fonte: era un fallback pericoloso che poteva
- * far finire un utente autenticato nel tenant sbagliato se il JWT non aveva tenantId.
+ * Le route SHOP pubbliche usano `shopTenantMiddleware` che risolve da
+ * dominio/subdomain.
+ *
+ * Le integrazioni API esterne (WordPress plugin) usano già un middleware
+ * dedicato con `:tenantSlug` nel path + Basic Auth.
  */
 export async function tenantMiddleware(
   request: FastifyRequest,
@@ -52,27 +56,14 @@ export async function tenantMiddleware(
 ): Promise<void> {
   try {
     const authRequest = request as AuthenticatedRequest;
-    let tenantId: string | null = null;
+    const tenantId = authRequest.user?.tenantId ?? null;
 
-    // 1. Prima prova a ottenere il tenantId dal JWT (se autenticato)
-    if (authRequest.user?.tenantId) {
-      tenantId = authRequest.user.tenantId;
-    }
-
-    // 2. Fallback: header X-Tenant-Id (per API esterne con API key)
-    if (!tenantId) {
-      const headerTenantId = request.headers['x-tenant-id'];
-      if (typeof headerTenantId === 'string') {
-        tenantId = headerTenantId;
-      }
-    }
-
-    // Se non abbiamo un tenantId, errore
+    // Senza JWT autenticato non c'è prova di possesso del tenant → reject.
     if (!tenantId) {
       return reply.status(400).send({
         success: false,
         error: 'Tenant not specified',
-        message: 'Request must include tenant identification via JWT or X-Tenant-Id header',
+        message: 'Request must be authenticated with a JWT carrying tenantId',
       });
     }
 
@@ -111,7 +102,7 @@ export async function tenantMiddleware(
     // Questo garantisce che il context tenant sia disponibile per il resto
     // del lifecycle della request (handler, prisma middleware, ecc.)
     // senza wrappare il control-flow in una callback.
-    tenantContext.enterWith(ctx);
+    setTenantContext(ctx);
 
     // ============================================
     // SUBSCRIPTION GATE (shared helper)
@@ -185,7 +176,12 @@ export async function verifyTenantMembership(
 /**
  * Middleware opzionale per route pubbliche che possono opzionalmente avere un tenant.
  * Non fallisce se non c'è tenant, ma lo imposta se disponibile.
- * Risolve tenantId SOLO da JWT o header X-Tenant-Id, mai da subdomain.
+ * Risolve tenantId SOLO da JWT (mai da header non firmato — sarebbe un IDOR).
+ *
+ * ATTENZIONE: usare con cautela. Una route con questo middleware che fa query
+ * Prisma su modelli tenant-scoped senza tenant attivo lascerà passare il
+ * middleware Prisma unfiltered (mode warn-only) o crasherà (mode strict).
+ * Per shop pubblico usare `shopTenantMiddleware` invece.
  */
 export async function optionalTenantMiddleware(
   request: FastifyRequest,
@@ -193,23 +189,10 @@ export async function optionalTenantMiddleware(
 ): Promise<void> {
   try {
     const authRequest = request as AuthenticatedRequest;
-    let tenantId: string | null = null;
-
-    // Prova a ottenere il tenantId dal JWT
-    if (authRequest.user?.tenantId) {
-      tenantId = authRequest.user.tenantId;
-    }
-
-    // Fallback: header X-Tenant-Id
-    if (!tenantId) {
-      const headerTenantId = request.headers['x-tenant-id'];
-      if (typeof headerTenantId === 'string') {
-        tenantId = headerTenantId;
-      }
-    }
+    const tenantId = authRequest.user?.tenantId ?? null;
 
     if (!tenantId) {
-      return; // Nessun tenant, continua senza contesto
+      return; // Nessun JWT autenticato, continua senza contesto
     }
 
     // Verifica che il tenant esista e sia attivo
@@ -225,7 +208,7 @@ export async function optionalTenantMiddleware(
         tenantStatus: tenant.status,
       };
       (request as TenantRequest).tenant = ctx;
-      tenantContext.enterWith(ctx);
+      setTenantContext(ctx);
     }
   } catch (err) {
     // Silently fail for optional tenant

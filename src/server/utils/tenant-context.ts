@@ -1,57 +1,61 @@
 import { AsyncLocalStorage } from 'async_hooks';
+import type { TenantStatus } from '@prisma/client';
 
 /**
- * Context tenant propagato lungo lo stack async tramite AsyncLocalStorage.
+ * UNICA source-of-truth per il tenant context applicativo.
  *
- * Perché esiste: alcuni servizi (es. WordPressService) hanno ~50 metodi
- * pubblici che internamente fanno HTTP calls. Propagare `tenantId` come arg su
- * ogni metodo + tutti i callsite sarebbe un refactor invasivo per centinaia di
- * call site. AsyncLocalStorage permette di settare il tenant ai bordi
- * (middleware/route handler/job processor) e leggerlo internamente nei servizi
- * senza modificare le firme.
+ * Storia: pre-fix coesistevano due AsyncLocalStorage paralleli (questo file
+ * e `middleware/tenant.middleware.ts`). I servizi WordPress/job usavano uno,
+ * il middleware Prisma `$extends` leggeva dall'altro: il context settato in
+ * uno NON era visibile nell'altro → query non filtrate. Adesso esiste solo
+ * questo file; `middleware/tenant.middleware.ts` re-esporta gli helper qui.
  *
- * Uso ai bordi:
- *   await runWithTenant(tenantId, async () => {
- *     await wordpressService.syncProductToWooCommerce(productId);
- *   });
+ * Uso ai bordi (entry point della request/job):
+ *   await runWithTenant(tenantId, async () => { … })
+ *   enterTenant(tenantId)                            // hook Fastify
+ *   setTenantContext({ tenantId, tenantSlug, … })   // hook Fastify w/ slug
  *
  * Uso nei servizi:
  *   const tenantId = requireCurrentTenant();
- *   const cfg = await wordpressSettingsService.getSettings(tenantId);
  */
 
-interface TenantStore {
+export interface TenantContext {
   tenantId: string;
+  tenantSlug: string;
+  tenantStatus: TenantStatus;
 }
 
-const tenantContext = new AsyncLocalStorage<TenantStore>();
+export interface TenantStore {
+  tenantId: string;
+  // Opzionali — popolati solo quando settati via setTenantContext()
+  tenantSlug?: string;
+  tenantStatus?: TenantStatus;
+}
 
-/**
- * Esegue `fn` con il tenantId disponibile via `getCurrentTenant()` /
- * `requireCurrentTenant()` in qualsiasi punto async raggiungibile.
- *
- * NB: tutto ciò che viene awaitato dentro `fn` mantiene il context; le Promise
- * detached (es. `setImmediate`, `setTimeout` senza await) NON lo ereditano —
- * usa `runWithTenant` di nuovo se serve.
- */
+const tenantContextStore = new AsyncLocalStorage<TenantStore>();
+
 export function runWithTenant<T>(tenantId: string, fn: () => Promise<T> | T): Promise<T> | T {
-  return tenantContext.run({ tenantId }, fn);
+  return tenantContextStore.run({ tenantId }, fn);
 }
 
 /**
- * Ritorna il tenantId corrente, o `null` se non siamo dentro a un
- * `runWithTenant`. Da preferire `requireCurrentTenant()` quando il tenantId è
- * obbligatorio per la business logic, perché fa fail-fast.
+ * Variante che accetta il context completo (tenantId + slug + status).
+ * Equivalente a `runWithTenant` ma preserva slug/status per i caller che li leggono.
  */
+export function runWithTenantContext<T>(
+  ctx: TenantContext,
+  fn: () => Promise<T> | T
+): Promise<T> | T {
+  return tenantContextStore.run(
+    { tenantId: ctx.tenantId, tenantSlug: ctx.tenantSlug, tenantStatus: ctx.tenantStatus },
+    fn
+  );
+}
+
 export function getCurrentTenant(): string | null {
-  return tenantContext.getStore()?.tenantId ?? null;
+  return tenantContextStore.getStore()?.tenantId ?? null;
 }
 
-/**
- * Come `getCurrentTenant()` ma lancia se il context non è settato. Usalo nei
- * servizi multi-tenant per essere sicuro che un caller scoordinato non finisca
- * a leakare dati cross-tenant.
- */
 export function requireCurrentTenant(): string {
   const tenantId = getCurrentTenant();
   if (!tenantId) {
@@ -63,20 +67,51 @@ export function requireCurrentTenant(): string {
   return tenantId;
 }
 
+/** Alias semanticamente più chiaro per il caller "voglio l'id tenantId attuale". */
+export function getCurrentTenantId(): string | undefined {
+  return tenantContextStore.getStore()?.tenantId;
+}
+
 /**
- * Imposta il tenant nel context corrente per tutto il resto della catena
- * asincrona, SENZA richiedere una callback `.run()`. Più conveniente di
- * `runWithTenant` quando il setup avviene in un hook (es. Fastify
- * `onRequest`/`preHandler`) e l'handler viene invocato dopo.
- *
- * Usa `AsyncLocalStorage.enterWith()`: il context dura fino alla fine
- * dell'execution asincrona corrente (per Fastify: fino al completamento
- * della richiesta). NB: NON nidificare con `runWithTenant` dentro lo stesso
- * stack, altrimenti il context interno fa shadow di quello esterno.
+ * Variante rigorosa di `getCurrentTenantId()`: lancia se non c'è context.
+ * Usare SEMPRE prima di una raw query (`$queryRaw / $executeRaw`) che bypassa
+ * il middleware Prisma `$extends`.
  */
+export function requireCurrentTenantId(): string {
+  return requireCurrentTenant();
+}
+
+/** Ritorna il context tenant completo (slug+status compresi se settati). */
+export function getCurrentTenantContext(): TenantContext | undefined {
+  const store = tenantContextStore.getStore();
+  if (!store || !store.tenantSlug || !store.tenantStatus) return undefined;
+  return {
+    tenantId: store.tenantId,
+    tenantSlug: store.tenantSlug,
+    tenantStatus: store.tenantStatus,
+  };
+}
+
 export function enterTenant(tenantId: string): void {
-  if (!tenantId) {
-    throw new Error('enterTenant: tenantId vuoto');
-  }
-  tenantContext.enterWith({ tenantId });
+  if (!tenantId) throw new Error('enterTenant: tenantId vuoto');
+  tenantContextStore.enterWith({ tenantId });
+}
+
+/** Variante che setta context completo (tenantId + slug + status). */
+export function setTenantContext(ctx: TenantContext): void {
+  if (!ctx?.tenantId) throw new Error('setTenantContext: tenantId vuoto');
+  tenantContextStore.enterWith({
+    tenantId: ctx.tenantId,
+    tenantSlug: ctx.tenantSlug,
+    tenantStatus: ctx.tenantStatus,
+  });
+}
+
+/**
+ * Ritorna l'oggetto AsyncLocalStorage sottostante. Solo per usi avanzati
+ * (es. test che vogliono controllare il ciclo di vita). I caller normali
+ * dovrebbero usare runWithTenant/setTenantContext/getCurrentTenant.
+ */
+export function _internalGetStorage() {
+  return tenantContextStore;
 }

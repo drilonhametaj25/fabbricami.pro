@@ -124,22 +124,18 @@ describe('Tenant Middleware', () => {
       });
     });
 
-    it('should extract tenantId from X-Tenant-Id header', async () => {
+    it('should reject X-Tenant-Id header without JWT (regression: header non firmato rimosso per security)', async () => {
+      // Senza JWT autenticato il middleware NON deve fidarsi del header — sarebbe
+      // un IDOR cross-tenant garantito.
       const request = createMockRequest({
         headers: { 'x-tenant-id': 'tenant-2' },
       }) as any;
       const reply = createMockReply();
 
-      mockPrisma.tenant.findUnique.mockResolvedValue({
-        id: 'tenant-2',
-        slug: 'beta-corp',
-        status: 'ACTIVE',
-      });
-
       await tenantMiddleware(request, reply);
 
-      expect(request.tenant.tenantId).toBe('tenant-2');
-      expect(request.tenant.tenantSlug).toBe('beta-corp');
+      expect(mockPrisma.tenant.findUnique).not.toHaveBeenCalled();
+      expect(reply.status).toHaveBeenCalledWith(400);
     });
 
     it('should NOT extract tenant from subdomain (regression: subdomain support removed for security)', async () => {
@@ -168,7 +164,7 @@ describe('Tenant Middleware', () => {
       expect(reply.send).toHaveBeenCalledWith({
         success: false,
         error: 'Tenant not specified',
-        message: 'Request must include tenant identification via JWT or X-Tenant-Id header',
+        message: 'Request must be authenticated with a JWT carrying tenantId',
       });
     });
 
@@ -483,21 +479,19 @@ describe('Tenant Middleware', () => {
       });
     });
 
-    it('should set tenant context from X-Tenant-Id header', async () => {
+    it('should NOT set tenant from X-Tenant-Id header (regression: header non firmato rimosso per security)', async () => {
+      // Il fallback header X-Tenant-Id senza proof-of-possession era un IDOR
+      // garantito su route pubbliche. Adesso optionalTenantMiddleware risolve
+      // solo da JWT.
       const request = createMockRequest({
         headers: { 'x-tenant-id': 'tenant-2' },
       }) as any;
       const reply = createMockReply();
 
-      mockPrisma.tenant.findUnique.mockResolvedValue({
-        id: 'tenant-2',
-        slug: 'beta',
-        status: 'ACTIVE',
-      });
-
       await optionalTenantMiddleware(request, reply);
 
-      expect(request.tenant.tenantId).toBe('tenant-2');
+      expect(mockPrisma.tenant.findUnique).not.toHaveBeenCalled();
+      expect(request.tenant).toBeUndefined();
     });
 
     it('should not set tenant when tenant is not active', async () => {

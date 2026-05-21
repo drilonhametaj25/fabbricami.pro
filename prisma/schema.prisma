@@ -221,7 +221,7 @@ model SuperAdminAuditLog {
 
 model User {
   id           String    @id @default(uuid())
-  tenantId     String?   @map("tenant_id")
+  tenantId     String    @map("tenant_id")
   email        String    @unique
   password     String
   firstName    String    @map("first_name")
@@ -244,7 +244,7 @@ model User {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // Multi-tenancy relations
-  tenant            Tenant?        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant            Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   tenantMemberships TenantMember[]
 
   // Relations
@@ -269,8 +269,8 @@ model User {
 // ============================================
 
 model CompanySettings {
-  id       String  @id @default(uuid())
-  tenantId String? @map("tenant_id")
+  id       String @id @default(uuid())
+  tenantId String @map("tenant_id")
 
   // Dati Azienda
   companyName   String   @map("company_name")
@@ -352,7 +352,7 @@ model CompanySettings {
 
 model Warehouse {
   id          String   @id @default(uuid())
-  tenantId    String?  @map("tenant_id")
+  tenantId    String   @map("tenant_id")
   code        String
   name        String
   description String?  @db.Text
@@ -384,7 +384,7 @@ model Warehouse {
 
 model Material {
   id              String   @id @default(uuid())
-  tenantId        String?  @map("tenant_id")
+  tenantId        String   @map("tenant_id")
   sku             String
   name            String
   description     String?  @db.Text
@@ -488,7 +488,7 @@ enum ProductType {
 
 model Product {
   id              String      @id @default(uuid())
-  tenantId        String?     @map("tenant_id")
+  tenantId        String      @map("tenant_id")
   sku             String
   name            String
   description     String?     @db.Text
@@ -849,7 +849,7 @@ model ProductOperation {
 
 model ProductCategory {
   id            String  @id @default(uuid())
-  tenantId      String? @map("tenant_id")
+  tenantId      String  @map("tenant_id")
   name          String
   slug          String  @unique
   description   String? @db.Text
@@ -934,7 +934,7 @@ model ProductImage {
 
 model ShippingClass {
   id            String   @id @default(uuid())
-  tenantId      String?  @map("tenant_id")
+  tenantId      String   @map("tenant_id")
   name          String
   slug          String   @unique
   description   String?  @db.Text
@@ -955,7 +955,7 @@ model ShippingClass {
 
 model WooCommerceAttribute {
   id            String   @id @default(uuid())
-  tenantId      String?  @map("tenant_id")
+  tenantId      String   @map("tenant_id")
   woocommerceId Int      @unique @map("woocommerce_id")
   name          String // "Colore", "Taglia", etc
   slug          String   @unique // "pa_colore", "pa_taglia"
@@ -999,7 +999,7 @@ model WooCommerceAttributeTerm {
 
 model WooCommerceTag {
   id            String   @id @default(uuid())
-  tenantId      String?  @map("tenant_id")
+  tenantId      String   @map("tenant_id")
   woocommerceId Int      @unique @map("woocommerce_id")
   name          String
   slug          String   @unique
@@ -1025,7 +1025,7 @@ enum InventoryLocation {
 
 model InventoryItem {
   id               String            @id @default(uuid())
-  tenantId         String?           @map("tenant_id")
+  tenantId         String            @map("tenant_id")
   warehouseId      String            @map("warehouse_id")
   productId        String            @map("product_id")
   variantId        String?           @map("variant_id")
@@ -1062,7 +1062,7 @@ enum MovementType {
 
 model InventoryMovement {
   id           String             @id @default(uuid())
-  tenantId     String?            @map("tenant_id")
+  tenantId     String             @map("tenant_id")
   productId    String             @map("product_id")
   variantId    String?            @map("variant_id") // Per tracciare movimenti variante
   fromLocation InventoryLocation? @map("from_location")
@@ -1098,7 +1098,7 @@ enum CustomerType {
 
 model Customer {
   id           String       @id @default(uuid())
-  tenantId     String?      @map("tenant_id")
+  tenantId     String       @map("tenant_id")
   type         CustomerType
   code         String
   businessName String?      @map("business_name")
@@ -1208,7 +1208,7 @@ model Customer {
 
 model PriceList {
   id             String    @id @default(uuid())
-  tenantId       String?   @map("tenant_id")
+  tenantId       String    @map("tenant_id")
   code           String    @unique
   name           String
   description    String?   @db.Text
@@ -1333,7 +1333,7 @@ enum OrderStatus {
 
 model Order {
   id          String      @id @default(uuid())
-  tenantId    String?     @map("tenant_id")
+  tenantId    String      @map("tenant_id")
   orderNumber String      @map("order_number")
   customerId  String      @map("customer_id")
   source      OrderSource
@@ -1439,7 +1439,7 @@ model Order {
   // RMA relations
   rmas             RMA[]
   // Tenant
-  tenant           Tenant?           @relation(fields: [tenantId], references: [id])
+  tenant           Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, orderNumber], name: "order_tenant_number_unique")
   @@unique([tenantId, wordpressId], name: "order_tenant_wordpress_unique")
@@ -1553,7 +1553,7 @@ enum QualityStatus {
 
 model Supplier {
   id           String  @id @default(uuid())
-  tenantId     String? @map("tenant_id")
+  tenantId     String  @map("tenant_id")
   code         String
   businessName String  @map("business_name")
   email        String?
@@ -1607,7 +1607,7 @@ model Supplier {
   // Scorecards
   scorecards     SupplierScorecard[]
   // Tenant
-  tenant         Tenant?              @relation(fields: [tenantId], references: [id])
+  tenant         Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, code], name: "supplier_tenant_code_unique")
   @@unique([tenantId, taxId], name: "supplier_tenant_taxid_unique")
@@ -1673,7 +1673,7 @@ model SupplierScorecard {
 
 model PurchaseOrder {
   id           String              @id @default(uuid())
-  tenantId     String?             @map("tenant_id")
+  tenantId     String              @map("tenant_id")
   orderNumber  String              @map("order_number")
   supplierId   String              @map("supplier_id")
   status       PurchaseOrderStatus @default(DRAFT)
@@ -1835,7 +1835,7 @@ enum PaymentMethodPA {
 
 model Invoice {
   id            String        @id @default(uuid())
-  tenantId      String?       @map("tenant_id")
+  tenantId      String        @map("tenant_id")
   invoiceNumber String        @map("invoice_number")
   type          InvoiceType
   customerId    String?       @map("customer_id")
@@ -1910,7 +1910,7 @@ model Invoice {
 
 model SupplierInvoice {
   id            String        @id @default(uuid())
-  tenantId      String?       @map("tenant_id")
+  tenantId      String        @map("tenant_id")
   invoiceNumber String        @map("invoice_number")
   supplierId    String        @map("supplier_id")
   status        InvoiceStatus @default(DRAFT)
@@ -2095,7 +2095,7 @@ enum PaymentDueStatus {
 // Piano di pagamento (rate predefinite)
 model PaymentPlan {
   id          String   @id @default(uuid())
-  tenantId    String?  @map("tenant_id")
+  tenantId    String   @map("tenant_id")
   code        String   @unique // "30_70_60GG", "50_50_30GG"
   name        String // "30% anticipo, 70% a 60gg"
   description String?  @db.Text
@@ -2133,7 +2133,7 @@ model PaymentPlanInstallment {
 // Scadenza singola (può essere rata di fattura o scadenza standalone)
 model PaymentDue {
   id       String           @id @default(uuid())
-  tenantId String?          @map("tenant_id")
+  tenantId String           @map("tenant_id")
   type     PaymentDueType // RECEIVABLE or PAYABLE
   status   PaymentDueStatus @default(PENDING)
 
@@ -2241,7 +2241,7 @@ enum OverheadCategory {
 
 model OverheadCost {
   id               String           @id @default(uuid())
-  tenantId         String?          @map("tenant_id")
+  tenantId         String           @map("tenant_id")
   category         OverheadCategory
   description      String
   amount           Decimal          @db.Decimal(10, 2)
@@ -2407,7 +2407,7 @@ model TaskOperation {
 // Workflow configurabili per tipo ordine
 model Workflow {
   id          String       @id @default(uuid())
-  tenantId    String?      @map("tenant_id")
+  tenantId    String       @map("tenant_id")
   name        String
   description String?      @db.Text
   orderSource OrderSource? @map("order_source")
@@ -2540,7 +2540,7 @@ model AuditLog {
 // Tipi di operazione configurabili (Mansioni)
 model OperationType {
   id                    String   @id @default(uuid())
-  tenantId              String?  @map("tenant_id")
+  tenantId              String   @map("tenant_id")
   code                  String   @unique // "SCATOLAMENTO", "PROD_INTERNA"
   name                  String // "Scatolamento"
   description           String?  @db.Text
@@ -2582,7 +2582,7 @@ model OperationTypeEmployee {
 // Fase della pipeline produttiva di un prodotto
 model ManufacturingPhase {
   id                  String   @id @default(uuid())
-  tenantId            String?  @map("tenant_id")
+  tenantId            String   @map("tenant_id")
   productId           String   @map("product_id")
   operationTypeId     String   @map("operation_type_id")
   sequence            Int // Ordine nella pipeline (1, 2, 3...)
@@ -2664,7 +2664,7 @@ enum ProductionOrderStatus {
 
 model ProductionOrder {
   id               String                @id @default(uuid())
-  tenantId         String?               @map("tenant_id")
+  tenantId         String                @map("tenant_id")
   orderNumber      String                @unique @map("order_number")
   productId        String                @map("product_id")
   quantity         Int
@@ -2778,7 +2778,7 @@ model SystemSetting {
 // Credenziali Basic Auth per plugin WordPress (per-tenant)
 model WordPressPluginAuth {
   id        String    @id @default(uuid())
-  tenantId  String?   @map("tenant_id")
+  tenantId  String    @map("tenant_id")
   username  String // unicità per-tenant via composite (vedi @@unique sotto)
   password  String // Password hashata con bcrypt
   label     String? // Descrizione (es. "Plugin Sito Principale")
@@ -2818,7 +2818,7 @@ model WordPressTenantConfig {
 // Log sincronizzazione WordPress
 model WordPressSyncLog {
   id        String   @id @default(uuid())
-  tenantId  String?  @map("tenant_id")
+  tenantId  String   @map("tenant_id")
   direction String // TO_WP, FROM_WP
   entity    String // PRODUCT, ORDER, CUSTOMER, INVENTORY
   entityId  String   @map("entity_id")
@@ -2901,12 +2901,12 @@ model SupplierVolumeDiscount {
 
 // Documento di Entrata Merce
 model GoodsReceipt {
-  id              String  @id @default(uuid())
-  tenantId        String? @map("tenant_id")
-  receiptNumber   String  @unique @map("receipt_number") // EM-2026-000001
-  purchaseOrderId String  @map("purchase_order_id")
-  supplierId      String  @map("supplier_id")
-  warehouseId     String  @map("warehouse_id")
+  id              String @id @default(uuid())
+  tenantId        String @map("tenant_id")
+  receiptNumber   String @unique @map("receipt_number") // EM-2026-000001
+  purchaseOrderId String @map("purchase_order_id")
+  supplierId      String @map("supplier_id")
+  warehouseId     String @map("warehouse_id")
 
   // Receipt info
   receiptDate       DateTime  @default(now()) @map("receipt_date")
@@ -3090,7 +3090,7 @@ enum RmaResolution {
 
 model RMA {
   id         String    @id @default(uuid())
-  tenantId   String?   @map("tenant_id")
+  tenantId   String    @map("tenant_id")
   rmaNumber  String    @unique @map("rma_number") // ES: RMA-2025-00001
   orderId    String    @map("order_id")
   customerId String    @map("customer_id")
@@ -3204,7 +3204,7 @@ model RMAItem {
 
 model ShoppingCart {
   id         String  @id @default(uuid())
-  tenantId   String? @map("tenant_id")
+  tenantId   String  @map("tenant_id")
   customerId String? @map("customer_id") // null = guest
   sessionId  String? @map("session_id") // per guest checkout
   couponId   String? @map("coupon_id")
@@ -3271,7 +3271,7 @@ model CartItem {
 
 model WishlistItem {
   id         String  @id @default(uuid())
-  tenantId   String? @map("tenant_id")
+  tenantId   String  @map("tenant_id")
   customerId String  @map("customer_id")
   productId  String  @map("product_id")
   variantId  String? @map("variant_id")
@@ -3312,7 +3312,7 @@ enum CouponScope {
 
 model Coupon {
   id            String      @id @default(uuid())
-  tenantId      String?     @map("tenant_id")
+  tenantId      String      @map("tenant_id")
   code          String      @unique
   name          String? // Nome descrittivo interno
   type          CouponType
@@ -3459,7 +3459,7 @@ enum PaymentStatus {
 
 model PaymentTransaction {
   id       String          @id @default(uuid())
-  tenantId String?         @map("tenant_id")
+  tenantId String          @map("tenant_id")
   orderId  String          @map("order_id")
   provider PaymentProvider
 
@@ -3511,7 +3511,7 @@ model PaymentTransaction {
 
 model ShopShippingZone {
   id        String   @id @default(uuid())
-  tenantId  String?  @map("tenant_id")
+  tenantId  String   @map("tenant_id")
   name      String // "Italia Continentale", "Europa UE", etc
   countries Json // ["IT"] o ["FR", "DE", "ES"]
   regions   Json? // Regioni specifiche ["sicilia", "sardegna"]
@@ -3595,7 +3595,7 @@ enum ReviewStatus {
 
 model ProductReview {
   id          String  @id @default(uuid())
-  tenantId    String? @map("tenant_id")
+  tenantId    String  @map("tenant_id")
   productId   String  @map("product_id")
   customerId  String  @map("customer_id")
   orderId     String? @map("order_id") // Per verificare acquisto
@@ -3658,9 +3658,9 @@ enum LoyaltyTier {
 }
 
 model LoyaltyAccount {
-  id         String  @id @default(uuid())
-  tenantId   String? @map("tenant_id")
-  customerId String  @unique @map("customer_id")
+  id         String @id @default(uuid())
+  tenantId   String @map("tenant_id")
+  customerId String @unique @map("customer_id")
 
   // Points balance
   points Int @default(0)
@@ -3732,7 +3732,7 @@ model LoyaltyTransaction {
 
 model AgeVerification {
   id         String  @id @default(uuid())
-  tenantId   String? @map("tenant_id")
+  tenantId   String  @map("tenant_id")
   sessionId  String? @map("session_id")
   customerId String? @map("customer_id")
 
@@ -3761,7 +3761,7 @@ model AgeVerification {
 
 model UserEvent {
   id         String  @id @default(uuid())
-  tenantId   String? @map("tenant_id")
+  tenantId   String  @map("tenant_id")
   sessionId  String  @map("session_id")
   customerId String? @map("customer_id")
 
@@ -3805,7 +3805,7 @@ enum SubscriptionStatus {
 
 model NewsletterSubscription {
   id         String  @id @default(uuid())
-  tenantId   String? @map("tenant_id")
+  tenantId   String  @map("tenant_id")
   email      String  @unique
   customerId String? @map("customer_id")
 
@@ -3846,9 +3846,9 @@ model NewsletterSubscription {
 // ============================================
 
 model CustomerAddress {
-  id         String  @id @default(uuid())
-  tenantId   String? @map("tenant_id")
-  customerId String  @map("customer_id")
+  id         String @id @default(uuid())
+  tenantId   String @map("tenant_id")
+  customerId String @map("customer_id")
 
   // Address type
   type      String // "shipping", "billing"
@@ -3951,7 +3951,7 @@ enum ImportJobType {
 
 model ImportJob {
   id          String          @id @default(uuid())
-  tenantId    String?         @map("tenant_id")
+  tenantId    String          @map("tenant_id")
   type        ImportJobType
   status      ImportJobStatus @default(RUNNING)
   currentPage Int             @default(1) @map("current_page")
@@ -4008,7 +4008,7 @@ model SdiNotification {
 
 model DDT {
   id         String  @id @default(uuid())
-  tenantId   String? @map("tenant_id")
+  tenantId   String  @map("tenant_id")
   ddtNumber  String  @unique @map("ddt_number") // Numero progressivo
   orderId    String? @map("order_id")
   customerId String  @map("customer_id")
@@ -4091,7 +4091,7 @@ model DDTItem {
 
 model Suggestion {
   id       String             @id @default(uuid())
-  tenantId String?            @map("tenant_id")
+  tenantId String             @map("tenant_id")
   type     SuggestionType
   priority SuggestionPriority @default(MEDIUM)
   status   SuggestionStatus   @default(PENDING)
@@ -4153,7 +4153,7 @@ model Suggestion {
 
 model DailySummary {
   id       String   @id @default(uuid())
-  tenantId String?  @map("tenant_id")
+  tenantId String   @map("tenant_id")
   date     DateTime @unique @db.Date // Data del summary
 
   // Ordini
@@ -4211,9 +4211,9 @@ model DailySummary {
 // ============================================
 
 model UserDashboardPreference {
-  id       String  @id @default(uuid())
-  tenantId String? @map("tenant_id")
-  userId   String  @unique @map("user_id")
+  id       String @id @default(uuid())
+  tenantId String @map("tenant_id")
+  userId   String @unique @map("user_id")
 
   // Layout preferito
   layout Json? // {widgets: [{id, position, size, visible}]}
@@ -4252,7 +4252,7 @@ model UserDashboardPreference {
 
 model PhysicalCountSession {
   id          String              @id @default(uuid())
-  tenantId    String?             @map("tenant_id")
+  tenantId    String              @map("tenant_id")
   code        String              @unique // Es: "INV-2024-001"
   warehouseId String              @map("warehouse_id")
   status      PhysicalCountStatus @default(DRAFT)
@@ -4372,7 +4372,7 @@ enum ReportFrequency {
 
 model ScheduledReport {
   id          String          @id @default(uuid())
-  tenantId    String?         @map("tenant_id")
+  tenantId    String          @map("tenant_id")
   name        String // Nome descrittivo del report
   reportType  String          @map("report_type") // Tipo report (es: "sales-summary", "dead-stock")
   frequency   ReportFrequency @default(WEEKLY)

@@ -1391,12 +1391,16 @@ class WordPressService {
    */
   private async reserveStock(tx: any, productId: string, quantity: number) {
     // Lock pessimistico sulla riga inventory_items per (productId, WEB).
+    // tenant_id filter difesa-in-profondità: raw query bypassa il middleware $extends.
+    const tenantId = requireCurrentTenant();
     const locked = (await tx.$queryRawUnsafe(
       `SELECT id, quantity, reserved_quantity FROM inventory_items
        WHERE product_id = $1 AND location = 'WEB'::"InventoryLocation"
+         AND tenant_id = $2
        ORDER BY id LIMIT 1
        FOR UPDATE`,
-      productId
+      productId,
+      tenantId
     )) as Array<{ id: string; quantity: number; reserved_quantity: number }>;
 
     if (!locked || locked.length === 0) {

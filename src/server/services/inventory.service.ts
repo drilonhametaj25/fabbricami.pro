@@ -8,6 +8,7 @@ import {
 import bomService from './bom.service';
 import alertService from './alert.service';
 import logger from '../config/logger';
+import { requireCurrentTenantId } from '../middleware/tenant.middleware';
 
 /**
  * Risultato della scalatura ricorsiva
@@ -180,17 +181,20 @@ class InventoryService {
    * - Movement record creato solo se l'aggiornamento stock riesce
    */
   async createMovement(data: CreateInventoryMovementInput) {
+    const tenantId = requireCurrentTenantId();
     return await prisma.$transaction(async (tx) => {
       // Lock pessimistico sull'InventoryItem per la combinazione product+location
-      // (previene race condition tra ordini concorrenti che leggono lo stesso stock)
+      // (previene race condition tra ordini concorrenti che leggono lo stesso stock).
+      // tenant_id filter difesa-in-profondità: raw query bypassa il middleware $extends.
       const locked = await tx.$queryRawUnsafe<Array<{ id: string; quantity: number }>>(
         `SELECT id, quantity FROM inventory_items
          WHERE product_id = $1 AND location = $2::"InventoryLocation"
-         ${data.locationId ? '' : ''}
+           AND tenant_id = $3
          ORDER BY id LIMIT 1
          FOR UPDATE`,
         data.productId,
-        data.locationId
+        data.locationId,
+        tenantId
       );
 
       // Per OUT: valida disponibilità prima

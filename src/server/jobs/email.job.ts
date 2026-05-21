@@ -1,8 +1,11 @@
 import { Job, Worker, Queue } from 'bullmq';
+import { Prisma } from '@prisma/client';
 import { emailService } from '../services/email.service';
 import { prisma } from '../config/database';
 import { logger } from '../config/logger';
 import { config } from '../config/environment';
+import { requireCurrentTenantId } from '../middleware/tenant.middleware';
+import { forEachActiveTenant } from '../utils/tenant-fanout';
 
 const connection = {
   host: config.redis.host,
@@ -309,69 +312,79 @@ async function processPaymentReminder(invoiceId: string) {
 }
 
 /**
- * Processa alert scorte basse
+ * Processa alert scorte basse — itera per ogni tenant attivo.
+ *
+ * Il job ricorrente "scheduled-low-stock-check" non passa tenantId, quindi
+ * facciamo fanout. I caller che già hanno un tenant context attivo
+ * (es. trigger manuale post-shipment) non passeranno per qui — useranno
+ * il loro flusso dedicato.
  */
 async function processLowStockAlert(productIds?: string[]) {
-  const where: any = {};
+  await forEachActiveTenant(async (_tenantId, tenantSlug) => {
+    const tenantId = requireCurrentTenantId();
 
-  if (productIds && productIds.length > 0) {
-    where.productId = { in: productIds };
-  }
+    // Filtro opzionale per productIds via Prisma.sql composable
+    const productFilter =
+      productIds && productIds.length > 0
+        ? Prisma.sql`AND p.id = ANY(${productIds})`
+        : Prisma.empty;
 
-  // Trova prodotti con scorte basse
-  const lowStockItems = await prisma.$queryRaw<Array<{
-    sku: string;
-    name: string;
-    location: string;
-    quantity: number;
-    minStock: number;
-  }>>`
-    SELECT
-      p.sku,
-      p.name,
-      i.location,
-      i.quantity - i.reserved_quantity as quantity,
-      p.min_stock as "minStock"
-    FROM inventory_items i
-    JOIN products p ON i.product_id = p.id
-    WHERE i.quantity - i.reserved_quantity <= p.min_stock
-    AND p.min_stock > 0
-    AND p.is_active = true
-    ORDER BY (i.quantity - i.reserved_quantity - p.min_stock) ASC
-    LIMIT 50
-  `;
+    // Trova prodotti con scorte basse (raw query bypassa $extends — filtriamo a mano)
+    const lowStockItems = await prisma.$queryRaw<Array<{
+      sku: string;
+      name: string;
+      location: string;
+      quantity: number;
+      minStock: number;
+    }>>`
+      SELECT
+        p.sku,
+        p.name,
+        i.location,
+        i.quantity - i.reserved_quantity as quantity,
+        p.min_stock as "minStock"
+      FROM inventory_items i
+      JOIN products p ON i.product_id = p.id
+      WHERE i.quantity - i.reserved_quantity <= p.min_stock
+        AND p.min_stock > 0
+        AND p.is_active = true
+        AND p.tenant_id = ${tenantId}
+        ${productFilter}
+      ORDER BY (i.quantity - i.reserved_quantity - p.min_stock) ASC
+      LIMIT 50
+    `;
 
-  if (lowStockItems.length === 0) {
-    logger.info('Nessun prodotto con scorte basse');
-    return;
-  }
+    if (lowStockItems.length === 0) {
+      return;
+    }
 
-  // Trova destinatari (admin e magazzinieri)
-  const recipients = await prisma.user.findMany({
-    where: {
-      role: { in: ['ADMIN', 'MANAGER', 'MAGAZZINIERE'] },
-      isActive: true,
-          },
-    select: { email: true },
+    // Trova destinatari del tenant corrente (auto-scoped via $extends)
+    const recipients = await prisma.user.findMany({
+      where: {
+        role: { in: ['ADMIN', 'MANAGER', 'MAGAZZINIERE'] },
+        isActive: true,
+      },
+      select: { email: true },
+    });
+
+    if (recipients.length === 0) {
+      logger.warn(`[${tenantSlug}] Nessun destinatario per alert scorte basse`);
+      return;
+    }
+
+    await emailService.sendLowStockAlert(
+      {
+        products: lowStockItems.map(item => ({
+          sku: item.sku,
+          name: item.name,
+          currentStock: Number(item.quantity),
+          minStock: item.minStock,
+          location: item.location,
+        })),
+      },
+      recipients.map(r => r.email!).filter(Boolean) as string[]
+    );
   });
-
-  if (recipients.length === 0) {
-    logger.warn('Nessun destinatario per alert scorte basse');
-    return;
-  }
-
-  await emailService.sendLowStockAlert(
-    {
-      products: lowStockItems.map(item => ({
-        sku: item.sku,
-        name: item.name,
-        currentStock: Number(item.quantity),
-        minStock: item.minStock,
-        location: item.location,
-      })),
-    },
-    recipients.map(r => r.email!)
-  );
 }
 
 /**

@@ -1,12 +1,15 @@
 import { FastifyPluginAsync } from 'fastify';
 import wishlistService from '../services/wishlist.service';
 import { successResponse, errorResponse } from '../utils/response.util';
+import { shopTenantMiddleware } from '../middleware/shop-tenant.middleware';
 
 /**
  * Shop Wishlist Routes
  * API per gestione wishlist e-commerce (richiede autenticazione)
  */
 const shopWishlistRoutes: FastifyPluginAsync = async (fastify) => {
+  // Tenant resolution prima di tutto.
+  fastify.addHook('preHandler', shopTenantMiddleware);
   // Hook per verificare autenticazione
   fastify.addHook('preHandler', async (request, reply) => {
     const customerId = (request as any).user?.customerId;

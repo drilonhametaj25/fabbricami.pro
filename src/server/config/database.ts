@@ -1,13 +1,16 @@
 import { PrismaClient, Prisma } from '@prisma/client';
 import { config } from './environment';
-import { getCurrentTenantId } from '../middleware/tenant.middleware';
+import { getCurrentTenantId } from '../utils/tenant-context';
 
 // ============================================
 // TENANT-SCOPED MODELS
 // ============================================
-
-// Lista di tutti i modelli che richiedono filtering per tenant
-// Questi modelli hanno il campo tenantId e saranno automaticamente filtrati
+//
+// Lista esaustiva dei modelli che richiedono filtering automatico per tenant.
+// Il middleware $extends sotto inietta `tenantId` in where/data per ogni
+// operazione sui modelli qui elencati. I modelli NON elencati sono "globali"
+// (gestione tenant/SaaS/sistema, super-admin) o sono child models che
+// derivano scoping dalla FK al padre + RLS a livello DB.
 const TENANT_SCOPED_MODELS: Prisma.ModelName[] = [
   // Core
   'User',
@@ -15,41 +18,70 @@ const TENANT_SCOPED_MODELS: Prisma.ModelName[] = [
   'Warehouse',
   // Materials
   'Material',
+  'MaterialInventory',
+  'MaterialMovement',
+  'MaterialConsumption',
   // Products
   'Product',
   'ProductCategory',
+  'ProductVariant',
+  'ProductIdeationCost',
+  'ProductOperation',
   // Inventory
   'InventoryItem',
   'InventoryMovement',
   'ShippingClass',
   'WooCommerceAttribute',
+  'WooCommerceAttributeTerm',
   'WooCommerceTag',
   // Customers
   'Customer',
   'PriceList',
+  'PriceListItem',
   'CustomerAddress',
+  'CustomerContact',
+  'CustomerBankInfo',
   // Suppliers
   'Supplier',
+  'SupplierItem',
+  'SupplierScorecard',
   // Orders
   'Order',
+  'OrderItem',
+  'OrderNote',
+  'OrderRefund',
+  'OrderRefundItem',
   // Purchasing
   'PurchaseOrder',
+  'PurchaseOrderItem',
   'GoodsReceipt',
+  'GoodsReceiptItem',
+  'ThreeWayMatch',
   // Invoicing
   'Invoice',
   'SupplierInvoice',
+  'SupplierInvoiceItem',
   // Payments
   'PaymentPlan',
   'PaymentDue',
+  'Payment',
+  'PaymentDuePayment',
+  'PaymentPlanInstallment',
   'OverheadCost',
   // HR
   'Employee',
+  'TimeEntry',
+  'EmployeeLeave',
   'Task',
+  'TaskOperation',
   'Workflow',
   'OperationType',
   // Manufacturing
   'ManufacturingPhase',
+  'PhaseMaterial',
+  'PhaseEmployee',
   'ProductionOrder',
+  'ProductionPhase',
   // Notifications & System
   'Notification',
   'CalendarEvent',
@@ -59,6 +91,7 @@ const TENANT_SCOPED_MODELS: Prisma.ModelName[] = [
   'DailySummary',
   'UserDashboardPreference',
   'PhysicalCountSession',
+  'PhysicalCountItem',
   'ScheduledReport',
   'ImportJob',
   // WordPress
@@ -67,10 +100,13 @@ const TENANT_SCOPED_MODELS: Prisma.ModelName[] = [
   // Logistics
   'DDT',
   'RMA',
+  'RMAItem',
   // E-commerce
   'ShoppingCart',
+  'CartItem',
   'WishlistItem',
   'Coupon',
+  'CouponUsage',
   'PaymentTransaction',
   'ShopShippingZone',
   'ProductReview',
@@ -80,16 +116,17 @@ const TENANT_SCOPED_MODELS: Prisma.ModelName[] = [
   'NewsletterSubscription',
 ];
 
-// Modelli che NON richiedono tenant filtering (globali o sistema)
-// - Tenant, TenantMember, TenantInvite (gestione tenant)
-// - SubscriptionPlan, SaasSubscription, BillingHistory (abbonamenti)
-// - SystemSetting (configurazioni globali)
+// Modelli esplicitamente GLOBALI (gestione SaaS/sistema/super-admin):
+// - Tenant, TenantMember, TenantInvite
+// - SubscriptionPlan, SaasSubscription, BillingHistory
+// - SystemSetting, SuperAdmin, SuperAdminAuditLog
+// - SignupCoupon, SignupCouponUsage, Ticket
+// - WordPressTenantConfig (FK unique a Tenant, comportamento equivalente)
 
 // ============================================
-// PRISMA CLIENT CON MIDDLEWARE TENANT
+// PRISMA CLIENT
 // ============================================
 
-// Configurazione Prisma con logging
 const basePrisma = new PrismaClient({
   log: config.isDevelopment
     ? ['query', 'info', 'warn', 'error']
@@ -98,31 +135,24 @@ const basePrisma = new PrismaClient({
 });
 
 // ============================================
-// PRISMA MIDDLEWARE PER TENANT ISOLATION (via $extends)
+// MIDDLEWARE — TENANT ISOLATION via $extends
 // ============================================
 //
-// CRITICAL: in Prisma 5.22 `$use` è stato RIMOSSO dal runtime client (anche
-// se ancora presente nei .d.ts). Tentare di chiamarlo lancia
-// "basePrisma.$use is not a function" — il middleware multi-tenant via $use
-// non si registrava mai e tutte le query erano effettivamente NON filtrate
-// (causa diretta del data leak: tutti i tenant vedevano gli stessi dati).
+// STRATO 2 (applicativo): intercetta ogni operazione ORM, inietta tenantId
+// nel `where` per READ/UPDATE/DELETE e nel `data` per CREATE.
 //
-// Usiamo `$extends` con `$allOperations`, che è l'API ufficiale Prisma 5+
-// per query extensions. Funziona in modo equivalente: intercetta ogni
-// operazione, può modificare args, e poi chiama `query(args)` per eseguire.
+// STRATO 3 (DB-level RLS): esegue `set_config('app.tenant_id', ...)` prima
+// di ogni query così le POLICY RLS attive vedono il tenant corrente.
+// session-scope (`set_config(_, _, false)`): persiste sulla connection
+// finché non sostituito. Race possibile se il pool Prisma riusa la connection
+// tra request DIVERSE senza che il middleware abbia eseguito SET prima della
+// query — è il motivo per cui questa è "defense-in-depth", non difesa primaria.
 //
-// - READ (findMany, findFirst, findUnique, count, aggregate): aggiunge tenantId al WHERE
-// - CREATE (create, createMany): aggiunge tenantId ai dati
-// - UPDATE (update, updateMany, upsert): aggiunge tenantId al WHERE
-// - DELETE (delete, deleteMany): aggiunge tenantId al WHERE
+// In ambiente Jest skippiamo $extends: i mock fixture vengono shadow dal client
+// extended (oggetto diverso) — la suite di test dedicata a tenant isolation
+// usa DB reale.
 
-// Mode strict: se TENANT_STRICT_MODE=true, una query verso un modello tenant-scoped
-// SENZA tenantContext attivo lancia un'eccezione (con stack trace) invece di
-// procedere unfiltered. Utile per debug/produzione per scoprire route che hanno
-// bypassato il setup del context.
 const TENANT_STRICT_MODE = process.env.TENANT_STRICT_MODE === 'true';
-
-// Log diagnostico minimale: stampa ogni query tenant-scoped con tenantId iniettato
 const TENANT_DEBUG_MODE = process.env.TENANT_DEBUG_MODE === 'true';
 
 const READ_ACTIONS = new Set([
@@ -132,14 +162,13 @@ const READ_ACTIONS = new Set([
 const UPDATE_ACTIONS = new Set(['update', 'updateMany', 'upsert']);
 const DELETE_ACTIONS = new Set(['delete', 'deleteMany']);
 
-// Difesa contro mock di test: in ambiente Jest il PrismaClient è mockato e
-// `$extends` ritorna un OGGETTO DIVERSO dal mock originale che i test settano.
-// Risultato: i test trainano metodi su `prismaMock` ma il servizio usa
-// `extendedPrisma` (un mock diverso) e non vede gli stub. In test mode
-// saltiamo l'extension; il middleware tenant non è oggetto di test in
-// quegli unit test (esistono test dedicati a tenant.middleware.test.ts).
 const isJestEnv = process.env.NODE_ENV === 'test' || typeof (globalThis as { expect?: unknown }).expect !== 'undefined';
 const hasExtends = !isJestEnv && typeof (basePrisma as { $extends?: unknown }).$extends === 'function';
+
+// Cache: evita di ri-eseguire set_config sulla stessa connection con stesso
+// tenant in rapida sequenza. Best-effort — non garantisce correctness se la
+// connection viene riassegnata; serve solo a ridurre l'overhead.
+let lastSetTenantId: string | undefined;
 
 const extendedPrisma = hasExtends
   ? basePrisma.$extends({
@@ -159,7 +188,8 @@ const extendedPrisma = hasExtends
               if (TENANT_STRICT_MODE) {
                 const err = new Error(
                   `[TENANT_STRICT] Query ${model}.${operation} senza tenantContext. ` +
-                  `Aggiungi authenticate/tenantMiddleware al route o wrappa in runWithTenant().`
+                  `Aggiungi authenticate/tenantMiddleware/shopTenantMiddleware al route, ` +
+                  `oppure wrappa in runWithTenant().`
                 );
                 // eslint-disable-next-line no-console
                 console.error(err.stack);
@@ -167,6 +197,23 @@ const extendedPrisma = hasExtends
               }
               // eslint-disable-next-line no-console
               console.error(`[TENANT_LEAK_WARN] ${model}.${operation} senza tenantContext — query NON filtrata!`);
+            }
+
+            // STRATO 3: imposta `app.tenant_id` per RLS Postgres. Session-scope:
+            // persiste sulla connection corrente. Skip se identico all'ultimo
+            // set (best-effort cache).
+            if (tenantId && lastSetTenantId !== tenantId) {
+              try {
+                await basePrisma.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, false)`;
+                lastSetTenantId = tenantId;
+              } catch (rlsErr) {
+                // Pre-RLS deploy: la setting potrebbe non essere riconosciuta.
+                // Loggare ma non bloccare — Strato 2 è la difesa primaria.
+                if (TENANT_DEBUG_MODE) {
+                  // eslint-disable-next-line no-console
+                  console.error(`[TENANT_RLS] set_config failed: ${String(rlsErr)}`);
+                }
+              }
             }
 
             if (!tenantId || !isTenantScoped) {
@@ -206,11 +253,9 @@ const extendedPrisma = hasExtends
 const prisma = extendedPrisma as unknown as typeof basePrisma;
 
 // ============================================
-// GESTIONE CONNESSIONE
+// CONNECTION LIFECYCLE
 // ============================================
 
-// Skippa $connect in test mode: il PrismaClient è mockato e $connect()
-// ritorna undefined (no .then()), oppure cerca di toccare un DB reale.
 if (!isJestEnv && typeof (prisma as { $connect?: unknown })?.$connect === 'function') {
   const connectResult = prisma.$connect();
   if (connectResult && typeof connectResult.then === 'function') {

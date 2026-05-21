@@ -3,6 +3,7 @@ import notificationRepository from '../repositories/notification.repository';
 import logger from '../config/logger';
 import { NotificationType, UserRole } from '@prisma/client';
 import { sendToClient } from '../utils/websocket.util';
+import { requireCurrentTenant } from '../utils/tenant-context';
 
 // Types/Interfaces
 interface CreateNotificationInput {
@@ -67,7 +68,8 @@ class NotificationService {
 
     // Invia notifica real-time via WebSocket (silent fail se utente non connesso)
     try {
-      sendToClient(data.userId, {
+      const tenantId = requireCurrentTenant();
+      sendToClient(tenantId, data.userId, {
         type: 'notification',
         data: {
           id: notification.id,
@@ -102,9 +104,10 @@ class NotificationService {
     logger.info(`Created ${notifications.length} notifications: ${data.title}`);
 
     // Invia notifiche real-time via WebSocket a ciascun utente connesso
+    const tenantId = requireCurrentTenant();
     for (const userId of data.userIds) {
       try {
-        sendToClient(userId, {
+        sendToClient(tenantId, userId, {
           type: 'notification',
           data: {
             type: data.type,
@@ -142,9 +145,10 @@ class NotificationService {
         where: { role: { in: roles }, isActive: true },
         select: { id: true },
       });
+      const tenantId = requireCurrentTenant();
       for (const user of users) {
         try {
-          sendToClient(user.id, {
+          sendToClient(tenantId, user.id, {
             type: 'notification',
             data: {
               type: data.type,

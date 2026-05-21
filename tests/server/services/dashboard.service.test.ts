@@ -1,3 +1,4 @@
+import '../helpers/tenant-mock';
 /**
  * Dashboard Service Tests
  * Tests for the intelligent "What to do today" dashboard

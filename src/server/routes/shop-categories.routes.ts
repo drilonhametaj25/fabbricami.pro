@@ -1,12 +1,15 @@
 import { FastifyPluginAsync } from 'fastify';
 import { prisma } from '../config/database';
 import { successResponse, errorResponse } from '../utils/response.util';
+import { shopTenantMiddleware } from '../middleware/shop-tenant.middleware';
 
 /**
  * Shop Categories Routes
  * API pubbliche per categorie e-commerce
  */
 const shopCategoriesRoutes: FastifyPluginAsync = async (fastify) => {
+  fastify.addHook('preHandler', shopTenantMiddleware);
+
   /**
    * GET /api/v1/shop/categories
    * Lista categorie con struttura ad albero

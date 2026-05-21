@@ -1,12 +1,15 @@
 import { FastifyPluginAsync } from 'fastify';
 import reviewService from '../services/review.service';
 import { successResponse, errorResponse } from '../utils/response.util';
+import { shopTenantMiddleware } from '../middleware/shop-tenant.middleware';
 
 /**
  * Shop Reviews Routes
  * API per recensioni prodotto e-commerce
  */
 const shopReviewsRoutes: FastifyPluginAsync = async (fastify) => {
+  fastify.addHook('preHandler', shopTenantMiddleware);
+
   /**
    * GET /api/v1/shop/reviews/product/:productId
    * Ottiene recensioni pubbliche per prodotto

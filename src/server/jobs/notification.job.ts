@@ -3,22 +3,27 @@ import queueManager from '../services/queue.service';
 import { prisma } from '../config/database';
 import notificationService from '../services/notification.service';
 import logger from '../config/logger';
+import { requireCurrentTenantId } from '../middleware/tenant.middleware';
+import { forEachActiveTenant } from '../utils/tenant-fanout';
 
 /**
  * Notification Jobs
- * Job processors per controllo automatico e invio notifiche
+ * Job processors per controllo automatico e invio notifiche.
+ *
+ * Multi-tenant: ogni job esegue `forEachActiveTenant` per scoping per-tenant
+ * delle query (altrimenti il middleware Prisma $extends lascia passare
+ * unfiltered in default mode o crasha in STRICT mode).
  */
 
 /**
- * Controlla scorte minime e invia notifiche
+ * Controlla scorte minime e invia notifiche (per ogni tenant)
  */
 export async function checkLowStockJob(_job: unknown): Promise<void> {
-  try {
-    logger.info('Checking low stock levels...');
-
-    // Trova prodotti sotto scorta minima
+  logger.info('Checking low stock levels (multi-tenant)...');
+  await forEachActiveTenant(async (_tenantId, tenantSlug) => {
+    const tenantId = requireCurrentTenantId();
     const lowStockProducts = await prisma.$queryRaw<any[]>`
-      SELECT 
+      SELECT
         p.id,
         p.name,
         p.sku,
@@ -27,13 +32,13 @@ export async function checkLowStockJob(_job: unknown): Promise<void> {
       FROM products p
       LEFT JOIN inventory_items i ON i.product_id = p.id
       WHERE p.is_active = true
+        AND p.tenant_id = ${tenantId}
       GROUP BY p.id
       HAVING SUM(COALESCE(i.quantity, 0)) <= p.min_stock
     `;
 
-    logger.info(`Found ${lowStockProducts.length} products with low stock`);
+    logger.info(`[${tenantSlug}] ${lowStockProducts.length} products with low stock`);
 
-    // Invia notifica per ogni prodotto
     for (const product of lowStockProducts) {
       await notificationService.notifyLowStock(
         product.id,
@@ -42,25 +47,20 @@ export async function checkLowStockJob(_job: unknown): Promise<void> {
         product.min_stock
       );
     }
-
-    logger.info('Low stock check completed');
-  } catch (error: any) {
-    logger.error(`Low stock check failed: ${error.message}`);
-    throw error;
-  }
+  });
+  logger.info('Low stock check completed');
 }
 
 /**
- * Controlla pagamenti in scadenza e invia notifiche
+ * Controlla pagamenti in scadenza e invia notifiche (per ogni tenant)
  */
 export async function checkPaymentsDueJob(_job: unknown): Promise<void> {
-  try {
-    logger.info('Checking payments due...');
-
+  logger.info('Checking payments due (multi-tenant)...');
+  await forEachActiveTenant(async (_tenantId, tenantSlug) => {
     const threeDaysFromNow = new Date();
     threeDaysFromNow.setDate(threeDaysFromNow.getDate() + 3);
 
-    // Trova fatture in scadenza nei prossimi 3 giorni
+    // Query auto-scoped via Prisma $extends middleware (tenant context attivo)
     const dueInvoices = await prisma.invoice.findMany({
       where: {
         status: { in: ['ISSUED', 'PARTIALLY_PAID'] },
@@ -69,12 +69,10 @@ export async function checkPaymentsDueJob(_job: unknown): Promise<void> {
           lte: threeDaysFromNow,
         },
       },
-      include: {
-        customer: true,
-      },
+      include: { customer: true },
     });
 
-    logger.info(`Found ${dueInvoices.length} invoices due in 3 days`);
+    logger.info(`[${tenantSlug}] ${dueInvoices.length} invoices due in 3 days`);
 
     for (const invoice of dueInvoices) {
       await notificationService.notifyPaymentDue(
@@ -85,20 +83,16 @@ export async function checkPaymentsDueJob(_job: unknown): Promise<void> {
       );
     }
 
-    // Trova fatture scadute
     const overdueInvoices = await prisma.invoice.findMany({
       where: {
         status: { in: ['ISSUED', 'PARTIALLY_PAID'] },
-        dueDate: {
-          lt: new Date(),
-        },
+        dueDate: { lt: new Date() },
       },
     });
 
-    logger.info(`Found ${overdueInvoices.length} overdue invoices`);
+    logger.info(`[${tenantSlug}] ${overdueInvoices.length} overdue invoices`);
 
     for (const invoice of overdueInvoices) {
-      // Aggiorna stato se non già fatto
       if (invoice.status !== 'OVERDUE') {
         await prisma.invoice.update({
           where: { id: invoice.id },
@@ -112,34 +106,25 @@ export async function checkPaymentsDueJob(_job: unknown): Promise<void> {
         Number(invoice.total)
       );
     }
-
-    logger.info('Payments due check completed');
-  } catch (error: any) {
-    logger.error(`Payments due check failed: ${error.message}`);
-    throw error;
-  }
+  });
+  logger.info('Payments due check completed');
 }
 
 /**
- * Controlla task scaduti e invia notifiche
+ * Controlla task scaduti e invia notifiche (per ogni tenant)
  */
 export async function checkOverdueTasksJob(_job: unknown): Promise<void> {
-  try {
-    logger.info('Checking overdue tasks...');
-
+  logger.info('Checking overdue tasks (multi-tenant)...');
+  await forEachActiveTenant(async (_tenantId, tenantSlug) => {
     const overdueTasks = await prisma.task.findMany({
       where: {
         status: { in: ['TODO', 'IN_PROGRESS'] },
-        dueDate: {
-          lt: new Date(),
-        },
+        dueDate: { lt: new Date() },
       },
-      include: {
-        assignedTo: true,
-      },
+      include: { assignedTo: true },
     });
 
-    logger.info(`Found ${overdueTasks.length} overdue tasks`);
+    logger.info(`[${tenantSlug}] ${overdueTasks.length} overdue tasks`);
 
     for (const task of overdueTasks) {
       if (task.assignedTo) {
@@ -150,82 +135,56 @@ export async function checkOverdueTasksJob(_job: unknown): Promise<void> {
         );
       }
     }
-
-    logger.info('Overdue tasks check completed');
-  } catch (error: any) {
-    logger.error(`Overdue tasks check failed: ${error.message}`);
-    throw error;
-  }
+  });
+  logger.info('Overdue tasks check completed');
 }
 
 /**
- * Controlla reminder calendario e invia notifiche.
- * Multi-tenant: itera per ogni tenant attivo.
+ * Controlla reminder calendario e invia notifiche (per ogni tenant).
  */
 export async function checkCalendarRemindersJob(_job: unknown): Promise<void> {
   logger.info('Checking calendar reminders (multi-tenant)...');
 
-  const { tenantContext } = await import('../middleware/tenant.middleware');
-  const tenants = await prisma.tenant.findMany({
-    where: { status: 'ACTIVE' },
-    select: { id: true, slug: true, status: true },
-  });
-
   const now = new Date();
   const in15Minutes = new Date(now.getTime() + 15 * 60000);
-
   let totalNotified = 0;
 
-  for (const tenant of tenants) {
-    await tenantContext.run(
-      { tenantId: tenant.id, tenantSlug: tenant.slug, tenantStatus: tenant.status },
-      async () => {
-        try {
-          // Query auto-scoped al tenant via Prisma $use middleware
-          const upcomingEvents = await prisma.calendarEvent.findMany({
-            where: {
-              startDate: {
-                gte: now,
-                lte: in15Minutes,
-              },
-              reminderMinutes: { not: null },
-            },
-          });
+  await forEachActiveTenant(async (_tenantId, _tenantSlug) => {
+    const upcomingEvents = await prisma.calendarEvent.findMany({
+      where: {
+        startDate: { gte: now, lte: in15Minutes },
+        reminderMinutes: { not: null },
+      },
+    });
 
-          if (upcomingEvents.length === 0) return;
+    if (upcomingEvents.length === 0) return;
 
-          // Trova utenti del tenant da notificare (admin/manager/operatori)
-          const users = await prisma.user.findMany({
-            where: {
-              isActive: true,
-              role: { in: ['ADMIN', 'MANAGER', 'OPERATORE', 'COMMERCIALE'] },
-            },
-            select: { id: true },
-          });
+    const users = await prisma.user.findMany({
+      where: {
+        isActive: true,
+        role: { in: ['ADMIN', 'MANAGER', 'OPERATORE', 'COMMERCIALE'] },
+      },
+      select: { id: true },
+    });
 
-          if (users.length === 0) return;
+    if (users.length === 0) return;
 
-          const { default: notify } = await import('../services/notification.service');
-          for (const event of upcomingEvents) {
-            const startTime = event.startDate.toLocaleTimeString('it-IT', {
-              hour: '2-digit',
-              minute: '2-digit',
-            });
-            await notify.notifyMultipleUsers({
-              userIds: users.map((u) => u.id),
-              type: 'CALENDAR_EVENT',
-              title: `Promemoria evento: ${event.title}`,
-              message: `Inizia alle ${startTime}${event.location ? ` - ${event.location}` : ''}`,
-              link: '/calendar',
-            });
-            totalNotified++;
-          }
-        } catch (err: any) {
-          logger.error(`[${tenant.slug}] calendar reminders failed: ${err.message}`);
-        }
-      }
-    );
-  }
+    const { default: notify } = await import('../services/notification.service');
+    for (const event of upcomingEvents) {
+      const startTime = event.startDate.toLocaleTimeString('it-IT', {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+      await notify.notifyMultipleUsers({
+        userIds: users.map((u) => u.id),
+        type: 'CALENDAR_EVENT',
+        title: `Promemoria evento: ${event.title}`,
+        message: `Inizia alle ${startTime}${event.location ? ` - ${event.location}` : ''}`,
+        link: '/calendar',
+      });
+      totalNotified++;
+    }
+  });
 
   logger.info(`Calendar reminders check completed: ${totalNotified} events notified`);
 }
@@ -234,7 +193,6 @@ export async function checkCalendarRemindersJob(_job: unknown): Promise<void> {
  * Inizializza worker e job ricorrenti per notifiche
  */
 export function initNotificationJobs() {
-  // Crea worker
   queueManager.createWorker('notifications', async (job) => {
     switch (job.data.type) {
       case 'low-stock':
@@ -250,38 +208,10 @@ export function initNotificationJobs() {
     }
   }, 2);
 
-  // Schedula job ricorrenti
-  // Controlla scorte minime ogni ora
-  queueManager.addRecurringJob(
-    'notifications',
-    'check-low-stock',
-    { type: 'low-stock' },
-    '0 * * * *' // Ogni ora
-  );
-
-  // Controlla pagamenti in scadenza ogni mattina alle 9
-  queueManager.addRecurringJob(
-    'notifications',
-    'check-payments-due',
-    { type: 'payment-due' },
-    '0 9 * * *' // Ogni giorno alle 9:00
-  );
-
-  // Controlla task scaduti ogni 2 ore
-  queueManager.addRecurringJob(
-    'notifications',
-    'check-overdue-tasks',
-    { type: 'task-overdue' },
-    '0 */2 * * *' // Ogni 2 ore
-  );
-
-  // Controlla reminder calendario ogni 15 minuti
-  queueManager.addRecurringJob(
-    'notifications',
-    'check-calendar-reminders',
-    { type: 'calendar-reminder' },
-    '*/15 * * * *' // Ogni 15 minuti
-  );
+  queueManager.addRecurringJob('notifications', 'check-low-stock', { type: 'low-stock' }, '0 * * * *');
+  queueManager.addRecurringJob('notifications', 'check-payments-due', { type: 'payment-due' }, '0 9 * * *');
+  queueManager.addRecurringJob('notifications', 'check-overdue-tasks', { type: 'task-overdue' }, '0 */2 * * *');
+  queueManager.addRecurringJob('notifications', 'check-calendar-reminders', { type: 'calendar-reminder' }, '*/15 * * * *');
 
   logger.info('Notification jobs initialized');
 }
