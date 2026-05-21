@@ -71,10 +71,10 @@ DELETE FROM "overhead_costs" WHERE tenant_id IS NULL;
 -- Inventory & catalog
 DELETE FROM "inventory_movements"      WHERE tenant_id IS NULL;
 DELETE FROM "inventory_items"          WHERE tenant_id IS NULL;
-DELETE FROM "stock_alerts"             WHERE tenant_id IS NULL;
 DELETE FROM "shipping_classes"         WHERE tenant_id IS NULL;
 DELETE FROM "woocommerce_attributes"   WHERE tenant_id IS NULL;
 DELETE FROM "woocommerce_tags"         WHERE tenant_id IS NULL;
+-- stock_alerts: tenant_id added in migration 20260520120200_add_tenant_id_child_models
 
 -- Manufacturing
 DELETE FROM "production_orders"     WHERE tenant_id IS NULL;
@@ -83,13 +83,10 @@ DELETE FROM "operation_types"       WHERE tenant_id IS NULL;
 DELETE FROM "workflows"             WHERE tenant_id IS NULL;
 
 -- HR & operations
-DELETE FROM "tasks"      WHERE tenant_id IS NULL;
-DELETE FROM "employees"  WHERE tenant_id IS NULL;
+-- tasks, employees: tenant_id added in migration 20260520120200
 
 -- System & notifications
-DELETE FROM "notifications"               WHERE tenant_id IS NULL;
-DELETE FROM "calendar_events"             WHERE tenant_id IS NULL;
-DELETE FROM "audit_logs"                  WHERE tenant_id IS NULL;
+-- notifications, calendar_events, audit_logs: tenant_id added in migration 20260520120200
 DELETE FROM "suggestions"                 WHERE tenant_id IS NULL;
 DELETE FROM "daily_summaries"             WHERE tenant_id IS NULL;
 DELETE FROM "user_dashboard_preferences"  WHERE tenant_id IS NULL;

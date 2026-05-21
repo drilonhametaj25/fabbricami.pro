@@ -2264,6 +2264,7 @@ model OverheadCost {
 
 model Employee {
   id           String   @id @default(uuid())
+  tenantId     String   @map("tenant_id")
   userId       String   @unique @map("user_id")
   employeeCode String   @unique @map("employee_code")
   position     String
@@ -2282,6 +2283,7 @@ model Employee {
   assignedProductionPhases    ProductionPhase[]       @relation("AssignedProductionPhases")
   operationTypeQualifications OperationTypeEmployee[]
 
+  @@index([tenantId])
   @@map("employees")
 }
 
@@ -2356,6 +2358,7 @@ enum TaskPriority {
 
 model Task {
   id             String       @id @default(uuid())
+  tenantId       String       @map("tenant_id")
   title          String
   description    String?      @db.Text
   orderId        String?      @map("order_id")
@@ -2382,6 +2385,7 @@ model Task {
   @@index([assignedToId])
   @@index([status])
   @@index([orderId])
+  @@index([tenantId])
   @@map("tasks")
 }
 
@@ -2447,6 +2451,7 @@ enum NotificationType {
 
 model Notification {
   id        String           @id @default(uuid())
+  tenantId  String           @map("tenant_id")
   userId    String           @map("user_id")
   type      NotificationType
   title     String
@@ -2460,11 +2465,13 @@ model Notification {
 
   @@index([userId])
   @@index([isRead])
+  @@index([tenantId])
   @@map("notifications")
 }
 
 model CalendarEvent {
   id              String    @id @default(uuid())
+  tenantId        String    @map("tenant_id")
   title           String
   description     String?   @db.Text
   eventType       String // payment, reminder, event, meeting
@@ -2479,12 +2486,14 @@ model CalendarEvent {
 
   @@index([startDate])
   @@index([eventType])
+  @@index([tenantId])
   @@map("calendar_events")
 }
 
 // Stock Alerts - Log degli alert generati per scorte
 model StockAlert {
   id             String    @id @default(uuid())
+  tenantId       String    @map("tenant_id")
   productId      String?   @map("product_id")
   materialId     String?   @map("material_id")
   alertType      String    @map("alert_type") // LOW_STOCK, OUT_OF_STOCK, OVERSTOCK, REORDER_POINT, EXPIRING_SOON
@@ -2506,6 +2515,7 @@ model StockAlert {
   @@index([alertType])
   @@index([status])
   @@index([createdAt])
+  @@index([tenantId])
   @@map("stock_alerts")
 }
 
@@ -2515,6 +2525,7 @@ model StockAlert {
 
 model AuditLog {
   id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
   userId    String   @map("user_id")
   action    String // CREATE, UPDATE, DELETE
   entity    String // Product, Order, etc
@@ -2530,6 +2541,7 @@ model AuditLog {
   @@index([userId])
   @@index([entity])
   @@index([createdAt])
+  @@index([tenantId])
   @@map("audit_logs")
 }
 

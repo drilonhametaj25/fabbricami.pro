@@ -136,3 +136,82 @@ SELECT pg_temp.add_tenant_id_to_child('physical_count_items',      'session_id',
 
 -- 3-way match: lookup tramite purchase_order_id
 SELECT pg_temp.add_tenant_id_to_child('three_way_matches',         'purchase_order_id', 'purchase_orders');
+
+-- ============================================================================
+-- 6 modelli scoped che non avevano tenant_id originalmente.
+-- Trattati come child models con backfill dal padre logico.
+-- ============================================================================
+
+-- Employee ← users.tenant_id (FK 1:1 employee.user_id → users.id)
+SELECT pg_temp.add_tenant_id_to_child('employees', 'user_id', 'users');
+
+-- AuditLog ← users.tenant_id
+SELECT pg_temp.add_tenant_id_to_child('audit_logs', 'user_id', 'users');
+
+-- Notification ← users.tenant_id
+SELECT pg_temp.add_tenant_id_to_child('notifications', 'user_id', 'users');
+
+-- Task ← users.tenant_id via created_by_id (sempre presente)
+SELECT pg_temp.add_tenant_id_to_child('tasks', 'created_by_id', 'users');
+
+-- StockAlert: due possibili parent (productId o materialId). Helper standard
+-- non lo supporta, custom SQL inline.
+DO $stockalert$
+DECLARE
+  null_count INTEGER;
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'stock_alerts' AND column_name = 'tenant_id'
+  ) THEN
+    ALTER TABLE "stock_alerts" ADD COLUMN tenant_id TEXT;
+  END IF;
+
+  -- Backfill da product
+  UPDATE "stock_alerts" s
+  SET tenant_id = p.tenant_id
+  FROM products p
+  WHERE s.product_id = p.id AND s.tenant_id IS NULL;
+
+  -- Backfill da material per quelli senza productId
+  UPDATE "stock_alerts" s
+  SET tenant_id = m.tenant_id
+  FROM materials m
+  WHERE s.material_id = m.id AND s.tenant_id IS NULL;
+
+  -- Cancella restanti orfani (no product né material → dati corrotti)
+  DELETE FROM "stock_alerts" WHERE tenant_id IS NULL;
+
+  ALTER TABLE "stock_alerts" ALTER COLUMN tenant_id SET NOT NULL;
+  ALTER TABLE "stock_alerts" DROP CONSTRAINT IF EXISTS stock_alerts_tenant_id_fkey;
+  ALTER TABLE "stock_alerts" ADD CONSTRAINT stock_alerts_tenant_id_fkey
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE;
+  CREATE INDEX IF NOT EXISTS stock_alerts_tenant_id_idx ON "stock_alerts"(tenant_id);
+  RAISE NOTICE 'Added tenant_id to stock_alerts (backfilled from product/material)';
+END
+$stockalert$;
+
+-- CalendarEvent: nessun FK a user/tenant — record orfani senza significato.
+-- Cancelliamo i record esistenti, aggiungiamo tenant_id NOT NULL: i nuovi
+-- record saranno popolati dal middleware Prisma `$extends` al create.
+DO $calendar$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'calendar_events' AND column_name = 'tenant_id'
+  ) THEN
+    ALTER TABLE "calendar_events" ADD COLUMN tenant_id TEXT;
+  END IF;
+
+  -- I calendar_events pre-fix non hanno modo di essere riassegnati a un tenant.
+  -- Cancelliamo per integrità — l'utente ha confermato "cancella tutto" per orfani.
+  DELETE FROM "calendar_events" WHERE tenant_id IS NULL;
+
+  ALTER TABLE "calendar_events" ALTER COLUMN tenant_id SET NOT NULL;
+  ALTER TABLE "calendar_events" DROP CONSTRAINT IF EXISTS calendar_events_tenant_id_fkey;
+  ALTER TABLE "calendar_events" ADD CONSTRAINT calendar_events_tenant_id_fkey
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE;
+  CREATE INDEX IF NOT EXISTS calendar_events_tenant_id_idx ON "calendar_events"(tenant_id);
+  RAISE NOTICE 'Added tenant_id to calendar_events (orphans deleted)';
+END
+$calendar$;

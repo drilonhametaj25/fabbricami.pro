@@ -10,15 +10,17 @@ DO $migration$
 DECLARE
   t TEXT;
   null_count INTEGER;
+  -- NB: stock_alerts, employees, tasks, notifications, calendar_events, audit_logs
+  -- non avevano tenant_id originalmente — sono trattati come child models
+  -- e ricevono tenant_id nella migration 20260520120200_add_tenant_id_child_models.
   scoped_tables TEXT[] := ARRAY[
     'users','company_settings','warehouses','materials','products',
     'product_categories','inventory_items','inventory_movements','shipping_classes',
     'woocommerce_attributes','woocommerce_tags','customers','price_lists',
     'customer_addresses','suppliers','orders','purchase_orders','goods_receipts',
     'invoices','supplier_invoices','payment_plans','payment_dues','overhead_costs',
-    'employees','tasks','workflows','operation_types','manufacturing_phases',
-    'production_orders','notifications','calendar_events','stock_alerts',
-    'audit_logs','suggestions','daily_summaries','user_dashboard_preferences',
+    'workflows','operation_types','manufacturing_phases',
+    'production_orders','suggestions','daily_summaries','user_dashboard_preferences',
     'physical_count_sessions','scheduled_reports','import_jobs',
     'wordpress_plugin_auth','wordpress_sync_logs','ddt','rmas',
     'shopping_carts','wishlist_items','coupons','payment_transactions',
