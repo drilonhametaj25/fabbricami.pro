@@ -45,7 +45,33 @@ export async function authenticate(
     try {
       const decoded = jwt.verify(token, config.jwt.secret) as JWTPayload;
 
-      // Verifica utente ancora attivo e recupera info tenant
+      // CRITICAL: il JWT è firmato e contiene già tenantId — è la
+      // source-of-truth del tenant per questa request. Settiamo l'ALS
+      // tenant context PRIMA di toccare Prisma, così la query
+      // `user.findUnique` viene auto-filtrata per tenant_id e il middleware
+      // $extends NON applica il sentinel `__NO_TENANT_CTX__` (che farebbe
+      // tornare 0 e fallire l'auth). Se il JWT è stato firmato senza
+      // tenantId (caso impossibile post-fix S577+generateToken throw), il
+      // payload è invalid e rifiutiamo.
+      if (!decoded.tenantId) {
+        return reply.status(401).send({
+          success: false,
+          error: 'Token senza tenantId — re-login richiesto',
+          code: 'TENANT_MISSING',
+        });
+      }
+
+      // Pre-set: tenantStatus reale lo riassegniamo dopo il lookup DB,
+      // ma intanto serve un context valido per la query di lookup.
+      setTenantContext({
+        tenantId: decoded.tenantId,
+        tenantSlug: decoded.tenantSlug ?? '',
+        tenantStatus: 'ACTIVE' as TenantContext['tenantStatus'],
+      });
+
+      // Verifica utente ancora attivo e recupera info tenant.
+      // Il middleware $extends aggiungerà automaticamente tenantId=decoded.tenantId
+      // al WHERE: l'user appartiene a quel tenant se e solo se trova match.
       const user = await prisma.user.findUnique({
         where: { id: decoded.userId },
         select: {
@@ -77,12 +103,9 @@ export async function authenticate(
         });
       }
 
-      // FIX DATA LEAK CRITICO: se l'utente non ha un tenantId (record orfano,
-      // creato da un flow rotto pre-fix), NON dobbiamo lasciarlo procedere
-      // senza tenant context — altrimenti il Prisma middleware non filtra le
-      // query e l'utente vede TUTTI i dati di TUTTI i tenant (incluso il
-      // demo). Lo respingiamo con 401 e un code esplicito così il frontend
-      // forza il logout.
+      // Defense in depth: il middleware $extends ha già garantito che user.tenantId
+      // === decoded.tenantId, ma teniamo il check per gestire il caso edge in cui
+      // user.tenantId potrebbe essere null (legacy data, schema dice `String?`).
       if (!user.tenantId || !user.tenant) {
         return reply.status(401).send({
           success: false,
@@ -101,9 +124,8 @@ export async function authenticate(
         planCode: user.tenant.subscription?.plan?.code,
       };
 
-      // CRITICAL: imposta il tenant context tramite AsyncLocalStorage
-      // così il Prisma middleware può auto-filtrare per tenantId
-      // su TUTTE le route protette, anche senza tenantMiddleware esplicito.
+      // Aggiorna il context con i valori reali dal DB (tenantStatus può cambiare,
+      // es. SUSPENDED). Idempotente sul tenantId.
       const ctx: TenantContext = {
         tenantId: user.tenantId,
         tenantSlug: user.tenant.slug,

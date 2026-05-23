@@ -104,7 +104,7 @@ describe('Auth Middleware', () => {
     it('should return 401 when token is expired', async () => {
       // Generate an expired token
       const expiredToken = jwt.sign(
-        { userId: 'user-1', email: 'test@test.com', role: 'ADMIN' },
+        { userId: 'user-1', email: 'test@test.com', role: 'ADMIN', tenantId: 'tenant-1' },
         mockConfig.jwt.secret,
         { expiresIn: '-1h' }
       );
@@ -122,7 +122,7 @@ describe('Auth Middleware', () => {
 
     it('should return 401 when user is not found', async () => {
       const token = jwt.sign(
-        { userId: 'nonexistent-user', email: 'test@test.com', role: 'ADMIN' },
+        { userId: 'nonexistent-user', email: 'test@test.com', role: 'ADMIN', tenantId: 'tenant-1' },
         mockConfig.jwt.secret
       );
       const request = createMockRequest({ authorization: `Bearer ${token}` });
@@ -140,7 +140,7 @@ describe('Auth Middleware', () => {
 
     it('should return 401 when user is inactive', async () => {
       const token = jwt.sign(
-        { userId: 'user-1', email: 'test@test.com', role: 'ADMIN' },
+        { userId: 'user-1', email: 'test@test.com', role: 'ADMIN', tenantId: 'tenant-1' },
         mockConfig.jwt.secret
       );
       const request = createMockRequest({ authorization: `Bearer ${token}` });
@@ -163,7 +163,7 @@ describe('Auth Middleware', () => {
 
     it('should attach user to request when token is valid', async () => {
       const token = jwt.sign(
-        { userId: 'user-1', email: 'test@test.com', role: 'ADMIN' },
+        { userId: 'user-1', email: 'test@test.com', role: 'ADMIN', tenantId: 'tenant-1' },
         mockConfig.jwt.secret
       );
       const request = createMockRequest({ authorization: `Bearer ${token}` }) as any;
@@ -201,7 +201,7 @@ describe('Auth Middleware', () => {
       // proseguire — senza tenant context il Prisma middleware non filtra
       // le query e l'utente vedrebbe i dati di TUTTI i tenant.
       const token = jwt.sign(
-        { userId: 'orphan-user', email: 'orphan@test.com', role: 'ADMIN' },
+        { userId: 'orphan-user', email: 'orphan@test.com', role: 'ADMIN', tenantId: 'tenant-1' },
         mockConfig.jwt.secret
       );
       const request = createMockRequest({ authorization: `Bearer ${token}` }) as any;
@@ -228,7 +228,7 @@ describe('Auth Middleware', () => {
 
     it('should attach tenant info when user has tenant', async () => {
       const token = jwt.sign(
-        { userId: 'user-1', email: 'test@test.com', role: 'ADMIN' },
+        { userId: 'user-1', email: 'test@test.com', role: 'ADMIN', tenantId: 'tenant-1' },
         mockConfig.jwt.secret
       );
       const request = createMockRequest({ authorization: `Bearer ${token}` }) as any;
@@ -278,7 +278,7 @@ describe('Auth Middleware', () => {
 
     it('should handle tenant without subscription', async () => {
       const token = jwt.sign(
-        { userId: 'user-1', email: 'test@test.com', role: 'ADMIN' },
+        { userId: 'user-1', email: 'test@test.com', role: 'ADMIN', tenantId: 'tenant-1' },
         mockConfig.jwt.secret
       );
       const request = createMockRequest({ authorization: `Bearer ${token}` }) as any;
@@ -304,7 +304,7 @@ describe('Auth Middleware', () => {
     it('should return 401 on database errors during token verification', async () => {
       // Database errors during user lookup are caught and treated as auth failures
       const token = jwt.sign(
-        { userId: 'user-1', email: 'test@test.com', role: 'ADMIN' },
+        { userId: 'user-1', email: 'test@test.com', role: 'ADMIN', tenantId: 'tenant-1' },
         mockConfig.jwt.secret
       );
       const request = createMockRequest({ authorization: `Bearer ${token}` });
@@ -549,7 +549,7 @@ describe('Auth Middleware', () => {
 
     it('should throw error for expired refresh token', () => {
       const expiredToken = jwt.sign(
-        { userId: 'user-1', email: 'test@test.com', role: 'ADMIN' },
+        { userId: 'user-1', email: 'test@test.com', role: 'ADMIN', tenantId: 'tenant-1' },
         mockConfig.jwt.refreshSecret,
         { expiresIn: '-1h' }
       );
@@ -560,7 +560,7 @@ describe('Auth Middleware', () => {
     it('should throw error when using wrong secret', () => {
       // Token signed with regular secret, not refresh secret
       const wrongToken = jwt.sign(
-        { userId: 'user-1', email: 'test@test.com', role: 'ADMIN' },
+        { userId: 'user-1', email: 'test@test.com', role: 'ADMIN', tenantId: 'tenant-1' },
         mockConfig.jwt.secret,
         { expiresIn: '1h' }
       );

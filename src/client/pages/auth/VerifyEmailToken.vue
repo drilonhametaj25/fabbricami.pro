@@ -63,6 +63,7 @@ import InputText from 'primevue/inputtext';
 import { useToast } from 'primevue/usetoast';
 import api from '../../services/api.service';
 import { useAuthStore } from '../../stores/auth.store';
+import { clearOnboardingCache } from '../../router';
 
 const route = useRoute();
 const router = useRouter();
@@ -104,9 +105,17 @@ async function verifyToken() {
       });
 
       success.value = true;
-      // Auto-redirect after a short moment so the user sees the confirmation
+      // Invalida la cache del router-guard onboarding status: l'utente è
+      // appena passato da `verify-email` a `company-settings` (next step) e
+      // la guard, senza clear, manterrebbe per 60s il vecchio currentStep
+      // potenzialmente facendo rimbalzo a `/onboarding/verify-email` o
+      // peggio direttamente a `/dashboard` se cache stale dice 'complete'.
+      clearOnboardingCache();
+      // Auto-redirect after a short moment so the user sees the confirmation.
+      // Andiamo direttamente al primo step "vero" dell'onboarding (company-settings):
+      // verify-email è appena stato completato e la guard re-fetcha lo status fresco.
       setTimeout(() => {
-        router.push('/onboarding');
+        router.push('/onboarding/company-settings');
       }, 1500);
     } else if (response.success) {
       // Backwards compat: verify ok but no token issued
@@ -126,7 +135,8 @@ async function verifyToken() {
 }
 
 function continueSetup() {
-  router.push('/onboarding');
+  clearOnboardingCache();
+  router.push('/onboarding/company-settings');
 }
 
 function goToLogin() {

@@ -24,7 +24,7 @@ const notificationRoutes: FastifyPluginAsync = async (server) => {
     { preHandler: authenticate },
     async (request, reply) => {
       try {
-        const userId = (request.user as any).id;
+        const userId = (request.user as any).userId;
         const { includeRead } = request.query as { includeRead?: string };
         
         const notifications = await notificationService.getUserNotifications(
@@ -49,7 +49,7 @@ const notificationRoutes: FastifyPluginAsync = async (server) => {
     { preHandler: authenticate },
     async (request, reply) => {
       try {
-        const userId = (request.user as any).id;
+        const userId = (request.user as any).userId;
         const count = await notificationService.getUnreadCount(userId);
         return successResponse(reply, { count });
       } catch (error: any) {
@@ -87,7 +87,7 @@ const notificationRoutes: FastifyPluginAsync = async (server) => {
     { preHandler: authenticate },
     async (request, reply) => {
       try {
-        const userId = (request.user as any).id;
+        const userId = (request.user as any).userId;
         await notificationService.markAllAsRead(userId);
         return successResponse(reply, { message: 'Tutte le notifiche sono state segnate come lette' });
       } catch (error: any) {
@@ -125,7 +125,7 @@ const notificationRoutes: FastifyPluginAsync = async (server) => {
     { preHandler: authenticate },
     async (request, reply) => {
       try {
-        const userId = (request.user as any).id;
+        const userId = (request.user as any).userId;
         const stats = await notificationService.getUserStats(userId);
         return successResponse(reply, stats);
       } catch (error: any) {

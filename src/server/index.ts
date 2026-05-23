@@ -41,6 +41,7 @@ import priceListRoutes from './routes/pricelist.routes';
 import productAnalyticsRoutes from './routes/product-analytics.routes';
 import logisticsRoutes from './routes/logistics.routes';
 import sdiRoutes from './routes/sdi.routes';
+import companySettingsRoutes from './routes/company-settings.routes';
 import ddtRoutes from './routes/ddt.routes';
 import rmaRoutes from './routes/rma.routes';
 import dashboardRoutes from './routes/dashboard.routes';
@@ -206,6 +207,7 @@ async function setupServer() {
   await server.register(productAnalyticsRoutes, { prefix: apiPrefix }); // Product analytics (covers /products/:id/analytics and /analytics/products/*)
   await server.register(logisticsRoutes, { prefix: `${apiPrefix}/logistics` });
   await server.register(sdiRoutes, { prefix: `${apiPrefix}/sdi` });
+  await server.register(companySettingsRoutes, { prefix: `${apiPrefix}/company-settings` });
   await server.register(ddtRoutes, { prefix: `${apiPrefix}/ddt` });
   await server.register(rmaRoutes, { prefix: `${apiPrefix}/rma` });
   await server.register(dashboardRoutes, { prefix: `${apiPrefix}/dashboard` });

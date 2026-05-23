@@ -215,8 +215,30 @@ const extendedPrisma = hasExtends
                 console.error(err.stack);
                 throw err;
               }
+
+              // FAILSAFE: anche in modalità non-strict NON lasciamo passare query
+              // unfiltered su modelli scoped — sarebbe un data leak garantito
+              // (cfr. incident S586 e successivi). Iniettiamo un sentinel
+              // `__NO_TENANT_CTX__` come tenantId: i record reali hanno UUID
+              // validi, quindi la query ritorna 0 righe. Loggare aggressivamente.
               // eslint-disable-next-line no-console
-              console.error(`[TENANT_LEAK_WARN] ${model}.${operation} senza tenantContext — query NON filtrata!`);
+              console.error(
+                `[TENANT_LEAK_WARN] ${model}.${operation} senza tenantContext — applico filtro sentinel ` +
+                `(zero-result). Indagare il call site per missing authenticate/runWithTenant.`
+              );
+              const sentinelArgs: any = args ?? {};
+              const SENTINEL = '__NO_TENANT_CTX__';
+              if (READ_ACTIONS.has(operation)) {
+                sentinelArgs.where = { ...(sentinelArgs.where ?? {}), tenantId: SENTINEL };
+              } else if (UPDATE_ACTIONS.has(operation)) {
+                sentinelArgs.where = { ...(sentinelArgs.where ?? {}), tenantId: SENTINEL };
+              } else if (DELETE_ACTIONS.has(operation)) {
+                sentinelArgs.where = { ...(sentinelArgs.where ?? {}), tenantId: SENTINEL };
+              }
+              // operation create/createMany senza data.tenantId esplicito è già
+              // stato eccezionato sopra (`explicitCreate`); se siamo qui significa
+              // che NON c'è tenantId esplicito → lascia che Postgres rifiuti con NOT NULL.
+              return query(sentinelArgs);
             }
 
             // STRATO 3: imposta `app.tenant_id` per RLS Postgres. Session-scope:
