@@ -411,17 +411,13 @@ const authRoutes: FastifyPluginAsync = async (server) => {
     try {
       const body = registerSchema.body.parse(request.body);
 
-      // Check if email already exists
-      const existingUser = await prisma.user.findUnique({
-        where: { email: body.email.toLowerCase() },
-      });
-
-      if (existingUser) {
-        return reply.status(400).send({
-          success: false,
-          error: 'Email già registrata',
-        });
-      }
+      // NB: il check di esistenza email è rimosso. Pre-migration `composite_unique_v2`
+      // (20260520120300) `users.email` era globally unique e prisma.user.findUnique
+      // poteva cercare cross-tenant. Post-migration è `@@unique([tenant_id, email])`
+      // — un'email può legittimamente esistere in più tenant. La tx sotto fallirebbe
+      // comunque con P2002 (unique violation) se l'email è già usata nel tenant
+      // che stiamo creando, ma questo è impossibile per definizione: il Tenant è
+      // appena nato dentro la tx, nessun User ci sta ancora dentro.
 
       // Hash password
       const hashedPassword = await hashPassword(body.password);
@@ -431,14 +427,25 @@ const authRoutes: FastifyPluginAsync = async (server) => {
       const emailVerifyTokenExpires = new Date();
       emailVerifyTokenExpires.setHours(emailVerifyTokenExpires.getHours() + 24); // 24 hours
 
-      // Creiamo user + tenant + membership + trial in UN'UNICA transazione.
-      // Se setupInitialTenant fallisce, anche l'user viene rollbackato, evitando
-      // l'orphan state user.tenantId = null (causa diretta del data leak: senza
-      // tenantId, l'authenticate middleware non setta il tenantContext e il
-      // Prisma middleware non filtra le query).
+      // Creiamo tenant + user + membership + trial in UN'UNICA transazione.
+      // L'ordine è: TENANT prima, USER (con tenantId esplicito) dopo, MEMBERSHIP
+      // alla fine. users.tenant_id è NOT NULL (migration 20260520120100), quindi
+      // lo User va creato con tenantId già valorizzato — non si può fare
+      // user.create senza e poi user.update DOPO. Tutto resta atomico: una
+      // failure su qualsiasi step rollbacka l'intera tx.
       const { user, tenant } = await prisma.$transaction(async (tx) => {
+        // 1. Crea Tenant + trial Subscription (no owner ancora)
+        const newTenant = await tenantService.createTenantWithTrial(
+          body.companyName,
+          body.plan || 'PRO',
+          body.billingCycle || 'monthly',
+          tx
+        );
+
+        // 2. Crea User con tenantId valorizzato (DB NOT NULL satisfied)
         const newUser = await tx.user.create({
           data: {
+            tenantId: newTenant.id,
             email: body.email.toLowerCase(),
             password: hashedPassword,
             firstName: body.firstName,
@@ -451,13 +458,8 @@ const authRoutes: FastifyPluginAsync = async (server) => {
           },
         });
 
-        const newTenant = await tenantService.setupInitialTenant(
-          newUser.id,
-          body.companyName,
-          body.plan || 'PRO',
-          body.billingCycle || 'monthly',
-          tx
-        );
+        // 3. Attach owner membership
+        await tenantService.attachOwnerToTenant(newTenant.id, newUser.id, tx);
 
         return { user: newUser, tenant: newTenant };
       });

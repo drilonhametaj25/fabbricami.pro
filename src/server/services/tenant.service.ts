@@ -215,28 +215,26 @@ class TenantService {
   }
 
   /**
-   * Setup initial tenant for a new user registration.
-   * Crea tenant + membership + user.tenantId + trial subscription dentro a una
-   * transazione atomica: se una qualsiasi delle operazioni fallisce, viene fatto
-   * rollback. Senza questo, un fallimento parziale lascerebbe l'utente in stato
-   * inconsistente (es. user senza tenantId → JWT senza tenantId → leak).
+   * Crea un nuovo Tenant + trial Subscription. NON assegna alcun owner.
    *
-   * Accetta un client `tx` opzionale per essere usato dentro a una transazione
-   * più ampia (es. quella che crea anche l'utente nel POST /register, così
-   * user+tenant nascono atomicamente).
+   * Da chiamare PRIMA di `tx.user.create({...})` nel flow di registrazione: la
+   * colonna users.tenant_id è NOT NULL (migration 20260520120100), quindi lo
+   * User va creato con tenantId valorizzato. L'owner membership va poi
+   * aggiunto con `attachOwnerToTenant` (vedi auth.routes.ts:register).
+   *
+   * Accetta `outerTx` per essere usato dentro a una transazione più ampia
+   * (atomicità tenant + user + membership).
    */
-  async setupInitialTenant(
-    userId: string,
+  async createTenantWithTrial(
     tenantName: string,
     planCode: string = 'PRO',
     billingCycle: 'monthly' | 'annual' = 'monthly',
     outerTx?: Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
   ): Promise<TenantWithSubscription> {
-    // Generate unique slug from tenant name (con blacklist riservati)
+    // Generate unique slug (con blacklist riservati)
     const baseSlug = this.sanitizeSlug(tenantName);
     let slug = baseSlug;
     let attempt = 0;
-
     while (!(await this.isSlugAvailable(slug))) {
       attempt++;
       slug = `${baseSlug}-${attempt}`;
@@ -252,21 +250,6 @@ class TenantService {
         },
       });
 
-      await tx.tenantMember.create({
-        data: {
-          tenantId: tenant.id,
-          userId,
-          role: 'ADMIN',
-          invitedAt: new Date(),
-          acceptedAt: new Date(),
-        },
-      });
-
-      await tx.user.update({
-        where: { id: userId },
-        data: { tenantId: tenant.id },
-      });
-
       await subscriptionService.createTrialSubscription(tenant.id, planCode, billingCycle, tx);
 
       return tenant.id;
@@ -278,6 +261,36 @@ class TenantService {
     }
     const tenantId = await prisma.$transaction(work);
     return this.getTenantWithDetails(tenantId) as Promise<TenantWithSubscription>;
+  }
+
+  /**
+   * Aggiunge il primo owner (TenantMember role=ADMIN) a un Tenant appena
+   * creato con `createTenantWithTrial`. Da chiamare DOPO `tx.user.create`.
+   *
+   * Non aggiorna `users.tenant_id`: il caller crea già lo User con tenantId
+   * valorizzato (post-migration NOT NULL).
+   */
+  async attachOwnerToTenant(
+    tenantId: string,
+    userId: string,
+    outerTx?: Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
+  ): Promise<void> {
+    const work = async (tx: NonNullable<typeof outerTx>): Promise<void> => {
+      await tx.tenantMember.create({
+        data: {
+          tenantId,
+          userId,
+          role: 'ADMIN',
+          invitedAt: new Date(),
+          acceptedAt: new Date(),
+        },
+      });
+    };
+
+    if (outerTx) {
+      return work(outerTx);
+    }
+    await prisma.$transaction(work);
   }
 
   /**

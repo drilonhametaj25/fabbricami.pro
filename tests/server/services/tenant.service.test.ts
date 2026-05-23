@@ -310,25 +310,22 @@ describe('TenantService', () => {
   });
 
   // ============================================================================
-  // setupInitialTenant
+  // createTenantWithTrial + attachOwnerToTenant
+  // (refactor di setupInitialTenant per fix users.tenant_id NOT NULL —
+  //  cfr. piano remediation HOTFIX 2026-05-23)
   // ============================================================================
-  describe('setupInitialTenant', () => {
-    // setupInitialTenant esegue un `prisma.$transaction(async (tx) => ...)`:
-    // dobbiamo mockare $transaction in modo che invochi la callback passandole
-    // prismaMock come tx, altrimenti il body della transazione non viene mai
-    // eseguito e le asserzioni su tenant.create/tenantMember.create falliscono.
+  describe('createTenantWithTrial + attachOwnerToTenant', () => {
+    // Entrambi i metodi eseguono `prisma.$transaction(async (tx) => ...)`:
+    // mockiamo $transaction per invocare la callback con prismaMock come tx.
     const setupTxMock = () => {
       (prismaMock.$transaction as unknown as jest.Mock).mockImplementation(
         async (cb: (tx: typeof prismaMock) => unknown) => cb(prismaMock)
       );
     };
 
-    it('should setup complete tenant for new user', async () => {
+    it('createTenantWithTrial crea Tenant + trial Subscription (no membership, no user.update)', async () => {
       setupTxMock();
-      prismaMock.tenant.findUnique.mockResolvedValue(null);
       prismaMock.tenant.create.mockResolvedValue(createMockTenant());
-      prismaMock.tenantMember.create.mockResolvedValue(createMockMember() as any);
-      prismaMock.user.update.mockResolvedValue({} as any);
       mockSubscriptionService.createTrialSubscription.mockResolvedValue({});
 
       const mockTenantWithDetails = {
@@ -339,34 +336,25 @@ describe('TenantService', () => {
           trialEndsAt: new Date(),
           currentPeriodEnd: new Date(),
         },
-        members: [createMockMember()],
+        members: [],
       };
-      prismaMock.tenant.findUnique.mockResolvedValueOnce(null); // isSlugAvailable check
+      prismaMock.tenant.findUnique.mockResolvedValueOnce(null); // isSlugAvailable
       prismaMock.tenant.findUnique.mockResolvedValueOnce(mockTenantWithDetails as any); // getTenantWithDetails
 
-      const result = await tenantService.setupInitialTenant('user-1', 'My Company');
+      await tenantService.createTenantWithTrial('My Company');
 
       expect(prismaMock.tenant.create).toHaveBeenCalled();
-      expect(prismaMock.tenantMember.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          userId: 'user-1',
-          role: 'ADMIN',
-        }),
-      });
-      expect(prismaMock.user.update).toHaveBeenCalledWith({
-        where: { id: 'user-1' },
-        data: { tenantId: expect.any(String) },
-      });
       expect(mockSubscriptionService.createTrialSubscription).toHaveBeenCalled();
+      // Invariante critica: createTenantWithTrial NON deve toccare membership o user
+      expect(prismaMock.tenantMember.create).not.toHaveBeenCalled();
+      expect(prismaMock.user.update).not.toHaveBeenCalled();
     });
 
-    it('should generate unique slug when base is taken', async () => {
+    it('createTenantWithTrial genera slug univoco quando il base è già preso', async () => {
       setupTxMock();
-      prismaMock.tenant.findUnique.mockResolvedValueOnce(createMockTenant()); // first slug taken
-      prismaMock.tenant.findUnique.mockResolvedValueOnce(null); // second slug available
+      prismaMock.tenant.findUnique.mockResolvedValueOnce(createMockTenant()); // slug "my-company" taken
+      prismaMock.tenant.findUnique.mockResolvedValueOnce(null); // "my-company-1" available
       prismaMock.tenant.create.mockResolvedValue(createMockTenant({ slug: 'my-company-1' }));
-      prismaMock.tenantMember.create.mockResolvedValue(createMockMember() as any);
-      prismaMock.user.update.mockResolvedValue({} as any);
       mockSubscriptionService.createTrialSubscription.mockResolvedValue({});
       prismaMock.tenant.findUnique.mockResolvedValueOnce({
         ...createMockTenant(),
@@ -374,11 +362,24 @@ describe('TenantService', () => {
         members: [],
       } as any);
 
-      await tenantService.setupInitialTenant('user-1', 'my-company');
+      await tenantService.createTenantWithTrial('my-company');
 
       expect(prismaMock.tenant.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ slug: 'my-company-1' }),
+      });
+    });
+
+    it('attachOwnerToTenant crea TenantMember role=ADMIN', async () => {
+      setupTxMock();
+      prismaMock.tenantMember.create.mockResolvedValue(createMockMember() as any);
+
+      await tenantService.attachOwnerToTenant('tenant-1', 'user-1');
+
+      expect(prismaMock.tenantMember.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
-          slug: 'my-company-1',
+          tenantId: 'tenant-1',
+          userId: 'user-1',
+          role: 'ADMIN',
         }),
       });
     });

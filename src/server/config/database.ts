@@ -185,6 +185,26 @@ const extendedPrisma = hasExtends
             }
 
             if (!tenantId && isTenantScoped) {
+              // Eccezione esplicita: i flow di registrazione (POST /auth/register)
+              // e accept-invite creano User+Tenant atomicamente prima che esista
+              // un tenant context. Se il caller fornisce `tenantId` esplicito nel
+              // payload di CREATE/createMany, è un'iniezione intenzionale → permetti.
+              const explicitCreate =
+                (operation === 'create' &&
+                  args?.data &&
+                  typeof args.data === 'object' &&
+                  args.data.tenantId) ||
+                (operation === 'createMany' &&
+                  args?.data &&
+                  (Array.isArray(args.data)
+                    ? args.data.every((d: Record<string, unknown>) => d?.tenantId)
+                    : (args.data as Record<string, unknown>)?.tenantId));
+
+              if (explicitCreate) {
+                // Caller responsabile dell'iniezione tenantId — passa unfiltered.
+                return query(args);
+              }
+
               if (TENANT_STRICT_MODE) {
                 const err = new Error(
                   `[TENANT_STRICT] Query ${model}.${operation} senza tenantContext. ` +
