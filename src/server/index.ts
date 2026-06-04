@@ -112,10 +112,15 @@ async function setupServer() {
     }
   }
 
+  // In development accettiamo qualunque origin localhost/127.0.0.1 (porta libera)
+  // così i frontend possono girare su porte alternative senza riconfigurare CORS.
+  const isLocalhostOrigin = (origin: string): boolean =>
+    /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+
   await server.register(cors, {
     origin: (origin, cb) => {
       // Allow requests with no origin (like mobile apps or curl requests)
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (!origin || allowedOrigins.includes(origin) || (config.isDevelopment && isLocalhostOrigin(origin))) {
         cb(null, true);
       } else {
         cb(new Error('Not allowed by CORS'), false);
@@ -143,7 +148,10 @@ async function setupServer() {
   });
 
   await server.register(rateLimit, {
-    max: config.rateLimit.max,
+    // In development alziamo molto il limite globale: l'uso reale (e i test e2e
+    // / sweep) genera burst di richieste che con 100/min verrebbero bloccati.
+    // In produzione resta il valore configurato (RATE_LIMIT_MAX).
+    max: config.isDevelopment ? 100000 : config.rateLimit.max,
     timeWindow: config.rateLimit.timeWindow,
   });
 

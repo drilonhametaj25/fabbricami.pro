@@ -280,10 +280,35 @@ describe('SubscriptionService - Stripe Not Configured', () => {
     ).rejects.toThrow('Stripe non configurato');
   });
 
-  it('should throw when Stripe not configured for updateSubscription', async () => {
+  it('should apply plan change in DB without Stripe (mock/dev billing)', async () => {
+    // Nuovo contratto: senza Stripe l'aggiornamento piano avviene in modalità
+    // dev/mock applicando il cambio direttamente nel DB (non lancia più).
+    const now = new Date();
+    const sub: any = {
+      id: 'sub-1',
+      tenantId: 'tenant-123',
+      planId: 'plan-pro',
+      status: 'TRIALING',
+      stripeSubscriptionId: null,
+      stripeCustomerId: null,
+      billingInterval: 'monthly',
+      currentPeriodStart: now,
+      currentPeriodEnd: now,
+      cancelAtPeriodEnd: false,
+      trialEndsAt: now,
+      plan: { id: 'plan-pro', code: 'PRO', name: 'Professional' },
+    };
+    prismaMock.saasSubscription.findUnique.mockResolvedValue(sub);
+    prismaMock.subscriptionPlan.findUnique.mockResolvedValue({ id: 'plan-business', code: 'BUSINESS' } as any);
+    prismaMock.saasSubscription.update.mockResolvedValue(sub);
+
     await expect(
-      subscriptionServiceNoStripe.updateSubscription('tenant-123', {})
-    ).rejects.toThrow('Stripe non configurato');
+      subscriptionServiceNoStripe.updateSubscription('tenant-123', { planCode: 'BUSINESS' })
+    ).resolves.toBeDefined();
+
+    expect(prismaMock.saasSubscription.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ planId: 'plan-business' }) })
+    );
   });
 
   it('should throw when Stripe not configured for cancelSubscription', async () => {
@@ -760,14 +785,22 @@ describe('SubscriptionService', () => {
       ).rejects.toThrow('Subscription non trovata');
     });
 
-    it('should throw when not connected to Stripe', async () => {
+    it('should apply plan change in DB when not connected to Stripe (mock/dev billing)', async () => {
+      // Subscription trial senza stripeSubscriptionId: il cambio piano si applica
+      // comunque nel DB in modalità dev/mock, senza chiamare Stripe.
       prismaMock.saasSubscription.findUnique.mockResolvedValue(
         createMockSubscription({ stripeSubscriptionId: null })
       );
+      prismaMock.subscriptionPlan.findUnique.mockResolvedValue(createMockPlan({ code: 'BUSINESS' }));
+      prismaMock.saasSubscription.update.mockResolvedValue(createMockSubscription());
 
-      await expect(
-        subscriptionService.updateSubscription('tenant-123', {})
-      ).rejects.toThrow('Subscription non collegata a Stripe');
+      await subscriptionService.updateSubscription('tenant-123', { planCode: 'BUSINESS' });
+
+      expect(prismaMock.saasSubscription.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ planId: expect.anything() }),
+        })
+      );
     });
 
     it('should change plan', async () => {

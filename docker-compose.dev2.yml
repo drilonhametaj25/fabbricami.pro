@@ -1,0 +1,51 @@
+# Isolated dev stack on dedicated ports to avoid clashing with other local
+# projects already holding 5432/6379/3000/3001. Used for end-to-end testing.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ecommerceerp-dev2-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: fabbricami_pro
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5442:5432"
+    volumes:
+      - dev2_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: ecommerceerp-dev2-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "6389:6379"
+    volumes:
+      - dev2_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Mail catcher (cattura le email di dev: verifica, reset, ecc.)
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: ecommerceerp-dev2-mailhog
+    restart: unless-stopped
+    ports:
+      - "1027:1025"   # SMTP
+      - "8027:8025"   # Web UI / API
+
+volumes:
+  dev2_postgres_data:
+    driver: local
+  dev2_redis_data:
+    driver: local

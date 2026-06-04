@@ -54,3 +54,7 @@ WordpressData.md
 
 
 .playwright-mcp
+# Playwright
+test-results/
+.playwright-mcp/
+e2e/playwright-report/

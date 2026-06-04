@@ -1,6 +1,6 @@
 import { PrismaClient, Prisma } from '@prisma/client';
 import { config } from './environment';
-import { getCurrentTenantId } from '../utils/tenant-context';
+import { getCurrentTenantId, isUnscoped } from '../utils/tenant-context';
 
 // ============================================
 // TENANT-SCOPED MODELS
@@ -94,6 +94,8 @@ const TENANT_SCOPED_MODELS: Prisma.ModelName[] = [
   'PhysicalCountItem',
   'ScheduledReport',
   'ImportJob',
+  // Billing add-ons (il catalogo AddonCatalog è globale; le sottoscrizioni del tenant sono scoped)
+  'TenantAddon',
   // WordPress
   'WordPressPluginAuth',
   'WordPressSyncLog',
@@ -176,6 +178,11 @@ const extendedPrisma = hasExtends
       query: {
         $allModels: {
           async $allOperations({ model, operation, args, query }: { model?: string; operation: string; args: any; query: (a: any) => Promise<any> }) {
+            // Bypass esplicito per operazioni cross-tenant/pre-auth fidate.
+            if (isUnscoped()) {
+              return query(args);
+            }
+
             const tenantId = getCurrentTenantId();
             const isTenantScoped = !!model && TENANT_SCOPED_MODELS.includes(model as Prisma.ModelName);
 
@@ -321,5 +328,22 @@ if (!isJestEnv && typeof (prisma as { $connect?: unknown })?.$connect === 'funct
 // EXPORTS
 // ============================================
 
-export { prisma, TENANT_SCOPED_MODELS };
+// ============================================
+// UNSCOPED CLIENT (cross-tenant, pre-auth)
+// ============================================
+//
+// Il client `prisma` di default applica il tenant-isolation middleware: senza
+// tenant context attivo, ogni query su modello scoped viene filtrata con un
+// sentinel (zero risultati) e ogni create senza tenantId esplicito fallisce.
+//
+// Alcune operazioni sono LEGITTIMAMENTE cross-tenant e avvengono PRIMA che il
+// tenant context esista — non possono altrimenti:
+//   - login: lookup utente per email (email è globalmente @unique)
+//   - verifica email / reset password: lookup per token
+//
+// Per questi casi usare `prismaBase` (client non-extended). È security-sensitive:
+// usarlo SOLO per lookup di autenticazione, mai per ritornare liste di dati.
+const prismaBase = basePrisma as unknown as typeof basePrisma;
+
+export { prisma, prismaBase, TENANT_SCOPED_MODELS };
 export default prisma;

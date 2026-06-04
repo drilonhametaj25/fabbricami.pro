@@ -738,6 +738,8 @@ onMounted(() => {
   loadCategories();
   // Refresh usage stats per il gating del bottone "Nuovo Prodotto".
   subscriptionStore.fetchUsage();
+  // Alias /products/new: apre subito il dialog di creazione.
+  if (window.location.pathname.endsWith('/new')) openCreateDialog();
 });
 </script>
 

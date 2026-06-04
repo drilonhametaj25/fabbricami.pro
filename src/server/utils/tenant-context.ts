@@ -34,6 +34,33 @@ export interface TenantStore {
 
 const tenantContextStore = new AsyncLocalStorage<TenantStore>();
 
+// ---------------------------------------------------------------------------
+// UNSCOPED BYPASS
+// ---------------------------------------------------------------------------
+// Alcune operazioni sono legittimamente cross-tenant e avvengono PRIMA che un
+// tenant context esista (login per email globalmente unique, verifica email /
+// reset password per token, lookup invito). Senza un bypass esplicito, il
+// middleware Prisma $extends applicherebbe il filtro sentinel (zero risultati)
+// e bloccherebbe sia le read sia gli update.
+//
+// `enterUnscoped()` marca il resto dell'async context corrente (tipicamente un
+// singolo handler Fastify) come "non scoped": il middleware salta del tutto la
+// logica di isolamento. USARE SOLO in handler pubblici/pre-auth fidati, mai per
+// ritornare liste di dati di business.
+const unscopedStore = new AsyncLocalStorage<boolean>();
+
+export function runUnscoped<T>(fn: () => Promise<T> | T): Promise<T> | T {
+  return unscopedStore.run(true, fn);
+}
+
+export function enterUnscoped(): void {
+  unscopedStore.enterWith(true);
+}
+
+export function isUnscoped(): boolean {
+  return unscopedStore.getStore() === true;
+}
+
 export function runWithTenant<T>(tenantId: string, fn: () => Promise<T> | T): Promise<T> | T {
   return tenantContextStore.run({ tenantId }, fn);
 }

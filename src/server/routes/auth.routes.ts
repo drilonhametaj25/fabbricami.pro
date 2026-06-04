@@ -3,11 +3,21 @@ import { authenticate } from '../middleware/auth.middleware';
 import { comparePassword, hashPassword, generateRandomToken } from '../utils/crypto.util';
 import { generateToken, generateRefreshToken, verifyRefreshToken } from '../middleware/auth.middleware';
 import { prisma } from '../config/database';
+import { enterUnscoped } from '../utils/tenant-context';
 import { z } from 'zod';
 import { tenantService } from '../services/tenant.service';
 import { tenantInviteService } from '../services/tenant-invite.service';
 import { emailService } from '../services/email.service';
 import { logger } from '../config/logger';
+import { config } from '../config/environment';
+
+// Rate limit auth: stretti in produzione (anti brute-force / spam signup),
+// permissivi in development per non ostacolare test e2e e sviluppo locale.
+const RL = {
+  login: config.isDevelopment ? { max: 1000, timeWindow: '5 minutes' } : { max: 10, timeWindow: '5 minutes' },
+  register: config.isDevelopment ? { max: 1000, timeWindow: '10 minutes' } : { max: 5, timeWindow: '10 minutes' },
+  resend: config.isDevelopment ? { max: 1000, timeWindow: '10 minutes' } : { max: 3, timeWindow: '10 minutes' },
+};
 import {
   registerSchema,
   verifyEmailSchema,
@@ -34,10 +44,13 @@ const authRoutes: FastifyPluginAsync = async (server) => {
     '/login',
     {
       config: {
-        rateLimit: { max: 10, timeWindow: '5 minutes' },
+        rateLimit: RL.login,
       },
     },
     async (request, reply) => {
+    // Login è pre-auth e cross-tenant (email globalmente unique): bypassa il
+    // tenant-isolation middleware per il lookup utente.
+    enterUnscoped();
     const { email, password } = loginSchema.parse(request.body);
 
     const user = await prisma.user.findUnique({
@@ -159,6 +172,7 @@ const authRoutes: FastifyPluginAsync = async (server) => {
    * POST /refresh
    */
   server.post('/refresh', async (request, reply) => {
+    enterUnscoped();
     const { refreshToken } = request.body as { refreshToken: string };
 
     try {
@@ -404,7 +418,7 @@ const authRoutes: FastifyPluginAsync = async (server) => {
     '/register',
     {
       config: {
-        rateLimit: { max: 5, timeWindow: '10 minutes' },
+        rateLimit: RL.register,
       },
     },
     async (request, reply) => {
@@ -464,12 +478,26 @@ const authRoutes: FastifyPluginAsync = async (server) => {
         return { user: newUser, tenant: newTenant };
       });
 
-      // Send verification email (using SaaS template)
-      await emailService.sendSaasVerificationEmail(
-        user.email,
-        emailVerifyToken,
-        user.firstName
-      );
+      // Send verification email (using SaaS template).
+      // L'account è già committato: un fallimento SMTP (dominio destinatario non
+      // valido, server irraggiungibile, ecc.) NON deve far fallire la
+      // registrazione né lasciare un account orfano irrecuperabile. Logghiamo
+      // l'errore e segnaliamo al client che può usare /resend-verification.
+      let emailSent = true;
+      try {
+        await emailService.sendSaasVerificationEmail(
+          user.email,
+          emailVerifyToken,
+          user.firstName
+        );
+      } catch (mailErr) {
+        emailSent = false;
+        logger.error(
+          `Registrazione ${user.email}: invio email di verifica fallito (account creato). ` +
+            `L'utente può richiedere il reinvio.`,
+          mailErr
+        );
+      }
 
       // SECURITY: NON emettiamo token JWT/refreshToken qui. L'utente DEVE verificare
       // l'email prima di poter accedere. Questo previene account spam e bypass della
@@ -492,7 +520,10 @@ const authRoutes: FastifyPluginAsync = async (server) => {
             subscription: tenant.subscription,
           },
           requiresEmailVerification: true,
-          message: 'Registrazione completata. Controlla la tua email per verificare l\'account prima di accedere.',
+          emailSent,
+          message: emailSent
+            ? 'Registrazione completata. Controlla la tua email per verificare l\'account prima di accedere.'
+            : 'Registrazione completata, ma non siamo riusciti a inviare l\'email di verifica. Usa "Reinvia email di verifica" tra qualche istante.',
         },
       });
     } catch (error) {
@@ -510,6 +541,7 @@ const authRoutes: FastifyPluginAsync = async (server) => {
    */
   server.post('/verify-email', async (request, reply) => {
     try {
+      enterUnscoped();
       const { token } = verifyEmailSchema.body.parse(request.body);
 
       const user = await prisma.user.findFirst({
@@ -622,11 +654,12 @@ const authRoutes: FastifyPluginAsync = async (server) => {
     '/resend-verification',
     {
       config: {
-        rateLimit: { max: 3, timeWindow: '10 minutes' },
+        rateLimit: RL.resend,
       },
     },
     async (request, reply) => {
     try {
+      enterUnscoped();
       const { email } = resendVerificationSchema.body.parse(request.body);
 
       const user = await prisma.user.findUnique({
@@ -765,6 +798,7 @@ const authRoutes: FastifyPluginAsync = async (server) => {
    */
   server.post('/forgot-password', async (request, reply) => {
     try {
+      enterUnscoped();
       const { email } = passwordResetRequestSchema.body.parse(request.body);
 
       const user = await prisma.user.findUnique({
@@ -816,6 +850,7 @@ const authRoutes: FastifyPluginAsync = async (server) => {
    */
   server.post('/reset-password', async (request, reply) => {
     try {
+      enterUnscoped();
       const { token, newPassword } = passwordResetSchema.body.parse(request.body);
 
       const user = await prisma.user.findFirst({
@@ -868,6 +903,7 @@ const authRoutes: FastifyPluginAsync = async (server) => {
    */
   server.get('/invite/:token', async (request, reply) => {
     try {
+      enterUnscoped();
       const { token } = request.params as { token: string };
 
       const invite = await tenantInviteService.getInviteByToken(token);
@@ -909,6 +945,7 @@ const authRoutes: FastifyPluginAsync = async (server) => {
    */
   server.post('/accept-invite', async (request, reply) => {
     try {
+      enterUnscoped();
       const body = acceptInviteSchema.body.parse(request.body);
 
       const result = await tenantInviteService.acceptInvite({

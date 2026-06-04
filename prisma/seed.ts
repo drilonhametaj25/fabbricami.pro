@@ -128,8 +128,28 @@ async function main() {
         timezone: 'Europe/Rome',
         locale: 'it-IT',
         currency: 'EUR',
+        // Demo tenant: onboarding già completato così l'account è pronto all'uso.
+        billingConfigured: true,
+        wordpressSkipped: true,
+        onboardingComplete: true,
       },
       status: 'ACTIVE',
+    },
+  });
+
+  // Company settings per il tenant demo (onboarding "Dati Azienda" già fatto)
+  await prisma.companySettings.create({
+    data: {
+      tenantId: defaultTenant.id,
+      companyName: 'Default Tenant',
+      legalName: 'Default Tenant SRL',
+      vatNumber: 'IT01234567890',
+      address: 'Via della Manifattura 42',
+      city: 'Milano',
+      province: 'MI',
+      postalCode: '20100',
+      country: 'IT',
+      email: 'info@ecommerceerp.com',
     },
   });
 
@@ -164,6 +184,7 @@ async function main() {
       lastName: 'Bianchi',
       role: 'ADMIN',
       isActive: true,
+      emailVerified: true,
     },
   });
 
@@ -186,6 +207,7 @@ async function main() {
       lastName: 'Rossi',
       role: 'MANAGER',
       isActive: true,
+      emailVerified: true,
     },
   });
 
@@ -195,6 +217,29 @@ async function main() {
       tenantId: defaultTenant.id,
       userId: manager.id,
       role: 'MANAGER',
+      acceptedAt: new Date(),
+    },
+  });
+
+  const magazziniere = await prisma.user.create({
+    data: {
+      tenantId: defaultTenant.id,
+      email: 'magazzino@ecommerceerp.com',
+      password: adminPassword,
+      firstName: 'Giuseppe',
+      lastName: 'Verdi',
+      role: 'MAGAZZINIERE',
+      isActive: true,
+      emailVerified: true,
+    },
+  });
+
+  // Create tenant membership for magazziniere
+  await prisma.tenantMember.create({
+    data: {
+      tenantId: defaultTenant.id,
+      userId: magazziniere.id,
+      role: 'MAGAZZINIERE',
       acceptedAt: new Date(),
     },
   });
@@ -229,6 +274,7 @@ async function main() {
 
   await prisma.employee.create({
     data: {
+      tenantId: defaultTenant.id,
       userId: magazziniere.id,
       employeeCode: 'EMP-003',
       position: 'Responsabile Magazzino',
@@ -285,7 +331,20 @@ async function main() {
   const customers = [];
 
   // B2C Customers
+  const b2cNames = [
+    { first: 'Luca', last: 'Ferrari' },
+    { first: 'Giulia', last: 'Russo' },
+    { first: 'Marco', last: 'Esposito' },
+    { first: 'Sara', last: 'Bianchi' },
+    { first: 'Andrea', last: 'Romano' },
+    { first: 'Chiara', last: 'Colombo' },
+    { first: 'Matteo', last: 'Ricci' },
+    { first: 'Francesca', last: 'Marino' },
+    { first: 'Davide', last: 'Greco' },
+    { first: 'Elena', last: 'Bruno' },
+  ];
   for (let i = 1; i <= 10; i++) {
+    const name = b2cNames[(i - 1) % b2cNames.length];
     const customer = await prisma.customer.create({
       data: {
         tenantId: defaultTenant.id,
@@ -452,6 +511,7 @@ async function main() {
 
       await prisma.orderItem.create({
         data: {
+          tenantId: defaultTenant.id,
           orderId: order.id,
           productId: product.id,
           productName: product.name,
@@ -486,17 +546,16 @@ async function main() {
     const type = types[Math.floor(Math.random() * types.length)];
     const location = locations[Math.floor(Math.random() * locations.length)];
 
-    const movementDate = new Date();
-    movementDate.setDate(movementDate.getDate() - Math.floor(Math.random() * 90));
-
     await prisma.inventoryMovement.create({
       data: {
         tenantId: defaultTenant.id,
         productId: product.id,
-        alertType: 'LOW_STOCK',
-        thresholdValue: 5,
-        currentValue: Math.floor(Math.random() * 5) + 1,
-        status: 'ACTIVE',
+        type: type as any,
+        quantity: Math.floor(Math.random() * 10) + 1,
+        toLocation: type === 'IN' ? (location as any) : null,
+        fromLocation: type === 'OUT' ? (location as any) : null,
+        reference: `SEED-MOV-${i + 1}`,
+        notes: 'Movimento generato dal seed',
       },
     });
   }

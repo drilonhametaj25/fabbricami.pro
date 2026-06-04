@@ -2,7 +2,10 @@ import { FastifyPluginAsync } from 'fastify';
 import { authenticate, authorize } from '../middleware/auth.middleware';
 import { tenantMiddleware, TenantRequest } from '../middleware/tenant.middleware';
 import { subscriptionService } from '../services/subscription.service';
+import { addonService } from '../services/addon.service';
 import { prisma } from '../config/database';
+import { isStripeConfigured } from '../config/stripe.config';
+import { config } from '../config/environment';
 import {
   createSubscriptionCheckoutSchema,
   createSubscriptionSchema,
@@ -74,6 +77,29 @@ const subscriptionRoutes: FastifyPluginAsync = async (server) => {
       const body = createSubscriptionCheckoutSchema.parse(request.body);
 
       try {
+        // Modalità dev/mock: Stripe non configurato. Non possiamo creare una
+        // sessione di Checkout reale, quindi applichiamo il cambio piano
+        // direttamente e rimandiamo il client alla pagina di fatturazione.
+        if (!isStripeConfigured()) {
+          await subscriptionService.updateSubscription(tenantRequest.tenant.tenantId, {
+            planCode: body.planCode,
+            billingPeriod: body.billingPeriod,
+          });
+
+          const fallbackUrl =
+            body.successUrl ||
+            `${config.frontend.appUrl}/settings/billing?upgraded=${body.planCode}`;
+
+          return reply.send({
+            success: true,
+            data: {
+              checkoutUrl: fallbackUrl,
+              sessionId: null,
+              mock: true,
+            },
+          });
+        }
+
         const session = await subscriptionService.createCheckoutSession(
           tenantRequest.tenant.tenantId,
           body.planCode,
@@ -364,11 +390,15 @@ const subscriptionRoutes: FastifyPluginAsync = async (server) => {
       }
 
       const rawLimits = (subscription.plan.limits as Record<string, number>) || {};
-      const maxUsers = rawLimits.maxUsers ?? -1;
-      const maxProducts = rawLimits.maxProducts ?? -1;
-      const maxOrders = rawLimits.maxOrders ?? -1;
-      const maxWarehouses = rawLimits.maxWarehouses ?? -1;
-      const maxSuppliers = rawLimits.maxSuppliers ?? -1;
+      // Limiti effettivi = limiti del piano + add-on RESOURCE_LIMIT del tenant.
+      const { maxUsers, maxProducts, maxOrders, maxWarehouses, maxSuppliers } =
+        await addonService.getEffectiveLimits(tenantId, {
+          maxUsers: rawLimits.maxUsers ?? -1,
+          maxProducts: rawLimits.maxProducts ?? -1,
+          maxOrders: rawLimits.maxOrders ?? -1,
+          maxWarehouses: rawLimits.maxWarehouses ?? -1,
+          maxSuppliers: rawLimits.maxSuppliers ?? -1,
+        });
 
       const startOfMonth = new Date();
       startOfMonth.setDate(1);
@@ -399,6 +429,115 @@ const subscriptionRoutes: FastifyPluginAsync = async (server) => {
           suppliers: buildUsage(suppliersCount, maxSuppliers),
         },
       });
+    }
+  );
+
+  // ============================================
+  // ADD-ONS
+  // ============================================
+
+  /**
+   * GET /subscription/addons
+   * Catalogo add-on disponibili.
+   */
+  server.get(
+    '/addons',
+    { preHandler: [authenticate, tenantMiddleware] },
+    async (_request, reply) => {
+      const catalog = await addonService.getCatalog();
+      return reply.send({
+        success: true,
+        data: catalog.map((a) => ({
+          code: a.code,
+          name: a.name,
+          description: a.description,
+          type: a.type,
+          resource: a.resource,
+          increment: a.increment,
+          featureKey: a.featureKey,
+          priceMonthly: Number(a.priceMonthly),
+          priceYearly: Number(a.priceYearly),
+        })),
+      });
+    }
+  );
+
+  /**
+   * GET /subscription/addons/active
+   * Add-on attualmente attivi per il tenant.
+   */
+  server.get(
+    '/addons/active',
+    { preHandler: [authenticate, tenantMiddleware] },
+    async (request, reply) => {
+      const tenantRequest = request as TenantRequest;
+      const active = await addonService.getTenantAddons(tenantRequest.tenant.tenantId);
+      return reply.send({
+        success: true,
+        data: active.map((ta) => ({
+          code: ta.addon.code,
+          name: ta.addon.name,
+          type: ta.addon.type,
+          resource: ta.addon.resource,
+          increment: ta.addon.increment,
+          quantity: ta.quantity,
+          priceMonthly: Number(ta.addon.priceMonthly),
+        })),
+      });
+    }
+  );
+
+  /**
+   * POST /subscription/addons
+   * Aggiunge/aggiorna un add-on per il tenant. Body: { code, quantity? }
+   */
+  server.post(
+    '/addons',
+    { preHandler: [authenticate, tenantMiddleware] },
+    async (request, reply) => {
+      const tenantRequest = request as TenantRequest;
+      const body = (request.body || {}) as { code?: string; quantity?: number };
+      if (!body.code) {
+        return reply.status(400).send({ success: false, error: 'code richiesto' });
+      }
+      try {
+        const result = await addonService.addAddon(
+          tenantRequest.tenant.tenantId,
+          body.code,
+          body.quantity ?? 1
+        );
+        return reply.status(201).send({
+          success: true,
+          data: { code: result.addon.code, quantity: result.quantity },
+        });
+      } catch (error) {
+        return reply.status(400).send({
+          success: false,
+          error: error instanceof Error ? error.message : 'Errore aggiunta add-on',
+        });
+      }
+    }
+  );
+
+  /**
+   * DELETE /subscription/addons/:code
+   * Rimuove un add-on dal tenant.
+   */
+  server.delete(
+    '/addons/:code',
+    { preHandler: [authenticate, tenantMiddleware] },
+    async (request, reply) => {
+      const tenantRequest = request as TenantRequest;
+      const { code } = request.params as { code: string };
+      try {
+        await addonService.removeAddon(tenantRequest.tenant.tenantId, code);
+        return reply.send({ success: true });
+      } catch (error) {
+        return reply.status(400).send({
+          success: false,
+          error: error instanceof Error ? error.message : 'Errore rimozione add-on',
+        });
+      }
     }
   );
 

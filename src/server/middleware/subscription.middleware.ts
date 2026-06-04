@@ -2,6 +2,7 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../config/database';
 import { SaasSubscriptionStatus } from '@prisma/client';
 import { TenantRequest } from './tenant.middleware';
+import { addonService } from '../services/addon.service';
 
 // ============================================
 // SUBSCRIPTION TYPES
@@ -214,7 +215,17 @@ export async function checkPlanLimit(
 
   const planLimits = subscription.plan.limits as PlanLimits | null;
   const defaultLimits = PLAN_LIMITS[subscription.plan.code] || PLAN_LIMITS.STARTER;
-  const limits = planLimits || defaultLimits;
+  const baseLimits = planLimits || defaultLimits;
+
+  // Applica gli add-on RESOURCE_LIMIT (es. +1 magazzino) ai limiti del piano.
+  const effective = await addonService.getEffectiveLimits(tenantId, {
+    maxUsers: baseLimits.maxUsers,
+    maxWarehouses: baseLimits.maxWarehouses,
+    maxProducts: baseLimits.maxProducts,
+    maxOrders: baseLimits.maxOrders,
+    maxSuppliers: baseLimits.maxSuppliers,
+  });
+  const limits = { ...baseLimits, ...effective };
 
   let currentCount = 0;
   let limit = 0;

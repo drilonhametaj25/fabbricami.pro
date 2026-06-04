@@ -122,6 +122,13 @@ const router = createRouter({
           meta: { roles: PRODUCT_VIEWERS },
         },
         {
+          // Alias /products/new -> Products page che apre il dialog "Nuovo Prodotto"
+          path: '/products/new',
+          name: 'ProductNew',
+          component: () => import('../pages/Products.vue'),
+          meta: { roles: PRODUCT_VIEWERS },
+        },
+        {
           path: '/product-categories',
           name: 'ProductCategories',
           component: () => import('../pages/ProductCategories.vue'),
@@ -185,6 +192,13 @@ const router = createRouter({
         {
           path: '/tasks',
           name: 'Tasks',
+          component: () => import('../pages/Tasks.vue'),
+          meta: { roles: ALL_ROLES },
+        },
+        {
+          // Alias /tasks/new -> Tasks page che apre il dialog "Nuovo Task"
+          path: '/tasks/new',
+          name: 'TaskNew',
           component: () => import('../pages/Tasks.vue'),
           meta: { roles: ALL_ROLES },
         },

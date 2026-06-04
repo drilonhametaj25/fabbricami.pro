@@ -94,9 +94,11 @@ export const companySettingsSchema = {
     country: z.string().default('IT'),
     // Contact
     phone: z.string().max(20).optional(),
-    email: z.string().email('Email non valida').optional(),
-    pec: z.string().email('PEC non valida').optional(),
-    sdiCode: z.string().length(7).optional(), // Codice SDI
+    // I campi opzionali con vincolo di formato devono tollerare la stringa
+    // vuota inviata dai form (campo lasciato in bianco): '' → valido.
+    email: z.string().email('Email non valida').or(z.literal('')).optional(),
+    pec: z.string().email('PEC non valida').or(z.literal('')).optional(),
+    sdiCode: z.string().length(7).or(z.literal('')).optional(), // Codice SDI
     // Bank info
     bankName: z.string().max(100).optional(),
     iban: z.string().max(34).optional(),

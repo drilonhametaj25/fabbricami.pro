@@ -178,6 +178,35 @@
       </div>
     </div>
 
+    <!-- Add-ons -->
+    <div class="addons-section">
+      <h3 class="section-title">Add-on</h3>
+      <p class="addons-subtitle">Estendi il tuo piano con componenti aggiuntivi. Le modifiche ai limiti sono immediate.</p>
+      <div class="addons-grid">
+        <div
+          v-for="addon in addonCatalog"
+          :key="addon.code"
+          :class="['addon-card', { active: isAddonActive(addon.code) }]"
+          :data-addon="addon.code"
+        >
+          <div class="addon-head">
+            <h4 class="addon-name">{{ addon.name }}</h4>
+            <Tag v-if="isAddonActive(addon.code)" severity="success" value="Attivo" />
+          </div>
+          <p class="addon-desc">{{ addon.description }}</p>
+          <div class="addon-price">{{ formatPrice(addon.priceMonthly) }}<span>/mese</span></div>
+          <Button
+            :label="isAddonActive(addon.code) ? 'Rimuovi' : 'Aggiungi'"
+            :severity="isAddonActive(addon.code) ? 'secondary' : 'primary'"
+            :outlined="isAddonActive(addon.code)"
+            :loading="addonBusy === addon.code"
+            class="addon-btn"
+            @click="toggleAddon(addon)"
+          />
+        </div>
+      </div>
+    </div>
+
     <!-- Billing History -->
     <div class="history-section">
       <h3 class="section-title">Storico Fatturazione</h3>
@@ -360,7 +389,21 @@ import InputSwitch from 'primevue/inputswitch';
 import ProgressBar from 'primevue/progressbar';
 import { useToast } from 'primevue/usetoast';
 import { useSubscriptionStore } from '../stores/subscription.store';
+import api from '../services/api.service';
 import type { SubscriptionPlan } from '../types';
+
+interface AddonItem {
+  code: string;
+  name: string;
+  description?: string;
+  type: string;
+  resource?: string | null;
+  increment?: number;
+  featureKey?: string | null;
+  priceMonthly: number;
+  priceYearly?: number;
+  quantity?: number;
+}
 
 const toast = useToast();
 const route = useRoute();
@@ -425,6 +468,46 @@ const yearlyBilling = ref(false);
 const showPlanSelector = ref(false);
 const showCancelDialog = ref(false);
 const selectedPlan = ref<SubscriptionPlan | null>(null);
+
+// Add-ons
+const addonCatalog = ref<AddonItem[]>([]);
+const activeAddons = ref<AddonItem[]>([]);
+const addonBusy = ref<string | null>(null);
+
+function isAddonActive(code: string): boolean {
+  return activeAddons.value.some((a) => a.code === code);
+}
+
+async function loadAddons() {
+  try {
+    const [catalog, active] = await Promise.all([
+      api.get<AddonItem[]>('/subscription/addons'),
+      api.get<AddonItem[]>('/subscription/addons/active'),
+    ]);
+    if (catalog.success) addonCatalog.value = catalog.data || [];
+    if (active.success) activeAddons.value = active.data || [];
+  } catch {
+    /* non bloccante */
+  }
+}
+
+async function toggleAddon(addon: AddonItem) {
+  addonBusy.value = addon.code;
+  try {
+    if (isAddonActive(addon.code)) {
+      await api.delete(`/subscription/addons/${addon.code}`);
+      toast.add({ severity: 'success', summary: 'Add-on rimosso', detail: addon.name, life: 4000 });
+    } else {
+      await api.post('/subscription/addons', { code: addon.code, quantity: 1 });
+      toast.add({ severity: 'success', summary: 'Add-on attivato', detail: addon.name, life: 4000 });
+    }
+    await Promise.all([loadAddons(), subscriptionStore.fetchUsage()]);
+  } catch (e) {
+    toast.add({ severity: 'error', summary: 'Errore', detail: 'Operazione add-on fallita', life: 4000 });
+  } finally {
+    addonBusy.value = null;
+  }
+}
 
 // Computed
 const billingPeriod = computed(() => (yearlyBilling.value ? 'yearly' : 'monthly'));
@@ -736,6 +819,7 @@ onMounted(async () => {
       subscriptionStore.fetchPlans(),
       subscriptionStore.fetchUsage(),
       subscriptionStore.fetchBillingHistory(),
+      loadAddons(),
     ]);
   } finally {
     loading.value = false;
@@ -1212,5 +1296,47 @@ onMounted(async () => {
 }
 .downgrade-warning li { margin: 2px 0; }
 .downgrade-warning small { color: #9a3412; opacity: 0.85; }
+
+/* Add-ons */
+.addons-section { margin-top: var(--space-6, 2rem); }
+.addons-subtitle {
+  color: var(--text-secondary, #64748b);
+  margin: 0 0 var(--space-4, 1rem);
+  font-size: 0.9rem;
+}
+.addons-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-4, 1rem);
+}
+.addon-card {
+  border: 1px solid var(--surface-border, #e2e8f0);
+  border-radius: var(--border-radius-lg, 12px);
+  padding: var(--space-4, 1rem);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  background: var(--surface-card, #fff);
+}
+.addon-card.active {
+  border-color: #34d399;
+  box-shadow: 0 0 0 1px #34d399 inset;
+}
+.addon-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.addon-name { margin: 0; font-size: 1rem; }
+.addon-desc {
+  color: var(--text-secondary, #64748b);
+  font-size: 0.85rem;
+  flex: 1;
+  margin: 0;
+}
+.addon-price { font-weight: 700; font-size: 1.1rem; }
+.addon-price span { font-weight: 400; font-size: 0.8rem; color: var(--text-secondary, #64748b); }
+.addon-btn { margin-top: 0.5rem; width: 100%; }
 
 </style>

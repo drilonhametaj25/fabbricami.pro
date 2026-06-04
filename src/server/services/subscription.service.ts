@@ -351,10 +351,6 @@ class SubscriptionService {
    * Update subscription (change plan or billing period)
    */
   async updateSubscription(tenantId: string, data: UpdateSubscriptionData): Promise<SubscriptionInfo> {
-    if (!stripe) {
-      throw new Error('Stripe non configurato');
-    }
-
     const subscription = await prisma.saasSubscription.findUnique({
       where: { tenantId },
       include: { plan: true },
@@ -364,29 +360,26 @@ class SubscriptionService {
       throw new Error('Subscription non trovata');
     }
 
-    if (!subscription.stripeSubscriptionId) {
-      throw new Error('Subscription non collegata a Stripe');
-    }
+    // Modalità billing reale (Stripe configurato + subscription collegata) vs
+    // modalità dev/mock (trial senza Stripe): in dev applichiamo i cambi
+    // direttamente nel DB così upgrade/downgrade/cancellazione sono testabili
+    // end-to-end. In produzione con Stripe configurato si usa il percorso reale.
+    const useStripe = !!stripe && !!subscription.stripeSubscriptionId;
 
-    // Gestisci cancellazione
+    // Gestisci cancellazione (cancel at period end)
     if (data.cancelAtPeriodEnd !== undefined) {
-      if (data.cancelAtPeriodEnd) {
-        await stripe.subscriptions.update(subscription.stripeSubscriptionId, {
-          cancel_at_period_end: true,
-        });
-      } else {
-        await stripe.subscriptions.update(subscription.stripeSubscriptionId, {
-          cancel_at_period_end: false,
+      if (useStripe) {
+        await stripe!.subscriptions.update(subscription.stripeSubscriptionId!, {
+          cancel_at_period_end: data.cancelAtPeriodEnd,
         });
       }
-
       await prisma.saasSubscription.update({
         where: { tenantId },
         data: { cancelAtPeriodEnd: data.cancelAtPeriodEnd },
       });
     }
 
-    // Cambio piano
+    // Cambio piano (upgrade/downgrade)
     if (data.planCode && data.planCode !== subscription.plan.code) {
       const newPlan = await prisma.subscriptionPlan.findUnique({
         where: { code: data.planCode },
@@ -396,35 +389,42 @@ class SubscriptionService {
         throw new Error('Nuovo piano non trovato');
       }
 
-      // Recupera la subscription Stripe per ottenere l'item ID
-      const stripeSubscription = await stripe.subscriptions.retrieve(subscription.stripeSubscriptionId);
-      const subscriptionItemId = stripeSubscription.items.data[0].id;
+      if (useStripe) {
+        // Recupera la subscription Stripe per ottenere l'item ID
+        const stripeSubscription = await stripe!.subscriptions.retrieve(subscription.stripeSubscriptionId!);
+        const subscriptionItemId = stripeSubscription.items.data[0].id;
 
-      // Determina il billing period (usa quello nuovo o mantieni l'attuale)
-      const billingPeriod = data.billingPeriod ||
-        (stripeSubscription.items.data[0].plan.interval === 'year' ? 'yearly' : 'monthly');
+        // Determina il billing period (usa quello nuovo o mantieni l'attuale)
+        const billingPeriod = data.billingPeriod ||
+          (stripeSubscription.items.data[0].plan.interval === 'year' ? 'yearly' : 'monthly');
 
-      // Recupera il price ID dal database
-      const priceId = await this.getStripePriceId(data.planCode, billingPeriod);
+        // Recupera il price ID dal database
+        const priceId = await this.getStripePriceId(data.planCode, billingPeriod);
 
-      // Aggiorna la subscription Stripe
-      await stripe.subscriptions.update(subscription.stripeSubscriptionId, {
-        items: [
-          {
-            id: subscriptionItemId,
-            price: priceId,
-          },
-        ],
-        proration_behavior: 'create_prorations',
-        metadata: {
-          planCode: data.planCode,
-        },
-      });
+        // Aggiorna la subscription Stripe con proration
+        await stripe!.subscriptions.update(subscription.stripeSubscriptionId!, {
+          items: [{ id: subscriptionItemId, price: priceId }],
+          proration_behavior: 'create_prorations',
+          metadata: { planCode: data.planCode },
+        });
+      } else {
+        // Modalità dev/mock: nessun Stripe. Applichiamo il cambio piano
+        // direttamente. Se il caller ha passato un billingPeriod, lo aggiorniamo.
+        logger.info(
+          `[billing:dev] Cambio piano ${subscription.plan.code} → ${data.planCode} ` +
+            `per tenant ${tenantId} applicato senza Stripe (modalità dev/mock).`
+        );
+      }
 
-      // Aggiorna nel database
+      // Aggiorna nel database (comune a entrambi i percorsi)
       await prisma.saasSubscription.update({
         where: { tenantId },
-        data: { planId: newPlan.id },
+        data: {
+          planId: newPlan.id,
+          ...(data.billingPeriod
+            ? { billingInterval: data.billingPeriod === 'yearly' ? 'yearly' : 'monthly' }
+            : {}),
+        },
       });
     }
 

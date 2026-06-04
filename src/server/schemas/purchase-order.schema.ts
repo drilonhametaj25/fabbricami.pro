@@ -78,7 +78,7 @@ export const receiveItemsSchema = {
 export const listPurchaseOrdersSchema = {
   query: z.object({
     page: z.coerce.number().int().min(1).default(1),
-    limit: z.coerce.number().int().min(1).max(100).default(20),
+    limit: z.coerce.number().int().min(1).max(500).default(20),
     supplierId: z.string().uuid().optional(),
     status: z.nativeEnum(PurchaseOrderStatus).optional(),
     search: z.string().optional(),

@@ -7,7 +7,9 @@ export const createOrderSchema = z.object({
   orderNumber: z.string().max(50).optional(), // Auto-generato se non fornito
   customerId: z.string().uuid(),
   source: z.enum(['WEB', 'B2B', 'MANUAL', 'WORDPRESS']),
-  status: z.enum(['DRAFT', 'PENDING', 'CONFIRMED', 'PROCESSING', 'READY', 'SHIPPED', 'DELIVERED', 'CANCELLED']).default('DRAFT'),
+  // Allineato all'enum Prisma OrderStatus (NON esiste 'DRAFT'): un default 'DRAFT'
+  // faceva fallire ogni creazione ordine senza status esplicito.
+  status: z.enum(['PENDING', 'CONFIRMED', 'PROCESSING', 'READY', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'REFUNDED']).default('PENDING'),
   orderDate: z.string().datetime().optional(),
   shippingAddress: z.any().optional(), // JSON field in Prisma
   billingAddress: z.any().optional(), // JSON field in Prisma
@@ -45,7 +47,7 @@ export const updateOrderSchema = createOrderSchema.partial().omit({ customerId: 
  * Schema validazione cambio stato ordine
  */
 export const updateOrderStatusSchema = z.object({
-  status: z.enum(['DRAFT', 'PENDING', 'CONFIRMED', 'PROCESSING', 'READY', 'SHIPPED', 'DELIVERED', 'CANCELLED']),
+  status: z.enum(['PENDING', 'CONFIRMED', 'PROCESSING', 'READY', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'REFUNDED']),
   notes: z.string().optional(),
   notifyCustomer: z.boolean().default(true),
 });

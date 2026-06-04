@@ -886,7 +886,7 @@ const loadFinancialReports = async () => {
     if (agingPay.success) agingPayables.value = agingPay.data;
 
     // Load Cashflow
-    const cashflowResponse = await api.get('/reports/cashflow-forecast', {
+    const cashflowResponse = await api.get('/reports/financial/cashflow', {
       params: { days: 90 },
     });
     if (cashflowResponse.success) {
@@ -913,7 +913,7 @@ const loadCustomerReports = async () => {
     const [from, to] = dateRange.value;
 
     // Load RFM
-    const rfmResponse = await api.get('/reports/rfm-analysis', {
+    const rfmResponse = await api.get('/reports/sales/rfm', {
       params: { from: from.toISOString(), to: to.toISOString() },
     });
     if (rfmResponse.success) {
@@ -921,7 +921,7 @@ const loadCustomerReports = async () => {
     }
 
     // Load Retention
-    const retResponse = await api.get('/reports/customer-retention', {
+    const retResponse = await api.get('/reports/sales/retention', {
       params: { from: from.toISOString(), to: to.toISOString() },
     });
     if (retResponse.success) {
@@ -929,7 +929,7 @@ const loadCustomerReports = async () => {
     }
 
     // Load Churn
-    const churnResponse = await api.get('/reports/churn-analysis', {
+    const churnResponse = await api.get('/reports/sales/churn', {
       params: { from: from.toISOString(), to: to.toISOString(), inactivityDays: 90 },
     });
     if (churnResponse.success) {
@@ -945,7 +945,7 @@ const loadCustomerReports = async () => {
 
 const loadDeadStock = async () => {
   try {
-    const response = await api.get('/reports/dead-stock', {
+    const response = await api.get('/reports/warehouse/dead-stock', {
       params: { daysThreshold: deadStockDays.value },
     });
     if (response.success) {
@@ -959,7 +959,7 @@ const loadDeadStock = async () => {
 const loadCategoryPerformance = async () => {
   try {
     const [from, to] = dateRange.value;
-    const response = await api.get('/reports/category-performance', {
+    const response = await api.get('/reports/sales/categories', {
       params: { from: from.toISOString(), to: to.toISOString() },
     });
     if (response.success) {
@@ -975,7 +975,7 @@ const loadCategoryPerformance = async () => {
 const loadProductionEfficiency = async () => {
   try {
     const [from, to] = dateRange.value;
-    const response = await api.get('/reports/production-efficiency', {
+    const response = await api.get('/reports/production/efficiency', {
       params: { from: from.toISOString(), to: to.toISOString() },
     });
     if (response.success) {

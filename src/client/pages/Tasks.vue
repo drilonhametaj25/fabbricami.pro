@@ -801,6 +801,8 @@ onMounted(() => {
   loadEmployees();
   loadOrders();
   loadStats();
+  // Alias /tasks/new: apre subito il dialog di creazione.
+  if (window.location.pathname.endsWith('/new')) openCreateDialog();
 });
 </script>
 

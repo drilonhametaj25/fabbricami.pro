@@ -18,6 +18,7 @@
     "test:client:watch": "vitest --config vitest.config.client.ts",
     "test:client:coverage": "vitest run --config vitest.config.client.ts --coverage",
     "test:e2e": "vitest run --config vitest.config.ts",
+    "test:e2e:pw": "playwright test --config e2e/playwright.config.ts",
     "test:all": "npm run test && npm run test:client && npm run test:e2e",
     "test:all:coverage": "npm run test:coverage && npm run test:client:coverage",
     "lint": "eslint . --ext .ts,.vue",
@@ -33,6 +34,7 @@
     "prisma:seed:docker": "docker-compose exec backend npm run prisma:seed",
     "prisma:seed:demo:docker": "docker-compose exec backend npm run prisma:seed:demo",
     "prisma:seed:plans": "tsx prisma/seed-plans.ts",
+    "prisma:seed:addons": "tsx prisma/seed-addons.ts",
     "stripe:sync": "tsx scripts/sync-stripe-plans.ts",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
@@ -105,6 +107,7 @@
   },
   "devDependencies": {
     "@pinia/testing": "^0.1.6",
+    "@playwright/test": "^1.60.0",
     "@testing-library/vue": "^8.1.0",
     "@types/bcrypt": "^5.0.2",
     "@types/bcryptjs": "^2.4.6",
@@ -136,12 +139,12 @@
     "vitest": "^2.1.1"
   },
   "optionalDependencies": {
-    "@rollup/rollup-linux-x64-gnu": "^4.52.5",
-    "@rollup/rollup-linux-x64-musl": "^4.52.5",
+    "@rollup/rollup-darwin-arm64": "^4.52.5",
+    "@rollup/rollup-darwin-x64": "^4.52.5",
     "@rollup/rollup-linux-arm64-gnu": "^4.52.5",
     "@rollup/rollup-linux-arm64-musl": "^4.52.5",
-    "@rollup/rollup-darwin-x64": "^4.52.5",
-    "@rollup/rollup-darwin-arm64": "^4.52.5",
+    "@rollup/rollup-linux-x64-gnu": "^4.52.5",
+    "@rollup/rollup-linux-x64-musl": "^4.52.5",
     "@rollup/rollup-win32-x64-msvc": "^4.52.5"
   },
   "engines": {
