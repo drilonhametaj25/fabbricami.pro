@@ -99,6 +99,8 @@ const TENANT_SCOPED_MODELS: Prisma.ModelName[] = [
   // WordPress
   'WordPressPluginAuth',
   'WordPressSyncLog',
+  // PrestaShop
+  'PrestaShopSyncLog',
   // Logistics
   'DDT',
   'RMA',
@@ -117,6 +119,61 @@ const TENANT_SCOPED_MODELS: Prisma.ModelName[] = [
   'UserEvent',
   'NewsletterSubscription',
 ];
+
+// ============================================
+// NESTED-WRITE TENANT INJECTION (DMMF)
+// ============================================
+//
+// Il middleware $extends inietta tenantId nel `data` top-level di una create,
+// ma NON nei nested write (`items: { create: [...] }`). I child models hanno
+// tenant_id NOT NULL → senza injection la create fallisce (incident PO/DDT/GR).
+//
+// Costruiamo da Prisma.dmmf, per ogni modello, la mappa dei campi-relazione il
+// cui target è tenant-scoped (relName → targetModel). L'injector ricorsivo
+// aggiunge tenantId SOLO a quelle relazioni (mai a modelli globali → niente
+// "Unknown argument tenantId").
+const SCOPED_RELATIONS: Record<string, Map<string, string>> = {};
+try {
+  for (const m of (Prisma as any).dmmf.datamodel.models) {
+    const map = new Map<string, string>();
+    for (const f of m.fields) {
+      if (f.kind === 'object' && TENANT_SCOPED_MODELS.includes(f.type as Prisma.ModelName)) {
+        map.set(f.name, f.type);
+      }
+    }
+    SCOPED_RELATIONS[m.name] = map;
+  }
+} catch {
+  // DMMF non disponibile in alcuni contesti (es. mock di test): no-op.
+}
+
+function injectNestedTenant(modelName: string | undefined, data: any, tenantId: string): void {
+  if (!modelName || !data || typeof data !== 'object') return;
+  const relations = SCOPED_RELATIONS[modelName];
+  if (!relations || relations.size === 0) return;
+
+  const applyToPayload = (payload: any, targetModel: string): void => {
+    if (Array.isArray(payload)) {
+      payload.forEach((p) => applyToPayload(p, targetModel));
+    } else if (payload && typeof payload === 'object') {
+      if (payload.tenantId === undefined) payload.tenantId = tenantId;
+      injectNestedTenant(targetModel, payload, tenantId); // ricorsione su nested più profondi
+    }
+  };
+
+  for (const [rel, targetModel] of relations) {
+    const nested = data[rel];
+    if (!nested || typeof nested !== 'object') continue;
+    if (nested.create) applyToPayload(nested.create, targetModel);
+    if (nested.createMany?.data) applyToPayload(nested.createMany.data, targetModel);
+    if (nested.connectOrCreate) {
+      const coc = Array.isArray(nested.connectOrCreate) ? nested.connectOrCreate : [nested.connectOrCreate];
+      coc.forEach((c: any) => {
+        if (c?.create) applyToPayload(c.create, targetModel);
+      });
+    }
+  }
+}
 
 // Modelli esplicitamente GLOBALI (gestione SaaS/sistema/super-admin):
 // - Tenant, TenantMember, TenantInvite
@@ -275,6 +332,7 @@ const extendedPrisma = hasExtends
               a.where = { ...(a.where ?? {}), tenantId };
             } else if (operation === 'create') {
               a.data = { ...(a.data ?? {}), tenantId };
+              injectNestedTenant(model, a.data, tenantId);
             } else if (operation === 'createMany') {
               if (Array.isArray(a.data)) {
                 a.data = a.data.map((item: Record<string, unknown>) => ({ ...item, tenantId }));
@@ -283,8 +341,10 @@ const extendedPrisma = hasExtends
               }
             } else if (UPDATE_ACTIONS.has(operation)) {
               a.where = { ...(a.where ?? {}), tenantId };
+              if (a.data) injectNestedTenant(model, a.data, tenantId); // nested create in update
               if (operation === 'upsert' && a.create) {
                 a.create = { ...a.create, tenantId };
+                injectNestedTenant(model, a.create, tenantId);
               }
             } else if (DELETE_ACTIONS.has(operation)) {
               a.where = { ...(a.where ?? {}), tenantId };

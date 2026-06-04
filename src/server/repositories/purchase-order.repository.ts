@@ -145,6 +145,8 @@ class PurchaseOrderRepository {
       total: number;
     }>
   ) {
+    // Nota: il tenantId (anche nei nested `items.create`) è iniettato dal
+    // middleware Prisma tenant-isolation (vedi injectNestedTenant in database.ts).
     return prisma.$transaction(async (tx) => {
       const order = await tx.purchaseOrder.create({
         data: {

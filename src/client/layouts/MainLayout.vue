@@ -182,6 +182,11 @@
           <span class="nav-label">WordPress</span>
         </router-link>
 
+        <router-link v-if="canAccessModule('wordpress')" to="/prestashop" class="nav-item" v-tooltip.right="sidebarCollapsed ? 'PrestaShop' : null">
+          <i class="pi pi-shopping-bag"></i>
+          <span class="nav-label">PrestaShop</span>
+        </router-link>
+
         <div v-if="canAccessModule('team') || canAccessModule('billing') || canAccessModule('settings')" class="nav-section" v-show="!sidebarCollapsed">
           <span class="nav-section-title">Account</span>
         </div>

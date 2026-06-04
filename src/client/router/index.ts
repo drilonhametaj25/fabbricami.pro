@@ -269,6 +269,12 @@ const router = createRouter({
           meta: { roles: STAFF },
         },
         {
+          path: '/prestashop',
+          name: 'PrestaShop',
+          component: () => import('../pages/PrestaShopSettings.vue'),
+          meta: { roles: STAFF },
+        },
+        {
           path: '/logistics',
           name: 'Logistics',
           component: () => import('../pages/Logistics.vue'),

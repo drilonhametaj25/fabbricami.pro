@@ -343,6 +343,18 @@ interface CachedTenantConfig {
   fetchedAt: number;
 }
 
+/**
+ * Parsing robusto di una data WooCommerce: WooCommerce può inviare date
+ * mancanti, vuote o malformate. `new Date(undefined/'')` produce "Invalid Date"
+ * che Prisma rifiuta (crash dell'import). Qui cadiamo su `fallback` (default ora
+ * corrente) quando la data non è valida.
+ */
+function safeWooDate(value: unknown, fallback: Date = new Date()): Date {
+  if (!value) return fallback;
+  const d = new Date(value as string);
+  return isNaN(d.getTime()) ? fallback : d;
+}
+
 class WordPressService {
   // Cache delle config per-tenant. Sostituisce il vecchio singleton state
   // (this.baseUrl/consumerKey/consumerSecret/webhookSecret), che era una leak
@@ -1227,7 +1239,7 @@ class WordPressService {
             paymentStatus: wooOrder.status === 'completed' ? 'paid' : 'pending',
             wordpressId: wooOrder.id,
             notes: wooOrder.customer_note || null,
-            orderDate: new Date(wooOrder.date_created),
+            orderDate: safeWooDate(wooOrder.date_created),
           },
         });
 
@@ -1835,7 +1847,7 @@ class WordPressService {
                   customerNote: wooOrder.customer_note || null,
                   shippingAddress: shippingAddress || undefined,
                   billingAddress: billingAddress || undefined,
-                  orderDate: new Date(wooOrder.date_created),
+                  orderDate: safeWooDate(wooOrder.date_created),
                 },
               });
               results.updated++;
@@ -1854,7 +1866,7 @@ class WordPressService {
                   customerNote: wooOrder.customer_note || null,
                   shippingAddress: shippingAddress || undefined,
                   billingAddress: billingAddress || undefined,
-                  orderDate: new Date(wooOrder.date_created),
+                  orderDate: safeWooDate(wooOrder.date_created),
                 },
               });
               results.imported++;
@@ -4877,8 +4889,8 @@ class WordPressService {
             wcVersion: wooOrder.version,
 
             // Date WooCommerce
-            wcDateCreated: new Date(wooOrder.date_created),
-            wcDateModified: new Date(wooOrder.date_modified),
+            wcDateCreated: safeWooDate(wooOrder.date_created),
+            wcDateModified: safeWooDate(wooOrder.date_modified),
             wcDatePaid: wooOrder.date_paid ? new Date(wooOrder.date_paid) : null,
             wcDateCompleted: wooOrder.date_completed ? new Date(wooOrder.date_completed) : null,
 
@@ -4913,7 +4925,7 @@ class WordPressService {
             // Rimborsi (sommario)
             wcRefunds: wooOrder.refunds?.length > 0 ? (wooOrder.refunds as any) : undefined,
 
-            orderDate: new Date(wooOrder.date_created),
+            orderDate: safeWooDate(wooOrder.date_created),
             syncStatus: 'SYNCED',
             lastSyncAt: new Date(),
           },
@@ -5112,7 +5124,7 @@ class WordPressService {
         data: {
           status: newStatus,
           wcStatus: wooOrder.status,
-          wcDateModified: new Date(wooOrder.date_modified),
+          wcDateModified: safeWooDate(wooOrder.date_modified),
           paymentStatus: wooOrder.status === 'completed' ? 'paid' : 'pending',
           customerNote: wooOrder.customer_note || undefined,
           syncStatus: 'SYNCED',

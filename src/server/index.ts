@@ -24,6 +24,7 @@ import accountingRoutes from './routes/accounting.routes';
 import taskRoutes from './routes/task.routes';
 import analyticsRoutes from './routes/analytics.routes';
 import wordpressRoutes from './routes/wordpress.routes';
+import prestashopRoutes from './routes/prestashop.routes';
 import warehouseRoutes from './routes/warehouse.routes';
 import workProcessRoutes from './routes/work-process.routes';
 import supplierRoutes from './routes/supplier.routes';
@@ -194,6 +195,7 @@ async function setupServer() {
   await server.register(taskRoutes, { prefix: `${apiPrefix}/tasks` });
   await server.register(analyticsRoutes, { prefix: `${apiPrefix}/analytics` });
   await server.register(wordpressRoutes, { prefix: `${apiPrefix}/wordpress` });
+  await server.register(prestashopRoutes, { prefix: `${apiPrefix}/prestashop` });
   await server.register(warehouseRoutes, { prefix: `${apiPrefix}/warehouses` });
   await server.register(workProcessRoutes, { prefix: `${apiPrefix}/work-processes` });
   await server.register(supplierRoutes, { prefix: `${apiPrefix}/suppliers` });

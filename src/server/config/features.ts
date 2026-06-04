@@ -8,6 +8,7 @@ import { initSuggestionWorker, scheduleSuggestionJobs } from '../jobs/suggestion
 import { initTrialExpirationJobs } from '../jobs/trial-expiration.job';
 import { initMrpJobs } from '../jobs/mrp.job';
 import { initPaymentDueReminderJobs } from '../jobs/payment-due-reminder.job';
+import { initPrestaShopJobs } from '../jobs/prestashop.job';
 import { initWebSocket } from '../utils/websocket.util';
 import { FastifyInstance } from 'fastify';
 import logger from '../config/logger';
@@ -62,6 +63,9 @@ export async function initQueueSystem() {
     // Inizializza scadenzario + dunning jobs (cron 09:00)
     initPaymentDueReminderJobs();
     logger.info('✅ Payment due reminder & dunning jobs initialized');
+
+    // Inizializza sync PrestaShop (pull/push ogni 15 min per i tenant abilitati)
+    initPrestaShopJobs();
 
     logger.info('✅ Queue system initialized successfully');
   } catch (error: any) {

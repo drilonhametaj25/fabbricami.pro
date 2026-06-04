@@ -434,12 +434,59 @@ async function main() {
         minStockLevel: 5,
         reorderQuantity: 15,
         isActive: true,
+        // Pubblicazione sul negozio web (così la vetrina/API shop mostra i prodotti)
+        isSellable: true,
+        webActive: true,
+        webPrice: data.price,
+        webSlug: data.name
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/(^-|-$)/g, ''),
+        webDescription: `Modello dettagliato ${data.name} in scala da collezione.`,
+        wcStockStatus: 'instock',
       },
     });
     products.push(product);
   }
 
   console.log('Products created:', products.length);
+
+  // Create product categories + assignments (per vetrina/API shop)
+  console.log('Creating product categories...');
+  const categoryNames: Record<string, string> = {
+    AUTO: 'Automobili',
+    AEREI: 'Aerei',
+    NAVI: 'Navi',
+    MILITARI: 'Mezzi Militari',
+  };
+  const categoryByCode: Record<string, { id: string }> = {};
+  for (const [code, label] of Object.entries(categoryNames)) {
+    const cat = await prisma.productCategory.create({
+      data: {
+        tenantId: defaultTenant.id,
+        name: label,
+        slug: code.toLowerCase(),
+        description: `Modellini della categoria ${label}`,
+        isActive: true,
+      },
+    });
+    categoryByCode[code] = cat;
+  }
+  // Assegna ogni prodotto alla sua categoria
+  for (let i = 0; i < products.length; i++) {
+    const code = productData[i].category;
+    const cat = categoryByCode[code];
+    if (!cat) continue;
+    await prisma.productCategoryAssignment.create({
+      data: {
+        tenantId: defaultTenant.id,
+        productId: products[i].id,
+        categoryId: cat.id,
+        isPrimary: true,
+      },
+    });
+  }
+  console.log('Product categories created:', Object.keys(categoryByCode).length);
 
   // Create inventory for products (con tenantId)
   console.log('Creating inventory...');
