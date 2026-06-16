@@ -27,6 +27,10 @@ const TENANT_SCOPED_MODELS: Prisma.ModelName[] = [
   'ProductVariant',
   'ProductIdeationCost',
   'ProductOperation',
+  'ProductMaterial',
+  'ProductImage',
+  'ProductCategoryAssignment',
+  'BomItem',
   // Inventory
   'InventoryItem',
   'InventoryMovement',
@@ -38,6 +42,7 @@ const TENANT_SCOPED_MODELS: Prisma.ModelName[] = [
   'Customer',
   'PriceList',
   'PriceListItem',
+  'CategoryDiscount',
   'CustomerAddress',
   'CustomerContact',
   'CustomerBankInfo',
@@ -45,6 +50,7 @@ const TENANT_SCOPED_MODELS: Prisma.ModelName[] = [
   'Supplier',
   'SupplierItem',
   'SupplierScorecard',
+  'SupplierVolumeDiscount',
   // Orders
   'Order',
   'OrderItem',
@@ -76,6 +82,7 @@ const TENANT_SCOPED_MODELS: Prisma.ModelName[] = [
   'TaskOperation',
   'Workflow',
   'OperationType',
+  'OperationTypeEmployee',
   // Manufacturing
   'ManufacturingPhase',
   'PhaseMaterial',
@@ -103,6 +110,7 @@ const TENANT_SCOPED_MODELS: Prisma.ModelName[] = [
   'PrestaShopSyncLog',
   // Logistics
   'DDT',
+  'DDTItem',
   'RMA',
   'RMAItem',
   // E-commerce
@@ -113,8 +121,10 @@ const TENANT_SCOPED_MODELS: Prisma.ModelName[] = [
   'CouponUsage',
   'PaymentTransaction',
   'ShopShippingZone',
+  'ShopShippingMethod',
   'ProductReview',
   'LoyaltyAccount',
+  'LoyaltyTransaction',
   'AgeVerification',
   'UserEvent',
   'NewsletterSubscription',
