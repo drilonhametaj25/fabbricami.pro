@@ -151,8 +151,42 @@ final class FabbricaMi_Connector {
     public function activate() {
         $this->create_tables();
         $this->set_default_options();
+        $this->load_tenant_config();
         $this->schedule_cron_events();
         flush_rewrite_rules();
+    }
+
+    /**
+     * Carica la configurazione pre-generata dall'ERP (tenant-config.json).
+     *
+     * Il file viene incluso nello ZIP scaricato da FabbricaMi (Impostazioni →
+     * WordPress → Scarica Plugin) e contiene URL ERP, slug del tenant e
+     * credenziali Basic Auth. Popola le opzioni solo se non già valorizzate,
+     * così da non sovrascrivere eventuali modifiche manuali dell'utente.
+     */
+    private function load_tenant_config() {
+        $config_file = FABBRICAMI_PLUGIN_DIR . 'tenant-config.json';
+        if (!file_exists($config_file)) {
+            return;
+        }
+
+        $config = json_decode(file_get_contents($config_file), true);
+        if (!is_array($config)) {
+            return;
+        }
+
+        if (!empty($config['erp_url']) && !get_option('fabbricami_erp_url')) {
+            update_option('fabbricami_erp_url', rtrim($config['erp_url'], '/'));
+        }
+        if (!empty($config['username']) && !get_option('fabbricami_erp_username')) {
+            update_option('fabbricami_erp_username', $config['username']);
+        }
+        if (!empty($config['password']) && !get_option('fabbricami_erp_password')) {
+            update_option('fabbricami_erp_password', $config['password']);
+        }
+        if (!empty($config['tenant_slug']) && !get_option('fabbricami_tenant_slug')) {
+            update_option('fabbricami_tenant_slug', $config['tenant_slug']);
+        }
     }
 
     /**

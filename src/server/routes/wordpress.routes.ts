@@ -1,4 +1,7 @@
 import { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
+import path from 'path';
+import fs from 'fs';
+import AdmZip from 'adm-zip';
 import { wordpressService } from '../services/wordpress.service';
 import wordpressPluginService from '../services/wordpress-plugin.service';
 import wordpressSettingsService from '../services/wordpress-settings.service';
@@ -34,6 +37,28 @@ async function resolveTenantBySlug(slug: string): Promise<string | null> {
   });
   if (!t || t.status !== 'ACTIVE') return null;
   return t.id;
+}
+
+/**
+ * Localizza la cartella sorgente del plugin WordPress (`fabbricami-connector`).
+ *
+ * In dev gira con `tsx` da root (cwd = root del progetto); in produzione gira
+ * da `/app` con i sorgenti compilati in `dist/server/server/...`. Proviamo più
+ * percorsi candidati e usiamo il primo che contiene `fabbricami.php`.
+ * Ritorna `null` se il plugin non è presente (es. non copiato nell'immagine).
+ */
+function resolvePluginSourceDir(): string | null {
+  const candidates = [
+    path.join(process.cwd(), 'wordpress-plugin', 'fabbricami-connector'),
+    path.join(__dirname, '..', '..', '..', '..', 'wordpress-plugin', 'fabbricami-connector'),
+    path.join(__dirname, '..', '..', '..', 'wordpress-plugin', 'fabbricami-connector'),
+  ];
+  for (const dir of candidates) {
+    if (fs.existsSync(path.join(dir, 'fabbricami.php'))) {
+      return dir;
+    }
+  }
+  return null;
 }
 
 // Schema validazione
@@ -1289,6 +1314,98 @@ const wordpressRoutes: FastifyPluginAsync = async (server: any) => {
       return reply.status(500).send({
         success: false,
         error: error.message,
+      });
+    }
+  });
+
+  /**
+   * GET /wordpress/plugin/download
+   * Scarica il plugin WordPress (.zip) pre-configurato per il tenant corrente.
+   *
+   * Lo ZIP contiene i sorgenti del plugin `fabbricami-connector` più un file
+   * `tenant-config.json` con URL ERP, slug del tenant e credenziali Basic Auth
+   * appena generate: il plugin le legge automaticamente all'attivazione.
+   */
+  server.get('/plugin/download', {
+    preHandler: authenticate,
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const tenantId = (request as any).user?.tenantId;
+      if (!tenantId) {
+        return reply.status(400).send({ success: false, error: 'tenantId mancante nel JWT' });
+      }
+
+      // Risolvi lo slug del tenant (serve per le route plugin /:tenantSlug/...)
+      const tenant = await prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { slug: true, name: true, status: true },
+      });
+      if (!tenant || tenant.status !== 'ACTIVE') {
+        return reply.status(404).send({ success: false, error: 'Tenant non trovato o non attivo' });
+      }
+
+      // Localizza i sorgenti del plugin sul server
+      const pluginDir = resolvePluginSourceDir();
+      if (!pluginDir) {
+        logger.error('Sorgente plugin WordPress non trovata (cwd=%s)', process.cwd());
+        return reply.status(500).send({
+          success: false,
+          error: 'Sorgente plugin non disponibile sul server',
+        });
+      }
+
+      // Genera credenziali Basic Auth fresche da includere nel pacchetto.
+      // Wrappiamo in runWithTenant per garantire il contesto sul write
+      // del modello tenant-scoped WordPressPluginAuth.
+      const today = new Date().toISOString().slice(0, 10);
+      const { username, password } = await runWithTenant(tenantId, () =>
+        wordpressPluginService.generateCredentials(tenantId, `Plugin download ${today}`)
+      );
+
+      // Base URL pubblica dell'ERP (rispetta il reverse proxy)
+      const baseUrl =
+        request.headers['x-forwarded-proto'] && request.headers['x-forwarded-host']
+          ? `${request.headers['x-forwarded-proto']}://${request.headers['x-forwarded-host']}`
+          : `${request.protocol}://${request.headers.host}`;
+      const pluginBase = `${baseUrl}/api/v1/wordpress/plugin/${tenant.slug}`;
+
+      const tenantConfig = {
+        erp_url: baseUrl,
+        tenant_slug: tenant.slug,
+        tenant_name: tenant.name,
+        plugin_base: pluginBase,
+        username,
+        password,
+        generated_at: new Date().toISOString(),
+        endpoints: {
+          order: `${pluginBase}/order`,
+          orderStatus: `${pluginBase}/order-status`,
+          customer: `${pluginBase}/customer`,
+          stockUpdate: `${pluginBase}/stock-update`,
+        },
+      };
+
+      // Costruisci lo ZIP: sorgenti del plugin + tenant-config.json
+      const zip = new AdmZip();
+      zip.addLocalFolder(pluginDir, 'fabbricami-connector');
+      zip.addFile(
+        'fabbricami-connector/tenant-config.json',
+        Buffer.from(JSON.stringify(tenantConfig, null, 2), 'utf-8')
+      );
+      const buffer = zip.toBuffer();
+
+      reply.header('Content-Type', 'application/zip');
+      reply.header(
+        'Content-Disposition',
+        `attachment; filename="fabbricami-connector-${tenant.slug}.zip"`
+      );
+      reply.header('Content-Length', buffer.length);
+      return reply.send(buffer);
+    } catch (error: any) {
+      logger.error('Errore download plugin WordPress:', error);
+      return reply.status(500).send({
+        success: false,
+        error: error.message || 'Impossibile generare il pacchetto plugin',
       });
     }
   });

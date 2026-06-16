@@ -47,6 +47,9 @@ COPY --from=build /app/src ./src
 COPY scripts ./scripts
 RUN chmod +x /app/scripts/*.sh
 
+# Copy WordPress plugin sources (served by GET /wordpress/plugin/download)
+COPY --from=build /app/wordpress-plugin ./wordpress-plugin
+
 RUN npx prisma generate
 
 EXPOSE 3000 3001
