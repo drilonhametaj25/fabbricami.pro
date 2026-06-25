@@ -13,6 +13,7 @@ import { getCurrentTenantId, isUnscoped } from '../utils/tenant-context';
 // derivano scoping dalla FK al padre + RLS a livello DB.
 const TENANT_SCOPED_MODELS: Prisma.ModelName[] = [
   // Core
+  
   'User',
   'CompanySettings',
   'Warehouse',
