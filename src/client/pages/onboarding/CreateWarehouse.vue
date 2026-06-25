@@ -4,6 +4,11 @@
     <p class="step-description">
       Configura il magazzino principale per iniziare a gestire il tuo inventario.
     </p>
+    <p class="step-plan-hint">
+      <i class="pi pi-info-circle"></i>
+      Il numero di magazzini dipende dal tuo piano (Starter: 1 magazzino). Potrai
+      aggiungerne altri con un upgrade.
+    </p>
 
     <form @submit.prevent="saveWarehouse" class="warehouse-form">
       <div class="form-grid">
@@ -303,6 +308,17 @@ async function skipWarehouse() {
 .step-description {
   font-size: var(--font-size-base);
   color: var(--color-gray-600);
+  margin: 0 0 var(--space-3) 0;
+  text-align: center;
+}
+
+.step-plan-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  font-size: var(--font-size-sm);
+  color: var(--color-gray-500);
   margin: 0 0 var(--space-6) 0;
   text-align: center;
 }

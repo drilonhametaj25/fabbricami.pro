@@ -4198,8 +4198,12 @@ class WordPressService {
             });
           }
 
-          // Inventario variante
-          if (variation.manage_stock && variation.stock_quantity !== null) {
+          // Inventario variante.
+          // NB: scriviamo la giacenza ogni volta che WooCommerce fornisce una
+          // stock_quantity, anche se `manage_stock` è false a livello di
+          // variazione: diversamente le varianti con quantità (es. 1/1) venivano
+          // importate con giacenza 0 (bug "su giacenze vedo tutto a 0").
+          if (variation.stock_quantity !== null && variation.stock_quantity !== undefined) {
             const existingInventory = await prisma.inventoryItem.findFirst({
               where: {
                 productId,

@@ -95,6 +95,7 @@
           :disabled="disabled"
           :minFractionDigits="2"
           :maxFractionDigits="2"
+          :highlightOnFocus="true"
         />
       </div>
 
@@ -110,6 +111,7 @@
           :disabled="disabled"
           :minFractionDigits="2"
           :maxFractionDigits="2"
+          :highlightOnFocus="true"
         />
       </div>
     </div>

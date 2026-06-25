@@ -46,6 +46,33 @@ class NotificationService {
   }
 
   /**
+   * Lista notifiche utente PAGINATA + filtri (tipo, lette/non lette).
+   * Ritorna { items, total } per una risposta paginata coerente con il
+   * resto delle API (il frontend legge data.items e data.pagination.total).
+   */
+  async getUserNotificationsPaginated(params: {
+    userId: string;
+    page?: number;
+    limit?: number;
+    type?: string;
+    isRead?: boolean;
+  }) {
+    const page = params.page && params.page > 0 ? params.page : 1;
+    const limit = params.limit && params.limit > 0 ? Math.min(params.limit, 100) : 20;
+
+    const where: Record<string, unknown> = { userId: params.userId };
+    if (params.type) where.type = params.type;
+    if (params.isRead !== undefined) where.isRead = params.isRead;
+
+    return notificationRepository.findAll({
+      skip: (page - 1) * limit,
+      take: limit,
+      where: where as any,
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /**
    * Conta notifiche non lette
    */
   async getUnreadCount(userId: string) {

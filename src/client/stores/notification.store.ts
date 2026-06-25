@@ -30,7 +30,12 @@ export const useNotificationStore = defineStore('notifications', () => {
     try {
       const response = await api.get(`/notifications?limit=${limit}&sortBy=createdAt&sortOrder=desc`);
       if (response.success) {
-        notifications.value = response.data.items;
+        // L'endpoint restituisce un array semplice (non { items }). Gestiamo
+        // entrambe le forme: prima leggeva response.data.items → sempre
+        // undefined → la lista risultava vuota (bug "non le fa vedere").
+        notifications.value = Array.isArray(response.data)
+          ? response.data
+          : (response.data?.items ?? []);
       }
     } catch {
       // Load failed silently
@@ -59,7 +64,9 @@ export const useNotificationStore = defineStore('notifications', () => {
 
   const markAllAsRead = async () => {
     try {
-      await api.patch('/notifications/mark-all-read', {});
+      // L'endpoint è POST /notifications/mark-all-read (non PATCH): prima la
+      // chiamata falliva e il contatore non si azzerava mai.
+      await api.post('/notifications/mark-all-read', {});
       notifications.value.forEach(n => n.isRead = true);
       unreadCount.value = 0;
     } catch {

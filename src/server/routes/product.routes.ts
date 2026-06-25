@@ -9,21 +9,44 @@ import { parsePagination, paginatedResponse } from '../utils/response.util';
 import { createProductSchema, updateProductSchema } from '../schemas/product.schema';
 import { prisma } from '../config/database';
 import { z } from 'zod';
+import { toReadableError } from '../utils/zod-error.util';
+
+// Coercizione numerica tollerante: accetta number | numeric-string | '' | null.
+// PrimeVue InputNumber invia `null` per i campi vuoti: lo schema precedente
+// usava z.number().optional() che RIFIUTA null, quindi ogni salvataggio variante
+// con peso/prezzo/delta vuoti falliva mostrando il JSON grezzo dell'errore
+// (il "messaggio di errore in codice" segnalato dal cliente).
+const coerceOptionalNumber = z.preprocess((v) => {
+  if (v === '' || v === null || v === undefined) return undefined;
+  const n = typeof v === 'string' ? parseFloat(v) : v;
+  return typeof n === 'number' && !Number.isNaN(n) ? n : undefined;
+}, z.number().optional());
+
+const optionalDimension = z.preprocess((v) => {
+  if (v === '' || v === null || v === undefined) return undefined;
+  const n = typeof v === 'string' ? parseFloat(v) : v;
+  return typeof n === 'number' && !Number.isNaN(n) ? n : undefined;
+}, z.number().nonnegative().optional());
 
 const createVariantSchema = z.object({
-  sku: z.string().min(1).max(100),
-  name: z.string().min(1).max(200),
-  attributes: z.record(z.union([z.string(), z.number(), z.boolean()])),
-  barcode: z.string().optional(),
-  costDelta: z.number().optional(),
-  priceDelta: z.number().optional(),
-  weight: z.number().optional(),
+  sku: z.string().min(1, 'SKU obbligatorio').max(100),
+  name: z.string().min(1, 'Nome obbligatorio').max(200),
+  attributes: z.record(z.union([z.string(), z.number(), z.boolean()])).optional().default({}),
+  barcode: z.string().nullish(),
+  costDelta: coerceOptionalNumber,
+  priceDelta: coerceOptionalNumber,
+  // Misure SEMPRE opzionali: le varianti importate da WooCommerce spesso non
+  // hanno peso/dimensioni e devono poter essere salvate comunque.
+  weight: coerceOptionalNumber,
   dimensions: z
-    .object({ width: z.number(), height: z.number(), depth: z.number() })
-    .optional(),
-  webPrice: z.number().optional(),
-  webDescription: z.string().optional(),
-  mainImageUrl: z.string().url().optional(),
+    .object({ width: optionalDimension, height: optionalDimension, depth: optionalDimension })
+    .partial()
+    .nullish(),
+  webPrice: coerceOptionalNumber,
+  webActive: z.boolean().nullish(),
+  webDescription: z.string().nullish(),
+  // Accetta URL assoluti o path relativi (immagini caricate sul server ERP)
+  mainImageUrl: z.string().nullish(),
   isActive: z.boolean().optional(),
 });
 
@@ -2096,6 +2119,23 @@ const productRoutes: FastifyPluginAsync = async (server) => {
   // ============================================
 
   /**
+   * GET /variant-attributes/suggestions - Attributi/valori già noti (WooCommerce + varianti esistenti)
+   * Usato dall'editor varianti per suggerire attributi esistenti invece di riscriverli a mano.
+   */
+  server.get(
+    '/variant-attributes/suggestions',
+    { preHandler: [authenticate, tenantMiddleware] },
+    async (_request, reply) => {
+      try {
+        const data = await productVariantService.getAttributeSuggestions();
+        return reply.send({ success: true, data });
+      } catch (error: any) {
+        return reply.status(400).send({ success: false, error: toReadableError(error) });
+      }
+    }
+  );
+
+  /**
    * GET /:id/variants - Lista varianti del prodotto
    */
   server.get(
@@ -2132,7 +2172,7 @@ const productRoutes: FastifyPluginAsync = async (server) => {
         const variant = await productVariantService.create({ productId, ...body });
         return reply.status(201).send({ success: true, data: variant });
       } catch (error: any) {
-        return reply.status(400).send({ success: false, error: error.message });
+        return reply.status(400).send({ success: false, error: toReadableError(error) });
       }
     }
   );
@@ -2172,7 +2212,7 @@ const productRoutes: FastifyPluginAsync = async (server) => {
         const updated = await productVariantService.update(variantId, body);
         return reply.send({ success: true, data: updated });
       } catch (error: any) {
-        return reply.status(400).send({ success: false, error: error.message });
+        return reply.status(400).send({ success: false, error: toReadableError(error) });
       }
     }
   );
@@ -2216,7 +2256,7 @@ const productRoutes: FastifyPluginAsync = async (server) => {
         const updated = await productVariantService.update(variantId, body);
         return reply.send({ success: true, data: updated });
       } catch (error: any) {
-        return reply.status(400).send({ success: false, error: error.message });
+        return reply.status(400).send({ success: false, error: toReadableError(error) });
       }
     }
   );
@@ -2236,7 +2276,7 @@ const productRoutes: FastifyPluginAsync = async (server) => {
         const updated = await productVariantService.update(variantId, body);
         return reply.send({ success: true, data: updated });
       } catch (error: any) {
-        return reply.status(400).send({ success: false, error: error.message });
+        return reply.status(400).send({ success: false, error: toReadableError(error) });
       }
     }
   );

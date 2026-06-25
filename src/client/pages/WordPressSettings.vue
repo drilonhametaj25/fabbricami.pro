@@ -40,11 +40,11 @@
               <InputText
                 id="consumerKey"
                 v-model="wooConfig.consumerKey"
-                :placeholder="wooConfig.hasExistingKeys ? 'Chiave gia configurata - inserisci per modificare' : 'ck_xxxxxxxxxxxxxxxx'"
+                :placeholder="wooConfig.hasExistingKeys ? '•••••••••••••••• (già salvata — scrivi per cambiarla)' : 'ck_xxxxxxxxxxxxxxxx'"
                 class="w-full"
               />
               <small v-if="wooConfig.hasExistingKeys && !wooConfig.consumerKey" class="field-hint success">
-                <i class="pi pi-check-circle"></i> Chiave salvata nel sistema
+                <i class="pi pi-check-circle"></i> Chiave salvata e attiva nel sistema
               </small>
             </div>
             <div class="field">
@@ -54,11 +54,11 @@
                 v-model="wooConfig.consumerSecret"
                 :feedback="false"
                 toggleMask
-                :placeholder="wooConfig.hasExistingKeys ? 'Secret gia configurato - inserisci per modificare' : 'cs_xxxxxxxxxxxxxxxx'"
+                :placeholder="wooConfig.hasExistingKeys ? '•••••••••••••••• (già salvato — scrivi per cambiarlo)' : 'cs_xxxxxxxxxxxxxxxx'"
                 class="w-full"
               />
               <small v-if="wooConfig.hasExistingKeys && !wooConfig.consumerSecret" class="field-hint success">
-                <i class="pi pi-check-circle"></i> Secret salvato nel sistema
+                <i class="pi pi-check-circle"></i> Secret salvato e attivo nel sistema
               </small>
             </div>
           </div>

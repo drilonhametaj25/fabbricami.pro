@@ -69,7 +69,9 @@ function dismiss() {
   if (props.dismissible) {
     dismissed.value = true;
     if (props.dismissKey) {
-      sessionStorage.setItem(`banner-dismissed-${props.dismissKey}`, 'true');
+      // localStorage (non sessionStorage): la chiusura deve persistere anche
+      // dopo reload/nuova scheda, altrimenti il banner si riapre ogni volta.
+      localStorage.setItem(`banner-dismissed-${props.dismissKey}`, 'true');
     }
     emit('dismiss');
   }
@@ -77,7 +79,7 @@ function dismiss() {
 
 onMounted(() => {
   if (props.dismissKey) {
-    const wasDismissed = sessionStorage.getItem(`banner-dismissed-${props.dismissKey}`);
+    const wasDismissed = localStorage.getItem(`banner-dismissed-${props.dismissKey}`);
     if (wasDismissed === 'true') {
       dismissed.value = true;
     }

@@ -136,8 +136,35 @@ class NotificationRepository {
       select: { id: true },
     });
 
-    const notifications = users.map((user) => ({
-      userId: user.id,
+    if (users.length === 0) {
+      return { count: 0 };
+    }
+
+    const userIds = users.map((u) => u.id);
+
+    // DEDUP anti-flood: salta gli utenti che hanno già una notifica NON letta
+    // identica (stesso type + title + link). Senza questo, i cicli ripetuti
+    // (es. alert scorta minima a ogni sync) generano migliaia di notifiche
+    // duplicate (il caso "5424 notifiche non lette").
+    const existing = await prisma.notification.findMany({
+      where: {
+        userId: { in: userIds },
+        isRead: false,
+        type: notificationData.type,
+        title: notificationData.title,
+        ...(notificationData.link ? { link: notificationData.link } : {}),
+      },
+      select: { userId: true },
+    });
+    const alreadyNotified = new Set(existing.map((e) => e.userId));
+    const targets = userIds.filter((id) => !alreadyNotified.has(id));
+
+    if (targets.length === 0) {
+      return { count: 0 };
+    }
+
+    const notifications = targets.map((userId) => ({
+      userId,
       ...notificationData,
     }));
 

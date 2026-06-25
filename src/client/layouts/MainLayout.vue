@@ -345,7 +345,7 @@ const trialBannerDismissible = computed(() => {
   // Sopra 3 giorni l'utente puo' chiuderlo, sotto no (forziamo l'attenzione)
   return d !== null && d > 3;
 });
-const isNearLimit = computed(() => subscriptionStore.isNearLimit);
+const isNearLimit = computed(() => limitMessage.value !== '');
 const limitMessage = computed(() => {
   if (!subscriptionStore.usage) return '';
   const nearLimitResources: string[] = [];
@@ -353,7 +353,10 @@ const limitMessage = computed(() => {
 
   if (usage.users.percentage >= 80) nearLimitResources.push('utenti');
   if (usage.products.percentage >= 80) nearLimitResources.push('prodotti');
-  if (usage.warehouses.percentage >= 80) nearLimitResources.push('magazzini');
+  // NB: i magazzini sono esclusi di proposito dal banner globale. Con il piano
+  // Starter (1 magazzino) sarebbero sempre al 100% → banner sempre visibile e
+  // fastidioso. Il limite magazzini viene applicato in modo contestuale al
+  // momento della creazione (requirePlanLimit('warehouses')).
 
   if (nearLimitResources.length === 0) return '';
   return `Stai raggiungendo il limite di ${nearLimitResources.join(', ')} del tuo piano.`;

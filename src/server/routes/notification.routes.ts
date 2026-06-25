@@ -2,7 +2,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { authenticate } from '../middleware/auth.middleware';
 import notificationService from '../services/notification.service';
-import { successResponse, errorResponse } from '../utils/response.util';
+import { successResponse, errorResponse, paginatedResponse } from '../utils/response.util';
 
 // Types/Interfaces
 
@@ -25,14 +25,31 @@ const notificationRoutes: FastifyPluginAsync = async (server) => {
     async (request, reply) => {
       try {
         const userId = (request.user as any).userId;
-        const { includeRead } = request.query as { includeRead?: string };
-        
-        const notifications = await notificationService.getUserNotifications(
+        const q = request.query as {
+          page?: string;
+          limit?: string;
+          type?: string;
+          isRead?: string;
+        };
+        const page = q.page ? Math.max(1, parseInt(q.page, 10)) : 1;
+        const limit = q.limit ? Math.min(100, Math.max(1, parseInt(q.limit, 10))) : 20;
+        // isRead non specificato → tutte (lette + non lette); il frontend filtra
+        // esplicitamente quando vuole solo le non lette.
+        const isRead =
+          q.isRead === 'true' ? true : q.isRead === 'false' ? false : undefined;
+
+        const { items, total } = await notificationService.getUserNotificationsPaginated({
           userId,
-          includeRead === 'true'
-        );
-        
-        return successResponse(reply, notifications);
+          page,
+          limit,
+          type: q.type,
+          isRead,
+        });
+
+        // Risposta paginata { items, pagination }: prima si restituiva un array
+        // semplice e il frontend leggeva data.items (sempre undefined) → lista
+        // vuota pur con contatore > 0 (bug "non le fa vedere").
+        return paginatedResponse(reply, items, total, { page, limit });
       } catch (error: any) {
         request.log.error(error);
         return errorResponse(reply, error.message, 500);

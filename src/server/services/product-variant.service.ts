@@ -20,15 +20,18 @@ export interface CreateVariantInput {
   productId: string;
   sku: string;
   name: string;
-  attributes: Record<string, string | number | boolean>; // {color:'red', size:'M'}
-  barcode?: string;
-  costDelta?: number;
-  priceDelta?: number;
-  weight?: number;
-  dimensions?: { width: number; height: number; depth: number };
-  webPrice?: number;
-  webDescription?: string;
-  mainImageUrl?: string;
+  attributes?: Record<string, string | number | boolean>; // {color:'red', size:'M'}
+  barcode?: string | null;
+  costDelta?: number | null;
+  priceDelta?: number | null;
+  // Le misure sono SEMPRE opzionali: le varianti importate da WooCommerce
+  // spesso non hanno peso/dimensioni e devono poter essere salvate comunque.
+  weight?: number | null;
+  dimensions?: { width?: number; height?: number; depth?: number } | null;
+  webPrice?: number | null;
+  webActive?: boolean | null;
+  webDescription?: string | null;
+  mainImageUrl?: string | null;
   isActive?: boolean;
 }
 
@@ -37,11 +40,12 @@ export interface UpdateVariantInput {
   name?: string;
   attributes?: Record<string, string | number | boolean>;
   barcode?: string | null;
-  costDelta?: number;
-  priceDelta?: number;
+  costDelta?: number | null;
+  priceDelta?: number | null;
   weight?: number | null;
-  dimensions?: { width: number; height: number; depth: number } | null;
+  dimensions?: { width?: number; height?: number; depth?: number } | null;
   webPrice?: number | null;
+  webActive?: boolean | null;
   webDescription?: string | null;
   mainImageUrl?: string | null;
   isActive?: boolean;
@@ -88,9 +92,17 @@ class ProductVariantService {
     if (!parent) {
       throw new Error('Prodotto padre non trovato');
     }
+    // Auto-promozione del tipo: se aggiungo una variante a un prodotto non
+    // ancora "con varianti", lo promuovo a WITH_VARIANTS. Senza questo il
+    // prodotto resta SIMPLE e il sync verso WooCommerce lo esporta come
+    // "simple" pur avendo varianti (bug "creo variabile → diventa semplice").
     if (parent.type !== 'WITH_VARIANTS') {
-      logger.warn(
-        `Creazione variante su prodotto ${parent.sku} di tipo ${parent.type} (atteso WITH_VARIANTS)`
+      await prisma.product.update({
+        where: { id: parent.id },
+        data: { type: 'WITH_VARIANTS' },
+      });
+      logger.info(
+        `Prodotto ${parent.sku} promosso a WITH_VARIANTS (aggiunta prima variante)`
       );
     }
 
@@ -116,15 +128,16 @@ class ProductVariantService {
         productId: data.productId,
         sku: data.sku,
         name: data.name,
-        attributes: data.attributes as Prisma.InputJsonValue,
-        barcode: data.barcode,
+        attributes: (data.attributes ?? {}) as Prisma.InputJsonValue,
+        barcode: data.barcode ?? undefined,
         costDelta: data.costDelta ?? 0,
         priceDelta: data.priceDelta ?? 0,
-        weight: data.weight,
-        dimensions: data.dimensions as Prisma.InputJsonValue | undefined,
-        webPrice: data.webPrice,
-        webDescription: data.webDescription,
-        mainImageUrl: data.mainImageUrl,
+        weight: data.weight ?? undefined,
+        dimensions: (data.dimensions ?? undefined) as Prisma.InputJsonValue | undefined,
+        webPrice: data.webPrice ?? undefined,
+        webActive: data.webActive ?? undefined,
+        webDescription: data.webDescription ?? undefined,
+        mainImageUrl: data.mainImageUrl ?? undefined,
         isActive: data.isActive ?? true,
       },
     });
@@ -165,13 +178,14 @@ class ProductVariantService {
     if (data.name !== undefined) updateData.name = data.name;
     if (data.attributes !== undefined) updateData.attributes = data.attributes as Prisma.InputJsonValue;
     if (data.barcode !== undefined) updateData.barcode = data.barcode;
-    if (data.costDelta !== undefined) updateData.costDelta = data.costDelta;
-    if (data.priceDelta !== undefined) updateData.priceDelta = data.priceDelta;
+    if (data.costDelta !== undefined && data.costDelta !== null) updateData.costDelta = data.costDelta;
+    if (data.priceDelta !== undefined && data.priceDelta !== null) updateData.priceDelta = data.priceDelta;
     if (data.weight !== undefined) updateData.weight = data.weight;
     if (data.dimensions !== undefined) {
-      updateData.dimensions = data.dimensions as Prisma.InputJsonValue | typeof Prisma.JsonNull;
+      updateData.dimensions = (data.dimensions ?? Prisma.JsonNull) as Prisma.InputJsonValue | typeof Prisma.JsonNull;
     }
     if (data.webPrice !== undefined) updateData.webPrice = data.webPrice;
+    if (data.webActive !== undefined && data.webActive !== null) updateData.webActive = data.webActive;
     if (data.webDescription !== undefined) updateData.webDescription = data.webDescription;
     if (data.mainImageUrl !== undefined) updateData.mainImageUrl = data.mainImageUrl;
     if (data.isActive !== undefined) updateData.isActive = data.isActive;
@@ -198,6 +212,55 @@ class ProductVariantService {
     return prisma.productVariant.delete({
       where: { id: variantId },
     });
+  }
+
+  /**
+   * Suggerimenti attributi per l'editor varianti: unisce gli attributi globali
+   * importati da WooCommerce (WooCommerceAttribute + termini) con gli attributi
+   * già usati nelle varianti esistenti del tenant. Permette di scegliere
+   * "Colore → Rosso" dagli esistenti invece di riscriverli a mano ogni volta.
+   */
+  async getAttributeSuggestions(): Promise<Array<{ name: string; values: string[] }>> {
+    const map = new Map<string, Set<string>>();
+    const addValue = (rawName: string, rawValue?: unknown) => {
+      const name = (rawName || '').trim();
+      if (!name) return;
+      if (!map.has(name)) map.set(name, new Set());
+      if (rawValue !== undefined && rawValue !== null) {
+        const value = String(rawValue).trim();
+        if (value) map.get(name)!.add(value);
+      }
+    };
+
+    // 1) Attributi globali WooCommerce importati (con i loro termini)
+    try {
+      const wooAttrs = await prisma.wooCommerceAttribute.findMany({
+        include: { terms: { orderBy: { menuOrder: 'asc' } } },
+      });
+      for (const attr of wooAttrs) {
+        addValue(attr.name);
+        for (const term of attr.terms) addValue(attr.name, term.name);
+      }
+    } catch {
+      // Tabelle WooCommerce non disponibili: ignora, usa solo gli attributi locali.
+    }
+
+    // 2) Attributi già usati nelle varianti esistenti (JSON)
+    const variants = await prisma.productVariant.findMany({
+      select: { attributes: true },
+      take: 2000,
+    });
+    for (const variant of variants) {
+      const attrs = (variant.attributes || {}) as Record<string, unknown>;
+      for (const [key, value] of Object.entries(attrs)) addValue(key, value);
+    }
+
+    return Array.from(map.entries())
+      .map(([name, values]) => ({
+        name,
+        values: Array.from(values).sort((a, b) => a.localeCompare(b)),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
   }
 
   /**

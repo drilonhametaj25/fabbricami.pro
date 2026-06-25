@@ -342,7 +342,8 @@ const markAsRead = async (notification: any) => {
 
 const markAllAsRead = async () => {
   try {
-    await api.patch('/notifications/mark-all-read');
+    // L'endpoint è POST /notifications/mark-all-read (non PATCH).
+    await api.post('/notifications/mark-all-read');
     toast.add({
       severity: 'success',
       summary: 'Completato',

@@ -10,7 +10,13 @@
   >
     <!-- Stepper Header -->
     <div class="wizard-header">
-      <Steps :model="steps" :activeIndex="activeStep" :readonly="!productId" />
+      <!-- readonly finché il prodotto non è creato (non si possono saltare gli step
+           prima della creazione); dopo, gli step diventano cliccabili. -->
+      <Steps
+        :model="steps"
+        v-model:activeIndex="activeStep"
+        :readonly="!productId"
+      />
     </div>
 
     <!-- Step Content -->
@@ -293,6 +299,22 @@ const saveCurrentStepAndAdvance = async () => {
   nextStep();
 };
 
+// Persiste le categorie selezionate (multi-categoria) tramite l'endpoint
+// dedicato PUT /products/:id/categories. La prima categoria diventa la primaria.
+const persistCategories = async (id: string) => {
+  const ids = form.value.categoryIds || [];
+  if (!ids.length) return;
+  try {
+    await api.put(`/products/${id}/categories`, {
+      categoryIds: ids,
+      primaryCategoryId: ids[0],
+    });
+  } catch (error) {
+    // Non bloccante: il prodotto è già stato salvato.
+    console.warn('Impossibile salvare le categorie:', error);
+  }
+};
+
 // Save basic info and create product
 const saveBasicInfo = async () => {
   // Validation
@@ -337,6 +359,7 @@ const saveBasicInfo = async () => {
       });
 
       if (response.success) {
+        await persistCategories(productId.value);
         toast.add({
           severity: 'success',
           summary: 'Salvato',
@@ -357,6 +380,8 @@ const saveBasicInfo = async () => {
       if (response.success && response.data) {
         productId.value = response.data.id;
         form.value.id = response.data.id;
+
+        await persistCategories(response.data.id);
 
         toast.add({
           severity: 'success',

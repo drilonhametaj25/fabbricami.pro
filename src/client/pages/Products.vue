@@ -536,18 +536,20 @@ const formatCurrency = (value: number) => {
   }).format(value || 0);
 };
 
-// Helper per calcolare giacenze
-const getTotalInventory = (product: any) => {
-  if (!product?.inventory?.length) return 0;
-  return product.inventory.reduce((sum: number, inv: any) => sum + (inv.quantity || 0), 0);
-};
+// Helper per calcolare giacenze.
+// NB: ogni InventoryItem ha SEMPRE productId valorizzato (anche le righe di
+// variante, che hanno productId + variantId). Quindi `product.inventory`
+// contiene già sia le righe del prodotto padre sia quelle di tutte le
+// varianti: sommarle dà il totale corretto. (Lo stock delle varianti veniva
+// mostrato a 0 non per l'aggregazione, ma perché l'import WooCommerce non
+// creava le righe inventario quando manage_stock era false — fix lato server.)
+const sumQty = (items: any[] | undefined) =>
+  (items || []).reduce((sum: number, inv: any) => sum + (Number(inv.quantity) || 0), 0);
 
-const getInventoryByLocation = (product: any, location: string) => {
-  if (!product?.inventory?.length) return 0;
-  return product.inventory
-    .filter((inv: any) => inv.location === location)
-    .reduce((sum: number, inv: any) => sum + (inv.quantity || 0), 0);
-};
+const getTotalInventory = (product: any) => sumQty(product?.inventory);
+
+const getInventoryByLocation = (product: any, location: string) =>
+  sumQty((product?.inventory || []).filter((inv: any) => inv.location === location));
 
 const getLocationSeverity = (location: string) => {
   const map: Record<string, string> = {
@@ -569,7 +571,7 @@ const loadStats = async () => {
     let retailValue = 0;
 
     for (const p of allProducts) {
-      const totalQty = p.inventory?.reduce((invSum: number, inv: any) => invSum + (inv.quantity || 0), 0) || 0;
+      const totalQty = getTotalInventory(p);
       costValue += Number(p.cost || 0) * totalQty;
       retailValue += Number(p.price || 0) * totalQty;
     }
@@ -585,7 +587,7 @@ const loadStats = async () => {
       marginPercent,
       activeProducts: allProducts.filter((p: any) => p.isActive).length,
       lowStock: allProducts.filter((p: any) => {
-        const totalQty = p.inventory?.reduce((invSum: number, inv: any) => invSum + (inv.quantity || 0), 0) || 0;
+        const totalQty = getTotalInventory(p);
         return totalQty < (p.minStockLevel || 0);
       }).length,
     };
@@ -594,7 +596,7 @@ const loadStats = async () => {
   }
 };
 
-const loadProducts = async () => {
+const loadProducts = async (retry = true) => {
   try {
     loading.value = true;
 
@@ -611,10 +613,18 @@ const loadProducts = async () => {
     const response = await api.get(`/products?${params.toString()}`);
 
     if (response.success) {
-      products.value = response.data.items;
-      totalRecords.value = response.data.pagination.total;
+      products.value = response.data.items || [];
+      totalRecords.value = response.data.pagination?.total || 0;
     }
   } catch (error: any) {
+    // Race tipica al primo caricamento (token/sessione non ancora pronti alla
+    // prima navigazione): la lista risultava vuota e compariva solo cambiando
+    // scheda e tornando. Facciamo un retry silenzioso una volta prima di
+    // mostrare l'errore all'utente.
+    if (retry) {
+      await new Promise((r) => setTimeout(r, 500));
+      return loadProducts(false);
+    }
     toast.add({
       severity: 'error',
       summary: 'Errore',
@@ -732,8 +742,10 @@ const handleWizardCompleted = () => {
   subscriptionStore.fetchUsage();
 };
 
-onMounted(() => {
-  loadProducts();
+onMounted(async () => {
+  // Carica prima i prodotti (await) così la lista è pronta in modo
+  // deterministico; le altre fetch possono procedere in parallelo.
+  await loadProducts();
   loadStats();
   loadCategories();
   // Refresh usage stats per il gating del bottone "Nuovo Prodotto".

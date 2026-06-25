@@ -427,6 +427,24 @@ body {
   background: var(--color-primary-50);
 }
 
+/* ===== ICON/LABEL CONTRAST SUI BOTTONI =====
+   Fix: "icone verdi su pulsanti colorati che non si vedono".
+   I bottoni PIENI colorati (primary/success/danger/warning/info) devono avere
+   icona ed etichetta BIANCHE; i bottoni text/outlined mantengono il colore;
+   il secondary (sfondo chiaro) usa testo scuro. */
+.p-button:not(.p-button-text):not(.p-button-outlined):not(.p-button-secondary),
+.p-button:not(.p-button-text):not(.p-button-outlined):not(.p-button-secondary) .p-button-icon,
+.p-button:not(.p-button-text):not(.p-button-outlined):not(.p-button-secondary) .p-button-label,
+.p-button:not(.p-button-text):not(.p-button-outlined):not(.p-button-secondary) > i {
+  color: #ffffff;
+}
+
+.p-button.p-button-secondary,
+.p-button.p-button-secondary .p-button-icon,
+.p-button.p-button-secondary .p-button-label {
+  color: var(--color-gray-700);
+}
+
 .p-button-icon-only {
   width: 2.5rem;
   height: 2.5rem;

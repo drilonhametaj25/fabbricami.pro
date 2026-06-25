@@ -22,19 +22,18 @@
 
           <div class="field-group">
             <div class="field">
-              <label for="category">Categoria</label>
-              <Dropdown
-                id="category"
-                v-model="form.category"
-                :options="categories"
-                optionLabel="label"
-                optionValue="value"
-                placeholder="Seleziona categoria"
+              <label for="categories">Categorie</label>
+              <TreeSelect
+                id="categories"
+                v-model="selectedCategories"
+                :options="categoryTree"
+                selectionMode="checkbox"
+                placeholder="Seleziona una o più categorie"
                 class="w-full"
-                filter
-                showClear
                 :loading="loadingCategories"
+                display="chip"
               />
+              <small>Puoi assegnare più categorie e sottocategorie (come su WooCommerce). La prima è la principale.</small>
             </div>
 
             <div class="field">
@@ -47,20 +46,6 @@
                 optionValue="value"
                 placeholder="Seleziona tipo"
                 class="w-full"
-              />
-            </div>
-          </div>
-
-          <!-- Categorie WooCommerce (solo in modifica) -->
-          <div class="field" v-if="isEdit && productCategories.length > 0">
-            <label>Categorie WooCommerce</label>
-            <div class="categories-display">
-              <Tag
-                v-for="cat in productCategories"
-                :key="cat.id"
-                :value="cat.name"
-                :severity="cat.isPrimary ? 'success' : 'info'"
-                class="mr-2 mb-2"
               />
             </div>
           </div>
@@ -82,6 +67,7 @@
                 :minFractionDigits="2"
                 :maxFractionDigits="2"
                 class="w-full"
+                :highlightOnFocus="true"
               />
             </div>
 
@@ -96,6 +82,7 @@
                 :minFractionDigits="2"
                 :maxFractionDigits="2"
                 class="w-full"
+                :highlightOnFocus="true"
               />
             </div>
           </div>
@@ -252,10 +239,10 @@ import InputText from 'primevue/inputtext';
 import InputNumber from 'primevue/inputnumber';
 import Textarea from 'primevue/textarea';
 import Dropdown from 'primevue/dropdown';
+import TreeSelect from 'primevue/treeselect';
 import Checkbox from 'primevue/checkbox';
 import Button from 'primevue/button';
 import Badge from 'primevue/badge';
-import Tag from 'primevue/tag';
 import { useToast } from 'primevue/usetoast';
 import ProductWebFields from './ProductWebFields.vue';
 import ProductMaterials from './ProductMaterials.vue';
@@ -318,42 +305,42 @@ const wordpressUrl = computed(() => {
   return 'https://example.com';
 });
 
-// Categorie caricate dal database
-const categories = ref<{ label: string; value: string }[]>([]);
+// Categorie caricate dal database (multi-categoria con TreeSelect)
+const categoryTree = ref<any[]>([]);
+const selectedCategories = ref<Record<string, any> | null>(null);
 const loadingCategories = ref(false);
+
+const transformToTreeSelectFormat = (items: any[]): any[] =>
+  items.map((cat) => ({
+    key: cat.id,
+    label: cat.name,
+    data: cat,
+    children: cat.children?.length ? transformToTreeSelectFormat(cat.children) : undefined,
+  }));
 
 const loadCategories = async () => {
   try {
     loadingCategories.value = true;
-    // Richiedi le categorie in formato albero
     const response = await api.get('/product-categories?tree=true');
-
     if (response.success && response.data) {
-      // response.data è già un array di categorie root con children
-      const buildCategoryOptions = (items: any[], level = 0): { label: string; value: string }[] => {
-        const result: { label: string; value: string }[] = [];
-        for (const cat of items) {
-          const indent = level > 0 ? '— '.repeat(level) : '';
-          result.push({
-            label: `${indent}${cat.name}`,
-            value: cat.name, // Usiamo il nome come valore per compatibilità
-          });
-          // Se ha figli, aggiungili ricorsivamente
-          if (cat.children?.length) {
-            result.push(...buildCategoryOptions(cat.children, level + 1));
-          }
-        }
-        return result;
-      };
-
-      categories.value = buildCategoryOptions(response.data);
+      categoryTree.value = transformToTreeSelectFormat(response.data);
     }
   } catch (error) {
     console.error('Errore caricamento categorie:', error);
-    categories.value = [];
+    categoryTree.value = [];
   } finally {
     loadingCategories.value = false;
   }
+};
+
+// Estrae gli id selezionati dal modello del TreeSelect (gestisce sia
+// { id: true } sia { id: { checked: true } }).
+const extractCheckedIds = (selection: Record<string, any> | null): string[] => {
+  if (!selection) return [];
+  return Object.keys(selection).filter((k) => {
+    const v = selection[k];
+    return v === true || (v && v.checked);
+  });
 };
 
 onMounted(() => {
@@ -418,6 +405,14 @@ watch(() => props.modelValue, (val) => {
       name: c.category?.name || 'N/A',
       isPrimary: c.isPrimary || false,
     }));
+    // Preseleziona le categorie esistenti nel TreeSelect (multi)
+    const catIds = (props.product.categories || [])
+      .map((c: any) => c.category?.id || c.categoryId)
+      .filter(Boolean);
+    selectedCategories.value = catIds.reduce((acc: Record<string, any>, id: string) => {
+      acc[id] = { checked: true, partialChecked: false };
+      return acc;
+    }, {});
     productInventory.value = props.product.inventory || [];
     activeTab.value = 0;
   } else {
@@ -446,6 +441,7 @@ const resetForm = () => {
   };
   productImages.value = [];
   productCategories.value = [];
+  selectedCategories.value = null;
   productInventory.value = [];
   activeTab.value = 0;
 };
@@ -512,7 +508,7 @@ function validateProductForm(): { valid: boolean; errors: string[] } {
   return { valid: errors.length === 0, errors };
 }
 
-const save = () => {
+const save = async () => {
   // Valida prima di emettere. Mostra toast con elenco errori se invalido.
   const validation = validateProductForm();
   if (!validation.valid) {
@@ -526,6 +522,21 @@ const save = () => {
   }
 
   loading.value = true;
+
+  // Persiste le categorie (multi) tramite l'endpoint dedicato. La gestione del
+  // campo `category` del prodotto è delegata a questo endpoint (imposta la primaria),
+  // quindi lo rimuoviamo dal payload PATCH per non sovrascriverlo con un valore stale.
+  if (isEdit.value && props.product?.id) {
+    const categoryIds = extractCheckedIds(selectedCategories.value);
+    try {
+      await api.put(`/products/${props.product.id}/categories`, {
+        categoryIds,
+        primaryCategoryId: categoryIds[0],
+      });
+    } catch (error) {
+      console.warn('Impossibile salvare le categorie:', error);
+    }
+  }
 
   // Unisci i campi web nel form principale
   const productData = {
@@ -549,6 +560,8 @@ const save = () => {
   delete (productData as any).variants;
   delete (productData as any).productImages;
   delete (productData as any).categories;
+  // `category` (primaria) è gestita da PUT /:id/categories: non inviarla nel PATCH
+  delete (productData as any).category;
   delete (productData as any).bomItems;
   delete (productData as any).bomComponents;
   delete (productData as any).operations;

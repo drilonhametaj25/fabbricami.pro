@@ -161,21 +161,36 @@
         <!-- Attributes -->
         <div class="form-section">
           <h5>Attributi</h5>
+          <p class="section-hint">
+            Scegli un attributo già esistente (es. Colore → Rosso) dal menù a tendina,
+            oppure scrivine uno nuovo. Attributi con lo stesso nome vengono raggruppati
+            automaticamente (come su WooCommerce).
+          </p>
           <div class="attributes-editor">
             <div
               v-for="(attr, index) in form.attributesList"
               :key="index"
               class="attribute-row"
             >
-              <InputText
+              <AutoComplete
                 v-model="attr.key"
+                :suggestions="attrNameSuggestions"
+                @complete="searchAttrNames($event)"
+                dropdown
+                completeOnFocus
                 placeholder="Nome (es. Colore)"
                 class="attr-key"
+                inputClass="w-full"
               />
-              <InputText
+              <AutoComplete
                 v-model="attr.value"
+                :suggestions="attrValueSuggestions"
+                @complete="searchAttrValues($event, attr.key)"
+                dropdown
+                completeOnFocus
                 placeholder="Valore (es. Rosso)"
                 class="attr-value"
+                inputClass="w-full"
               />
               <Button
                 icon="pi pi-trash"
@@ -197,38 +212,45 @@
           <h5>Prezzi</h5>
           <div class="form-grid">
             <div class="field">
-              <label>Prezzo Web (specifico)</label>
+              <label>Prezzo specifico variante</label>
               <InputNumber
                 v-model="form.webPrice"
                 mode="currency"
                 currency="EUR"
                 locale="it-IT"
                 class="w-full"
+                :highlightOnFocus="true"
+                placeholder="es. 29,90"
               />
-              <small>Lascia vuoto per usare prezzo base + delta</small>
+              <small>Prezzo di vendita di questa variante. Lascia vuoto per usare il prezzo base del prodotto.</small>
             </div>
             <div class="field">
-              <label>Delta Prezzo</label>
+              <label>Prezzo aggiuntivo (+/-)</label>
               <InputNumber
                 v-model="form.priceDelta"
                 mode="currency"
                 currency="EUR"
                 locale="it-IT"
                 class="w-full"
+                :highlightOnFocus="true"
+                placeholder="0,00"
               />
-              <small>Differenza rispetto al prezzo base</small>
+              <small>Quanto aggiungere (o togliere) al prezzo base. Lascia vuoto se il prezzo è uguale.</small>
             </div>
           </div>
           <div class="form-grid">
             <div class="field">
-              <label>Delta Costo</label>
+              <label>Costo aggiuntivo (+/-)</label>
               <InputNumber
                 v-model="form.costDelta"
                 mode="currency"
                 currency="EUR"
                 locale="it-IT"
                 class="w-full"
+                :highlightOnFocus="true"
+                placeholder="0,00"
               />
+              <small>Maggiore (o minore) costo di questa variante rispetto al costo base. Lascia vuoto se uguale.</small>
             </div>
             <div class="field">
               <label>
@@ -239,40 +261,87 @@
           </div>
         </div>
 
-        <!-- Physical -->
+        <!-- Giacenza variante (campo rapido, magazzino Web) -->
         <div class="form-section">
-          <h5>Caratteristiche Fisiche</h5>
+          <h5>Giacenza</h5>
           <div class="form-grid">
             <div class="field">
-              <label>Peso (kg)</label>
+              <label>Quantità disponibile (Web)</label>
               <InputNumber
-                v-model="form.weight"
-                :minFractionDigits="3"
-                :maxFractionDigits="3"
+                v-model="form.stockWeb"
+                :min="0"
+                showButtons
                 class="w-full"
+                :highlightOnFocus="true"
+                placeholder="0"
               />
+              <small>Quantità a magazzino per l'e-commerce. Per gli altri magazzini usa il pulsante "Giacenze" nella lista varianti.</small>
             </div>
-            <div class="field">
-              <label>Dimensioni (cm)</label>
-              <div class="dimensions-grid">
-                <InputNumber v-model="form.width" placeholder="L" :min="0" />
-                <InputNumber v-model="form.height" placeholder="H" :min="0" />
-                <InputNumber v-model="form.depth" placeholder="P" :min="0" />
-              </div>
+            <div class="field"></div>
+          </div>
+        </div>
+
+        <!-- Physical -->
+        <div class="form-section">
+          <h5>Caratteristiche Fisiche <span class="optional-hint">(facoltative)</span></h5>
+          <div class="field">
+            <label>Peso (kg)</label>
+            <InputNumber
+              v-model="form.weight"
+              :minFractionDigits="0"
+              :maxFractionDigits="3"
+              class="w-full"
+              :highlightOnFocus="true"
+              placeholder="0,000"
+            />
+          </div>
+          <div class="field dimensions-field">
+            <label>Dimensioni (cm) — Larghezza × Altezza × Profondità</label>
+            <div class="dimensions-grid">
+              <InputNumber v-model="form.width" placeholder="Largh." :min="0" class="w-full" :highlightOnFocus="true" />
+              <InputNumber v-model="form.height" placeholder="Alt." :min="0" class="w-full" :highlightOnFocus="true" />
+              <InputNumber v-model="form.depth" placeholder="Prof." :min="0" class="w-full" :highlightOnFocus="true" />
             </div>
           </div>
+          <small>Le misure sono facoltative: lascia vuoto se non disponibili (es. varianti importate da WooCommerce).</small>
         </div>
 
         <!-- Image -->
         <div class="form-section">
           <h5>Immagine</h5>
+          <p class="section-hint">
+            Trascina qui un'immagine o caricala dal computer: viene salvata sul server del
+            gestionale e sincronizzata su WooCommerce alla pubblicazione. In alternativa incolla un URL.
+          </p>
           <div class="image-section">
             <div class="field flex-1">
-              <label>URL Immagine</label>
+              <div
+                class="variant-dropzone"
+                :class="{ 'drag-active': dragActive }"
+                @dragover.prevent="dragActive = true"
+                @dragleave.prevent="dragActive = false"
+                @drop.prevent="onImageDrop"
+              >
+                <FileUpload
+                  mode="basic"
+                  accept="image/*"
+                  :maxFileSize="10000000"
+                  :auto="true"
+                  customUpload
+                  @uploader="onImageUploader"
+                  chooseLabel="Scegli immagine"
+                  :disabled="uploadingImage"
+                />
+                <span class="dropzone-hint">
+                  <i class="pi pi-cloud-upload"></i> Trascina qui l'immagine
+                </span>
+                <i v-if="uploadingImage" class="pi pi-spin pi-spinner upload-spinner"></i>
+              </div>
+              <label class="mt-1">oppure URL immagine</label>
               <InputText v-model="form.mainImageUrl" class="w-full" placeholder="https://..." />
             </div>
             <div class="image-preview" v-if="form.mainImageUrl">
-              <img :src="form.mainImageUrl" alt="Preview" @error="onImageError($event)" />
+              <img :src="resolveImageSrc(form.mainImageUrl)" alt="Preview" @error="onImageError($event)" />
             </div>
           </div>
         </div>
@@ -324,6 +393,8 @@ import InputText from 'primevue/inputtext';
 import InputNumber from 'primevue/inputnumber';
 import Textarea from 'primevue/textarea';
 import Checkbox from 'primevue/checkbox';
+import AutoComplete from 'primevue/autocomplete';
+import FileUpload from 'primevue/fileupload';
 import Tag from 'primevue/tag';
 import Badge from 'primevue/badge';
 import ConfirmDialog from 'primevue/confirmdialog';
@@ -381,6 +452,7 @@ const getDefaultForm = () => ({
   depth: null as number | null,
   webPrice: null as number | null,
   webActive: true,
+  stockWeb: 0 as number | null,
   mainImageUrl: '',
   webDescription: '',
   isActive: true,
@@ -414,6 +486,104 @@ const loadVariants = async () => {
   }
 };
 
+// ── Attributi: suggerimenti dagli esistenti (WooCommerce + varianti già create) ──
+const attributeSuggestions = ref<Array<{ name: string; values: string[] }>>([]);
+const attrNameSuggestions = ref<string[]>([]);
+const attrValueSuggestions = ref<string[]>([]);
+
+const loadAttributeSuggestions = async () => {
+  try {
+    const response = await api.get('/products/variant-attributes/suggestions');
+    if (response.success) {
+      attributeSuggestions.value = response.data || [];
+    }
+  } catch (error) {
+    // Non bloccante: l'utente può comunque digitare attributi liberi.
+    console.warn('Impossibile caricare i suggerimenti attributi:', error);
+  }
+};
+
+const searchAttrNames = (event: { query: string }) => {
+  const q = (event.query || '').toLowerCase();
+  const names = attributeSuggestions.value.map(a => a.name);
+  attrNameSuggestions.value = q
+    ? names.filter(n => n.toLowerCase().includes(q))
+    : names;
+};
+
+const searchAttrValues = (event: { query: string }, key: string) => {
+  const q = (event.query || '').toLowerCase();
+  const match = attributeSuggestions.value.find(
+    a => a.name.toLowerCase() === (key || '').toLowerCase()
+  );
+  const values = match ? match.values : [];
+  attrValueSuggestions.value = q
+    ? values.filter(v => v.toLowerCase().includes(q))
+    : values;
+};
+
+// ── Immagine variante: upload sul server ERP + drag & drop ──
+const dragActive = ref(false);
+const uploadingImage = ref(false);
+
+const resolveImageSrc = (src: string) => {
+  if (!src) return '';
+  if (src.startsWith('http://') || src.startsWith('https://') || src.startsWith('data:')) {
+    return src;
+  }
+  const base = (import.meta.env.VITE_API_URL as string | undefined)?.replace('/api/v1', '')
+    || 'http://localhost:3000';
+  return `${base}${src}`;
+};
+
+const uploadVariantImage = async (file: File) => {
+  if (!file || !props.productId) return;
+  try {
+    uploadingImage.value = true;
+    const formData = new FormData();
+    formData.append('image', file);
+
+    const token = localStorage.getItem('token');
+    const baseUrl = (import.meta.env.VITE_API_URL as string | undefined) || 'http://localhost:3000/api/v1';
+    const apiBase = baseUrl.endsWith('/api/v1') ? baseUrl : `${baseUrl}/api/v1`;
+
+    const response = await fetch(`${apiBase}/products/${props.productId}/images/upload`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+    const result = await response.json();
+
+    if (result.success && result.data?.src) {
+      form.mainImageUrl = result.data.src;
+      toast.add({ severity: 'success', summary: 'Immagine caricata', life: 2500 });
+    } else {
+      throw new Error(result.error || 'Errore durante il caricamento');
+    }
+  } catch (error: any) {
+    toast.add({
+      severity: 'error',
+      summary: 'Errore upload',
+      detail: error.message || 'Impossibile caricare l\'immagine',
+      life: 4000,
+    });
+  } finally {
+    uploadingImage.value = false;
+    dragActive.value = false;
+  }
+};
+
+const onImageUploader = (event: any) => {
+  const file = event?.files?.[0];
+  if (file) uploadVariantImage(file);
+};
+
+const onImageDrop = (event: DragEvent) => {
+  dragActive.value = false;
+  const file = event.dataTransfer?.files?.[0];
+  if (file) uploadVariantImage(file);
+};
+
 const openCreateDialog = () => {
   isEditing.value = false;
   Object.assign(form, getDefaultForm());
@@ -444,6 +614,7 @@ const editVariant = (variant: ProductVariant) => {
     depth: variant.dimensions?.depth || null,
     webPrice: variant.webPrice ? Number(variant.webPrice) : null,
     webActive: variant.webActive,
+    stockWeb: getWebStock(variant),
     mainImageUrl: variant.mainImageUrl || '',
     webDescription: variant.webDescription || '',
     isActive: variant.isActive,
@@ -471,25 +642,45 @@ const removeAttribute = (index: number) => {
   }
 };
 
+// Validazione inline pre-submit: ritorna l'elenco dei campi mancanti così
+// l'utente capisce subito cosa serve (niente più "errore in codice" opaco).
+const getMissingFields = (): string[] => {
+  const missing: string[] = [];
+  if (!form.sku.trim()) missing.push('SKU');
+  if (!form.name.trim()) missing.push('Nome');
+  return missing;
+};
+
 const saveVariant = async () => {
-  // Validation
-  if (!form.sku.trim() || !form.name.trim()) {
+  // Validation chiara: misure e attributi NON sono obbligatori.
+  const missing = getMissingFields();
+  if (missing.length > 0) {
     toast.add({
-      severity: 'error',
-      summary: 'Errore',
-      detail: 'SKU e Nome sono obbligatori',
-      life: 3000,
+      severity: 'warn',
+      summary: 'Campi obbligatori mancanti',
+      detail: `Compila: ${missing.join(', ')}`,
+      life: 4000,
     });
     return;
   }
 
-  // Build attributes object
+  // Build attributes object (solo coppie complete)
   const attributes: Record<string, string> = {};
   form.attributesList.forEach(attr => {
-    if (attr.key.trim() && attr.value.trim()) {
+    if (attr.key?.trim() && attr.value?.trim()) {
       attributes[attr.key.trim()] = attr.value.trim();
     }
   });
+
+  // Dimensioni: invia solo i valori effettivamente compilati (facoltative)
+  const hasDimensions = form.width != null || form.height != null || form.depth != null;
+  const dimensions = hasDimensions
+    ? {
+        ...(form.width != null ? { width: form.width } : {}),
+        ...(form.height != null ? { height: form.height } : {}),
+        ...(form.depth != null ? { depth: form.depth } : {}),
+      }
+    : undefined;
 
   const data = {
     sku: form.sku,
@@ -499,11 +690,7 @@ const saveVariant = async () => {
     costDelta: form.costDelta,
     priceDelta: form.priceDelta,
     weight: form.weight,
-    dimensions: (form.width || form.height || form.depth) ? {
-      width: form.width,
-      height: form.height,
-      depth: form.depth,
-    } : undefined,
+    dimensions,
     webPrice: form.webPrice,
     webActive: form.webActive,
     mainImageUrl: form.mainImageUrl || undefined,
@@ -514,18 +701,22 @@ const saveVariant = async () => {
   try {
     saving.value = true;
     let response;
+    let variantId = form.id;
 
     if (isEditing.value) {
-      // Backend espone PATCH /products/variants/:variantId (route flat),
-      // non c'è PUT su path nidificato. Usiamo PATCH sull'endpoint corretto.
+      // Backend espone PATCH /products/variants/:variantId (route flat).
       response = await api.patch(`/products/variants/${form.id}`, data);
     } else {
       response = await api.post(`/products/${props.productId}/variants`, data);
+      variantId = response?.data?.id || '';
     }
 
-    // Ricarica la lista comunque (anche se response.success è falsy ma non
-    // siamo finiti nel catch): garantisce sync UI ↔ DB e fixa il bug
-    // "lista varianti non refresha dopo POST".
+    // Salva la giacenza rapida (magazzino Web) se valorizzata
+    if (variantId && form.stockWeb != null) {
+      await saveVariantStock(variantId, Number(form.stockWeb) || 0);
+    }
+
+    // Ricarica la lista comunque: garantisce sync UI ↔ DB.
     await loadVariants();
 
     if (response?.success !== false) {
@@ -537,19 +728,31 @@ const saveVariant = async () => {
       });
     }
   } catch (error: any) {
+    // Il backend ora restituisce un messaggio leggibile in italiano; qui lo
+    // mostriamo, con fallback amichevole se l'errore non avesse messaggio.
     toast.add({
       severity: 'error',
-      summary: 'Errore',
-      detail: error.message || 'Errore salvataggio variante',
-      life: 3000,
+      summary: 'Impossibile salvare la variante',
+      detail: error?.message || 'Controlla i dati inseriti e riprova.',
+      life: 5000,
     });
-    // anche in errore, tenta refresh — la richiesta POST può essere
-    // andata a buon fine ma il client ha ricevuto un errore di rete
-    // sulla risposta successiva (es. redirect 402)
     try { await loadVariants(); } catch (_) { /* noop */ }
   } finally {
     saving.value = false;
   }
+};
+
+// Salva la quantità della variante sul magazzino Web (location WEB) tramite
+// l'endpoint inventario varianti esistente.
+const saveVariantStock = async (variantId: string, quantity: number) => {
+  await api.put(`/products/${props.productId}/variants/${variantId}/inventory`, {
+    items: [{ location: 'WEB', quantity, reservedQuantity: 0 }],
+  });
+};
+
+const getWebStock = (variant: ProductVariant): number => {
+  const web = (variant.inventory || []).find((i: any) => i.location === 'WEB');
+  return web ? Number(web.quantity) || 0 : 0;
 };
 
 const confirmDelete = (variant: ProductVariant) => {
@@ -617,6 +820,7 @@ watch(() => props.productId, () => {
 }, { immediate: true });
 
 onMounted(() => {
+  loadAttributeSuggestions();
   if (props.productId) {
     loadVariants();
   }
@@ -828,6 +1032,71 @@ onMounted(() => {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
   gap: 0.5rem;
+}
+
+.dimensions-field {
+  margin-top: 0.75rem;
+}
+
+.dimensions-grid :deep(.p-inputnumber) {
+  width: 100%;
+}
+
+.optional-hint {
+  font-size: 0.7rem;
+  font-weight: 400;
+  color: #94a3b8;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.section-hint {
+  margin: 0 0 0.75rem 0;
+  font-size: 0.8rem;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+.mt-1 {
+  margin-top: 0.5rem;
+}
+
+/* Attributi AutoComplete a piena larghezza */
+.attr-key :deep(.p-autocomplete),
+.attr-value :deep(.p-autocomplete),
+.attr-key :deep(.p-autocomplete-input),
+.attr-value :deep(.p-autocomplete-input) {
+  width: 100%;
+}
+
+/* Dropzone immagine variante */
+.variant-dropzone {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0.75rem;
+  border: 2px dashed #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+  transition: all 0.15s ease;
+}
+
+.variant-dropzone.drag-active {
+  border-color: #3b82f6;
+  background: #eff6ff;
+}
+
+.dropzone-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: #64748b;
+  font-size: 0.85rem;
+}
+
+.upload-spinner {
+  color: #3b82f6;
 }
 
 .image-section {
