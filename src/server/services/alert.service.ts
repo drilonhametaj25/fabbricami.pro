@@ -266,6 +266,105 @@ class AlertService {
     };
   }
 
+  // Marker stabile della notifica-riepilogo scorte: (userId, type, link)
+  // identificano in modo univoco l'unica notifica di riepilogo per utente.
+  static readonly STOCK_SUMMARY_LINK = '/products?alert=scorte';
+  static readonly STOCK_SUMMARY_TITLE = 'Scorte sotto soglia';
+
+  /**
+   * Invia/aggiorna UNA sola notifica di RIEPILOGO scorte per ogni utente
+   * abilitato, invece di una notifica per ogni prodotto (che generava
+   * migliaia di notifiche duplicate). Comportamento:
+   *  - se ci sono entità sotto scorta → crea o aggiorna l'unica notifica
+   *    riepilogo (la riporta in cima e "non letta");
+   *  - se non c'è più nulla sotto scorta → marca come letta la notifica
+   *    riepilogo esistente (auto-risoluzione).
+   * Cliccando la notifica si apre la lista prodotti filtrata sulle scorte.
+   * Ritorna il numero di utenti notificati.
+   */
+  async sendStockSummary(result: AlertCheckResult): Promise<number> {
+    const lowProductAlerts = result.alerts.filter(
+      (a) => a.entityType === 'product' && (a.type === 'LOW_STOCK' || a.type === 'OUT_OF_STOCK')
+    );
+    const lowMaterialAlerts = result.alerts.filter(
+      (a) => a.entityType === 'material' && (a.type === 'MATERIAL_SHORTAGE' || a.type === 'OUT_OF_STOCK')
+    );
+    const lowProducts = lowProductAlerts.length;
+    const lowMaterials = lowMaterialAlerts.length;
+    const total = lowProducts + lowMaterials;
+
+    const users = await prisma.user.findMany({
+      where: { role: { in: ['MAGAZZINIERE', 'ADMIN', 'MANAGER'] }, isActive: true },
+      select: { id: true },
+    });
+    if (users.length === 0) return 0;
+
+    const link = AlertService.STOCK_SUMMARY_LINK;
+    const title = AlertService.STOCK_SUMMARY_TITLE;
+    let touched = 0;
+
+    for (const user of users) {
+      const existing = await prisma.notification.findFirst({
+        where: { userId: user.id, type: 'LOW_STOCK', link },
+      });
+
+      // Nessuna scorta critica → risolvi (marca come letta) il riepilogo esistente
+      if (total === 0) {
+        if (existing && !existing.isRead) {
+          await prisma.notification.update({
+            where: { id: existing.id },
+            data: { isRead: true },
+          });
+        }
+        continue;
+      }
+
+      const message = this.buildSummaryMessage(lowProductAlerts, lowMaterialAlerts);
+
+      if (existing) {
+        // Aggiorna in place: una sola notifica riepilogo sempre fresca e in cima
+        await prisma.notification.update({
+          where: { id: existing.id },
+          data: { message, isRead: false, createdAt: new Date() },
+        });
+      } else {
+        await notificationService.createNotification({
+          userId: user.id,
+          type: 'LOW_STOCK',
+          title,
+          message,
+          link,
+        });
+      }
+      touched++;
+    }
+
+    logger.info(`Stock summary: ${total} entità sotto scorta, ${touched} utenti notificati`);
+    return touched;
+  }
+
+  /**
+   * Messaggio di riepilogo: conteggi + qualche nome di esempio.
+   */
+  private buildSummaryMessage(
+    productAlerts: StockAlert[],
+    materialAlerts: StockAlert[]
+  ): string {
+    const parts: string[] = [];
+    if (productAlerts.length > 0) {
+      parts.push(`${productAlerts.length} ${productAlerts.length === 1 ? 'prodotto' : 'prodotti'}`);
+    }
+    if (materialAlerts.length > 0) {
+      parts.push(`${materialAlerts.length} ${materialAlerts.length === 1 ? 'materiale' : 'materiali'}`);
+    }
+    const names = [...productAlerts, ...materialAlerts]
+      .slice(0, 3)
+      .map((a) => a.entityName)
+      .filter(Boolean);
+    const examples = names.length > 0 ? ` (es. ${names.join(', ')})` : '';
+    return `${parts.join(' e ')} sotto scorta minima${examples}. Clicca per vedere e sistemare le giacenze.`;
+  }
+
   /**
    * Invia notifiche per gli alert trovati
    */

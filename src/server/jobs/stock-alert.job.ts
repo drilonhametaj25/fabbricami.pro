@@ -25,19 +25,16 @@ export async function checkStockAlertsJob(_job: unknown): Promise<void> {
     logger.info(
       `[${tenantSlug}] ${result.productsChecked} products, ${result.materialsChecked} materials, ${result.alerts.length} alerts`
     );
-    if (result.alerts.length === 0) return;
 
-    const newAlerts = await alertService.filterRecentAlerts(result.alerts);
-    if (newAlerts.length === 0) {
-      logger.info(`[${tenantSlug}] All alerts already notified in last 24h`);
-      return;
-    }
-    const sentCount = await alertService.sendAlertNotifications(newAlerts);
+    // UNA sola notifica di riepilogo per utente (aggiornata in place), invece
+    // di una per prodotto: evita il flood di migliaia di notifiche duplicate.
+    // Auto-risoluzione quando non c'è più nulla sotto scorta.
+    const sentCount = await alertService.sendStockSummary(result);
     totalAlerts += sentCount;
-    logger.info(`[${tenantSlug}] Sent ${sentCount} alert notifications`);
+    logger.info(`[${tenantSlug}] Stock summary aggiornato per ${sentCount} utenti`);
   });
 
-  logger.info(`Stock alerts check completed: ${totalAlerts} total notifications sent`);
+  logger.info(`Stock alerts check completed: ${totalAlerts} summary notifications`);
 }
 
 /**
@@ -139,7 +136,10 @@ export function initStockAlertJobs() {
     1
   );
 
-  queueManager.addRecurringJob('stock-alerts', 'check-stock-alerts', { type: 'stock-check' }, '0 * * * *');
+  // Giornaliero (08:00) invece che ogni ora: la notifica è un riepilogo
+  // aggiornato in place, non serve rigenerarlo ogni ora (era una delle cause
+  // dell'accumulo di migliaia di notifiche).
+  queueManager.addRecurringJob('stock-alerts', 'check-stock-alerts', { type: 'stock-check' }, '0 8 * * *');
   queueManager.addRecurringJob('stock-alerts', 'check-expiring-lots', { type: 'expiry-check' }, '0 8 * * *');
 
   logger.info('Stock alert jobs initialized');

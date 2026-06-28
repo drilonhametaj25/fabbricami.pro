@@ -6,6 +6,7 @@ const prismaMock = mockDeep<PrismaClient>();
 
 const mockNotificationService = {
   notifyRoles: jest.fn().mockResolvedValue(undefined),
+  createNotification: jest.fn().mockResolvedValue({ id: 'notif-1' }),
 };
 
 const mockLogger = {
@@ -441,6 +442,74 @@ describe('AlertService', () => {
 
       expect(result.productsChecked).toBe(3);
       expect(result.materialsChecked).toBe(2);
+    });
+  });
+
+  // ==================== sendStockSummary ====================
+  describe('sendStockSummary', () => {
+    const lowStockResult = {
+      alerts: [
+        { type: 'LOW_STOCK', entityType: 'product', entityId: 'p1', entityName: 'Mouse', sku: 'M1', currentValue: 2, thresholdValue: 10 },
+        { type: 'OUT_OF_STOCK', entityType: 'product', entityId: 'p2', entityName: 'Cover', sku: 'C1', currentValue: 0, thresholdValue: 5 },
+        { type: 'MATERIAL_SHORTAGE', entityType: 'material', entityId: 'm1', entityName: 'Plastica', sku: 'PL1', currentValue: 1, thresholdValue: 8 },
+      ],
+      checkedAt: new Date(),
+      productsChecked: 2,
+      materialsChecked: 1,
+    } as any;
+
+    it('creates ONE summary notification per user when none exists', async () => {
+      prismaMock.user.findMany.mockResolvedValue([{ id: 'u1' }, { id: 'u2' }] as any);
+      prismaMock.notification.findFirst.mockResolvedValue(null);
+
+      const touched = await alertService.sendStockSummary(lowStockResult);
+
+      expect(touched).toBe(2);
+      // una createNotification per utente, con link al filtro scorte
+      expect(mockNotificationService.createNotification).toHaveBeenCalledTimes(2);
+      const call = mockNotificationService.createNotification.mock.calls[0][0];
+      expect(call.type).toBe('LOW_STOCK');
+      expect(call.link).toBe('/products?alert=scorte');
+      expect(call.message).toMatch(/2 prodotti e 1 materiale/);
+      // niente notifiche per-prodotto
+      expect(prismaMock.notification.update).not.toHaveBeenCalled();
+    });
+
+    it('updates the existing summary in place instead of creating a new one', async () => {
+      prismaMock.user.findMany.mockResolvedValue([{ id: 'u1' }] as any);
+      prismaMock.notification.findFirst.mockResolvedValue({ id: 'existing', isRead: true } as any);
+
+      await alertService.sendStockSummary(lowStockResult);
+
+      expect(mockNotificationService.createNotification).not.toHaveBeenCalled();
+      expect(prismaMock.notification.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'existing' },
+          data: expect.objectContaining({ isRead: false }),
+        })
+      );
+    });
+
+    it('auto-resolves (marks read) the summary when nothing is below stock', async () => {
+      const emptyResult = { alerts: [], checkedAt: new Date(), productsChecked: 5, materialsChecked: 2 } as any;
+      prismaMock.user.findMany.mockResolvedValue([{ id: 'u1' }] as any);
+      prismaMock.notification.findFirst.mockResolvedValue({ id: 'existing', isRead: false } as any);
+
+      const touched = await alertService.sendStockSummary(emptyResult);
+
+      expect(touched).toBe(0);
+      expect(mockNotificationService.createNotification).not.toHaveBeenCalled();
+      expect(prismaMock.notification.update).toHaveBeenCalledWith({
+        where: { id: 'existing' },
+        data: { isRead: true },
+      });
+    });
+
+    it('does nothing when there are no target users', async () => {
+      prismaMock.user.findMany.mockResolvedValue([] as any);
+      const touched = await alertService.sendStockSummary(lowStockResult);
+      expect(touched).toBe(0);
+      expect(mockNotificationService.createNotification).not.toHaveBeenCalled();
     });
   });
 

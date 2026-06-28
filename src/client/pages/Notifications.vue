@@ -98,8 +98,11 @@
             <div
               v-for="notification in notifications"
               :key="notification.id"
-              :class="['notification-item', { 'notification-item--unread': !notification.isRead }]"
-              @click="markAsRead(notification)"
+              :class="['notification-item', {
+                'notification-item--unread': !notification.isRead,
+                'notification-item--clickable': !!notification.link,
+              }]"
+              @click="openNotification(notification)"
             >
               <div :class="['notification-icon', getTypeClass(notification.type)]">
                 <i :class="getTypeIcon(notification.type)"></i>
@@ -110,9 +113,14 @@
                   <span class="notification-time">{{ formatTimeAgo(notification.createdAt) }}</span>
                 </div>
                 <p class="notification-message">{{ notification.message }}</p>
-                <Tag :severity="getTypeSeverity(notification.type)" class="notification-tag">
-                  {{ getTypeLabel(notification.type) }}
-                </Tag>
+                <div class="notification-meta">
+                  <Tag :severity="getTypeSeverity(notification.type)" class="notification-tag">
+                    {{ getTypeLabel(notification.type) }}
+                  </Tag>
+                  <span v-if="notification.link" class="notification-cta">
+                    <i class="pi pi-arrow-right"></i> Vai e sistema
+                  </span>
+                </div>
               </div>
               <div class="notification-actions">
                 <Button
@@ -147,6 +155,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import Button from 'primevue/button';
 import Dropdown from 'primevue/dropdown';
 import Tag from 'primevue/tag';
@@ -160,6 +169,7 @@ import StatsCard from '../components/StatsCard.vue';
 
 const toast = useToast();
 const confirm = useConfirm();
+const router = useRouter();
 const loading = ref(false);
 const notifications = ref([]);
 const totalRecords = ref(0);
@@ -321,6 +331,23 @@ const loadNotifications = async () => {
 const onPage = (event: any) => {
   page.value = event.page + 1;
   loadNotifications();
+};
+
+// Click sulla notifica: la segna come letta e porta l'utente alla sezione
+// collegata (es. il prodotto/materiale/ordine) per poterla sistemare; poi
+// l'utente può eliminarla dalla lista.
+const openNotification = (notification: any) => {
+  markAsRead(notification); // no-op se già letta (fire-and-forget)
+  if (notification.link) {
+    router.push(notification.link);
+  } else {
+    toast.add({
+      severity: 'info',
+      summary: 'Nessun collegamento',
+      detail: 'Questa notifica non rimanda ad una sezione specifica.',
+      life: 2500,
+    });
+  }
 };
 
 const markAsRead = async (notification: any) => {
@@ -596,6 +623,33 @@ onMounted(() => {
 
 .notification-tag {
   font-size: var(--font-size-xs) !important;
+}
+
+.notification-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+/* Indicatore "cliccabile → vai alla sezione" */
+.notification-item--clickable:hover {
+  background: var(--color-primary-50, #eff6ff);
+}
+
+.notification-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-primary-600, #2563eb);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.notification-item--clickable:hover .notification-cta {
+  opacity: 1;
 }
 
 /* Notification Actions */

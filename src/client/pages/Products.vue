@@ -94,16 +94,21 @@
               showClear
               class="filter-dropdown"
             />
+            <button v-if="lowStockOnly" class="lowstock-chip" @click="clearLowStockFilter">
+              <i class="pi pi-exclamation-triangle"></i>
+              Solo sotto scorta ({{ displayedProducts.length }})
+              <i class="pi pi-times lowstock-chip__x"></i>
+            </button>
           </div>
         </div>
 
         <DataTable
-          :value="products"
+          :value="displayedProducts"
           :loading="loading"
           paginator
           :rows="20"
           :totalRecords="totalRecords"
-          :lazy="true"
+          :lazy="!lowStockOnly"
           @page="onPage"
           @sort="onSort"
           responsiveLayout="scroll"
@@ -438,6 +443,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
 import Button from 'primevue/button';
@@ -460,6 +466,8 @@ import StatsCard from '../components/StatsCard.vue';
 const toast = useToast();
 const confirm = useConfirm();
 const subscriptionStore = useSubscriptionStore();
+const route = useRoute();
+const router = useRouter();
 
 // Limit gating: disabilita "Nuovo Prodotto" quando il tenant ha raggiunto
 // il limite del piano corrente (-1 = illimitato).
@@ -476,6 +484,21 @@ const totalRecords = ref(0);
 const search = ref('');
 const selectedCategory = ref(null);
 const page = ref(1);
+
+// Filtro "solo sotto scorta": attivato arrivando dalla notifica riepilogo
+// (link /products?alert=scorte). In questa modalità carichiamo tutti i prodotti
+// e filtriamo lato client quelli con giacenza sotto la scorta minima.
+const lowStockOnly = ref(false);
+const displayedProducts = computed(() =>
+  lowStockOnly.value
+    ? (products.value as any[]).filter((p: any) => getTotalInventory(p) < (p.minStockLevel || 0))
+    : products.value
+);
+const clearLowStockFilter = () => {
+  lowStockOnly.value = false;
+  if (route.query.alert) router.replace({ query: {} });
+  loadProducts();
+};
 const sortBy = ref('createdAt');
 const sortOrder = ref('desc');
 
@@ -601,8 +624,10 @@ const loadProducts = async (retry = true) => {
     loading.value = true;
 
     const paramsObj: Record<string, string> = {
-      page: page.value.toString(),
-      limit: '20',
+      page: lowStockOnly.value ? '1' : page.value.toString(),
+      // In modalità "sotto scorta" carichiamo molti prodotti e filtriamo lato
+      // client (la giacenza non è filtrabile lato server).
+      limit: lowStockOnly.value ? '1000' : '20',
       sortBy: sortBy.value,
       sortOrder: sortOrder.value,
     };
@@ -637,6 +662,7 @@ const loadProducts = async (retry = true) => {
 };
 
 const onPage = (event: any) => {
+  if (lowStockOnly.value) return; // paginazione client-side in modalità sotto-scorta
   page.value = event.page + 1;
   loadProducts();
 };
@@ -743,6 +769,8 @@ const handleWizardCompleted = () => {
 };
 
 onMounted(async () => {
+  // Arrivo dalla notifica riepilogo scorte → mostra solo i prodotti sotto scorta.
+  lowStockOnly.value = route.query.alert === 'scorte';
   // Carica prima i prodotti (await) così la lista è pronta in modo
   // deterministico; le altre fetch possono procedere in parallelo.
   await loadProducts();
@@ -1085,6 +1113,30 @@ onMounted(async () => {
 
 .stock-value.stock-low {
   color: var(--color-danger);
+}
+
+/* Chip filtro "solo sotto scorta" (attivo dalla notifica riepilogo) */
+.lowstock-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--color-danger, #dc2626);
+  background: var(--color-danger-light, #fef2f2);
+  color: var(--color-danger-dark, #b91c1c);
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.lowstock-chip__x {
+  font-size: 0.7rem;
+  opacity: 0.7;
+}
+
+.lowstock-chip:hover .lowstock-chip__x {
+  opacity: 1;
 }
 
 /* Images Gallery */
