@@ -1010,7 +1010,10 @@ const loadOrders = async () => {
 
     if (response.success) {
       orders.value = response.data?.items || [];
-      totalRecords.value = response.data?.pagination?.total || 0;
+      // L'endpoint /purchase-orders pagina su data.total (non data.pagination.total):
+      // senza fallback il totale/paginatore mostrava 0.
+      totalRecords.value =
+        response.data?.total ?? response.data?.pagination?.total ?? orders.value.length;
     }
   } catch (error: any) {
     toast.add({

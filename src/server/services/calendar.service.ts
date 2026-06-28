@@ -225,9 +225,25 @@ class CalendarService {
    * Ottieni statistiche eventi per tipo
    */
   async getEventStatistics() {
-    const byType = await calendarRepository.countByType();
+    const now = new Date();
+    const in7Days = new Date(now);
+    in7Days.setDate(in7Days.getDate() + 7);
+    const in30Days = new Date(now);
+    in30Days.setDate(in30Days.getDate() + 30);
+
+    const [byType, todayEvents, upcomingEvents, reminderWindow] = await Promise.all([
+      calendarRepository.countByType(),
+      calendarRepository.getTodayEvents(),
+      calendarRepository.findByDateRange(now, in7Days),
+      calendarRepository.findByDateRange(now, in30Days),
+    ]);
 
     return {
+      // Card della UI: prima il backend restituiva solo `byType`, quindi
+      // today/upcoming/reminders erano undefined → la UI mostrava "NaN".
+      today: todayEvents.length,
+      upcoming: upcomingEvents.length,
+      reminders: reminderWindow.filter((e: any) => e.reminderMinutes != null).length,
       byType: byType.reduce((acc, item) => {
         acc[item.eventType] = item._count;
         return acc;

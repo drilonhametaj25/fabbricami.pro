@@ -412,7 +412,12 @@ const loadStats = async () => {
   try {
     const response = await api.get('/calendar-events/statistics');
     if (response.success) {
-      stats.value = response.data;
+      // Merge con default a 0: evita "NaN" nelle card se mancasse un campo.
+      stats.value = {
+        today: response.data?.today ?? 0,
+        upcoming: response.data?.upcoming ?? 0,
+        reminders: response.data?.reminders ?? 0,
+      };
     }
   } catch (error) {
     console.error('Error loading stats:', error);

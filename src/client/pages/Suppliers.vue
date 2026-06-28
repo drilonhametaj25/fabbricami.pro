@@ -522,7 +522,11 @@ const loadSuppliers = async () => {
 
     if (response.success) {
       suppliers.value = response.data?.items || [];
-      totalRecords.value = response.data?.pagination?.total || 0;
+      // L'endpoint /suppliers restituisce la paginazione direttamente su
+      // data.total (non data.pagination.total): senza questo fallback la card
+      // "Totale Fornitori" e il paginatore mostravano 0.
+      totalRecords.value =
+        response.data?.total ?? response.data?.pagination?.total ?? suppliers.value.length;
     }
   } catch (error: any) {
     toast.add({

@@ -23,6 +23,7 @@ const mockCalendarRepository = {
   createFromInvoice: jest.fn(),
   createFromTask: jest.fn(),
   findUpcomingWithReminder: jest.fn(),
+  findByDateRange: jest.fn(),
   countByType: jest.fn(),
 };
 
@@ -428,31 +429,38 @@ describe('Calendar Service', () => {
   // GET EVENT STATISTICS
   // =============================================
   describe('getEventStatistics', () => {
-    it('should return statistics grouped by event type', async () => {
+    it('should return today/upcoming/reminders plus byType', async () => {
       mockCalendarRepository.countByType.mockResolvedValue([
         { eventType: 'meeting', _count: 10 },
         { eventType: 'payment', _count: 5 },
         { eventType: 'reminder', _count: 15 },
       ]);
+      mockCalendarRepository.getTodayEvents.mockResolvedValue([{ id: '1' }, { id: '2' }]);
+      mockCalendarRepository.findByDateRange.mockResolvedValue([
+        { id: 'a', reminderMinutes: 30 },
+        { id: 'b', reminderMinutes: null },
+        { id: 'c', reminderMinutes: 15 },
+      ]);
 
       const result = await calendarService.getEventStatistics();
 
       expect(result).toEqual({
-        byType: {
-          meeting: 10,
-          payment: 5,
-          reminder: 15,
-        },
+        today: 2,
+        upcoming: 3,
+        reminders: 2, // solo quelli con reminderMinutes valorizzato
+        byType: { meeting: 10, payment: 5, reminder: 15 },
       });
       expect(mockCalendarRepository.countByType).toHaveBeenCalled();
     });
 
-    it('should handle empty statistics', async () => {
+    it('should handle empty statistics (no NaN)', async () => {
       mockCalendarRepository.countByType.mockResolvedValue([]);
+      mockCalendarRepository.getTodayEvents.mockResolvedValue([]);
+      mockCalendarRepository.findByDateRange.mockResolvedValue([]);
 
       const result = await calendarService.getEventStatistics();
 
-      expect(result).toEqual({ byType: {} });
+      expect(result).toEqual({ today: 0, upcoming: 0, reminders: 0, byType: {} });
     });
   });
 });
