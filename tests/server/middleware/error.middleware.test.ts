@@ -66,7 +66,7 @@ describe('Error Middleware', () => {
   // ERROR HANDLER
   // =============================================
   describe('errorHandler', () => {
-    it('should handle P2002 unique constraint violation', async () => {
+    it('should handle P2002 unique constraint violation with a field-aware message', async () => {
       const request = createMockRequest() as any;
       const reply = createMockReply();
       const error = new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
@@ -80,10 +80,48 @@ describe('Error Middleware', () => {
       expect(reply.status).toHaveBeenCalledWith(409);
       expect(reply.send).toHaveBeenCalledWith({
         success: false,
-        error: 'Unique constraint violation',
+        error: 'Esiste già un record con questa email',
         details: { target: ['email'] },
       });
       expect(mockLogger.error).toHaveBeenCalled();
+    });
+
+    it('should map a P2002 on barcode to a product-specific message', async () => {
+      const request = createMockRequest() as any;
+      const reply = createMockReply();
+      const error = new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+        code: 'P2002',
+        clientVersion: '5.0.0',
+        meta: { target: ['tenant_id', 'barcode'] },
+      });
+
+      await errorHandler(error as any, request, reply);
+
+      expect(reply.status).toHaveBeenCalledWith(409);
+      expect(reply.send).toHaveBeenCalledWith({
+        success: false,
+        error: 'Esiste già un prodotto con questo barcode',
+        details: { target: ['tenant_id', 'barcode'] },
+      });
+    });
+
+    it('should fall back to a generic message when the P2002 target is unknown', async () => {
+      const request = createMockRequest() as any;
+      const reply = createMockReply();
+      const error = new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+        code: 'P2002',
+        clientVersion: '5.0.0',
+        meta: { target: ['some_other_column'] },
+      });
+
+      await errorHandler(error as any, request, reply);
+
+      expect(reply.status).toHaveBeenCalledWith(409);
+      expect(reply.send).toHaveBeenCalledWith({
+        success: false,
+        error: 'Esiste già un record con questi dati (valore duplicato)',
+        details: { target: ['some_other_column'] },
+      });
     });
 
     it('should handle P2025 record not found', async () => {
