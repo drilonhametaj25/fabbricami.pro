@@ -31,13 +31,15 @@
         id="categories"
         v-model="selectedCategories"
         :options="categoryTree"
-        selectionMode="checkbox"
+        selectionMode="multiple"
+        :metaKeySelection="false"
         placeholder="Seleziona una o più categorie"
         class="w-full"
         :disabled="disabled"
         :loading="loadingCategories"
         display="chip"
       />
+      <small>Seleziona solo le categorie desiderate: scegliere una macrocategoria non seleziona automaticamente le sottocategorie.</small>
     </div>
 
     <div class="field-group">

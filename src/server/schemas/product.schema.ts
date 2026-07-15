@@ -41,6 +41,20 @@ const coerceIntRequired = z.preprocess((val) => {
 }, z.number().int());
 
 /**
+ * Barcode: normalizza la stringa vuota a `null`.
+ * Product ha `@@unique([tenantId, barcode])`. In Postgres la stringa vuota `''`
+ * è un valore reale, quindi due prodotti creati senza barcode finiscono entrambi
+ * con `''` e collidono sul vincolo unique (errore Prisma P2002). `NULL` invece è
+ * esente dal vincolo unique multi-colonna, quindi più prodotti senza barcode sono
+ * ammessi. Preserviamo `undefined` (campo non inviato) per non azzerare il barcode
+ * in un update parziale (PATCH).
+ */
+const optionalBarcode = z.preprocess(
+  (v) => (v === '' ? null : v),
+  z.string().max(50).nullable().optional()
+);
+
+/**
  * Schema dimensioni prodotto - permette valori >= 0
  */
 const dimensionsSchema = z.object({
@@ -59,7 +73,7 @@ export const createProductSchema = z.object({
   type: z.enum(['SIMPLE', 'WITH_VARIANTS', 'RAW_MATERIAL', 'DIGITAL']).default('SIMPLE'),
   category: z.string().nullable().optional(),
   unit: z.string().max(20).default('pz'),
-  barcode: z.string().max(50).nullable().optional(),
+  barcode: optionalBarcode,
   cost: coerceNumberRequired.pipe(z.number().nonnegative()).default(0),
   price: coerceNumberRequired.pipe(z.number().nonnegative()).default(0),
   weight: coerceNumber.pipe(z.number().nonnegative().optional()),

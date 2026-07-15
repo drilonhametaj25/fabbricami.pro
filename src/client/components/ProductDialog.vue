@@ -27,13 +27,14 @@
                 id="categories"
                 v-model="selectedCategories"
                 :options="categoryTree"
-                selectionMode="checkbox"
+                selectionMode="multiple"
+                :metaKeySelection="false"
                 placeholder="Seleziona una o più categorie"
                 class="w-full"
                 :loading="loadingCategories"
                 display="chip"
               />
-              <small>Puoi assegnare più categorie e sottocategorie (come su WooCommerce). La prima è la principale.</small>
+              <small>Puoi assegnare più categorie e sottocategorie (come su WooCommerce). La prima è la principale. Scegliere una macrocategoria non seleziona automaticamente le sottocategorie.</small>
             </div>
 
             <div class="field">
@@ -409,8 +410,10 @@ watch(() => props.modelValue, (val) => {
     const catIds = (props.product.categories || [])
       .map((c: any) => c.category?.id || c.categoryId)
       .filter(Boolean);
+    // selectionMode="multiple": il modello è { [id]: true } (una entry per nodo
+    // selezionato). NB: in checkbox mode era { checked, partialChecked }.
     selectedCategories.value = catIds.reduce((acc: Record<string, any>, id: string) => {
-      acc[id] = { checked: true, partialChecked: false };
+      acc[id] = true;
       return acc;
     }, {});
     productInventory.value = props.product.inventory || [];

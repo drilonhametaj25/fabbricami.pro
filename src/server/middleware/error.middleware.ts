@@ -21,12 +21,24 @@ export async function errorHandler(
   // Prisma errors
   if (error instanceof Prisma.PrismaClientKnownRequestError) {
     switch (error.code) {
-      case 'P2002':
+      case 'P2002': {
+        // Ricava i campi coinvolti dal vincolo unique per un messaggio leggibile
+        // (Prisma espone `meta.target` come array di colonne o nome indice).
+        const target = (error.meta as { target?: unknown })?.target;
+        const fields = Array.isArray(target) ? target.join(',') : String(target ?? '');
+        let message = 'Esiste già un record con questi dati (valore duplicato)';
+        if (/sku/i.test(fields)) message = 'Esiste già un prodotto con questo SKU';
+        else if (/barcode/i.test(fields)) message = 'Esiste già un prodotto con questo barcode';
+        else if (/woocommerce/i.test(fields)) message = 'Esiste già un prodotto con questo ID WooCommerce';
+        else if (/wordpress/i.test(fields)) message = 'Esiste già un prodotto con questo ID WordPress';
+        else if (/email/i.test(fields)) message = 'Esiste già un record con questa email';
+        else if (/slug/i.test(fields)) message = 'Esiste già un record con questo slug';
         return reply.status(409).send({
           success: false,
-          error: 'Unique constraint violation',
+          error: message,
           details: error.meta,
         });
+      }
 
       case 'P2025':
         return reply.status(404).send({
